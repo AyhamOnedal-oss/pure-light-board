@@ -685,6 +685,8 @@ export function DashboardPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <RecentActivityTable />
     </div>
   );
 }
