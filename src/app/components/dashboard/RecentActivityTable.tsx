@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   MoreHorizontal,
@@ -10,8 +10,11 @@ import {
   Ticket as TicketIcon,
   Lightbulb,
   Inbox,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '../../../integrations/supabase/client';
 import {
   Table,
   TableBody,
@@ -87,7 +90,7 @@ const agents = ['Aisha M.', 'Khalid R.', 'Lina S.', 'Omar T.'];
 const now = Date.now();
 const m = (mins: number) => now - mins * 60_000;
 
-const initialRows: ActivityRow[] = [
+const sampleRows: ActivityRow[] = [
   { id: 'a01', type: 'conversation', channel: 'whatsapp', primaryEn: 'Sara Al-Otaibi', primaryAr: 'سارة العتيبي', previewEn: 'My delivery is 5 days late!', previewAr: 'توصيلي تأخر ٥ أيام!', status: 'open', updatedAt: m(2) },
   { id: 'a02', type: 'ticket', channel: 'web', primaryEn: '#T-1043 · Delivery delay', primaryAr: '#T-1043 · تأخر التوصيل', previewEn: 'Customer escalated, awaiting agent', previewAr: 'تم تصعيد العميل، بانتظار الوكيل', status: 'pending', assignee: 'Khalid R.', updatedAt: m(12) },
   { id: 'a03', type: 'insight', channel: 'none', primaryEn: 'Cash on delivery not available', primaryAr: 'الدفع عند الاستلام غير متاح', previewEn: '38 customers asked this week', previewAr: '٣٨ عميلاً سألوا هذا الأسبوع', status: 'trending', updatedAt: m(36) },
@@ -146,10 +149,42 @@ const typeIcon: Record<ActivityType, React.ComponentType<{ className?: string }>
 };
 
 export function RecentActivityTable() {
-  const { t, language, dir, showToast } = useApp();
-  const [rows, setRows] = useState<ActivityRow[]>(initialRows);
+  const { t, language, dir, showToast, user } = useApp();
+  const [rows, setRows] = useState<ActivityRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const [selected, setSelected] = useState<ActivityRow | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const fetchRows = useCallback(async () => {
+    if (!user) { setRows([]); setLoading(false); return; }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('activities')
+      .select('id, type, channel, primary_en, primary_ar, preview_en, preview_ar, status, assignee, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(200);
+    if (error) {
+      showToast(t('Failed to load activity', 'فشل تحميل النشاط'));
+      setRows([]);
+    } else {
+      setRows((data ?? []).map(r => ({
+        id: r.id,
+        type: r.type as ActivityType,
+        channel: r.channel as ChannelKey,
+        primaryEn: r.primary_en,
+        primaryAr: r.primary_ar,
+        previewEn: r.preview_en,
+        previewAr: r.preview_ar,
+        status: r.status as ActivityStatus,
+        assignee: r.assignee ?? undefined,
+        updatedAt: new Date(r.updated_at).getTime(),
+      })));
+    }
+    setLoading(false);
+  }, [user, showToast, t]);
+
+  useEffect(() => { fetchRows(); }, [fetchRows]);
 
   const sorted = useMemo(
     () => [...rows].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -168,21 +203,53 @@ export function RecentActivityTable() {
       : s === 'trending' ? t('Trending', 'رائج')
       : t('New', 'جديد');
 
-  const handleResolve = (row: ActivityRow) => {
-    setRows(prev => prev.map(r => r.id === row.id ? { ...r, status: 'resolved' as ActivityStatus, updatedAt: Date.now() } : r));
+  const handleResolve = async (row: ActivityRow) => {
+    const prev = rows;
+    setRows(p => p.map(r => r.id === row.id ? { ...r, status: 'resolved', updatedAt: Date.now() } : r));
+    const { error } = await supabase.from('activities').update({ status: 'resolved' }).eq('id', row.id);
+    if (error) { setRows(prev); showToast(t('Update failed', 'فشل التحديث')); return; }
     showToast(t('Marked as resolved', 'تم التحديد كمحلول'));
   };
 
-  const handleAssign = (row: ActivityRow, agent: string) => {
-    setRows(prev => prev.map(r => r.id === row.id ? { ...r, assignee: agent, updatedAt: Date.now() } : r));
+  const handleAssign = async (row: ActivityRow, agent: string) => {
+    const prev = rows;
+    setRows(p => p.map(r => r.id === row.id ? { ...r, assignee: agent, updatedAt: Date.now() } : r));
+    const { error } = await supabase.from('activities').update({ assignee: agent }).eq('id', row.id);
+    if (error) { setRows(prev); showToast(t('Assignment failed', 'فشل الإسناد')); return; }
     showToast(t(`Assigned to ${agent}`, `تم الإسناد إلى ${agent}`));
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDeleteId) return;
-    setRows(prev => prev.filter(r => r.id !== confirmDeleteId));
+    const id = confirmDeleteId;
+    const prev = rows;
+    setRows(p => p.filter(r => r.id !== id));
     setConfirmDeleteId(null);
+    const { error } = await supabase.from('activities').delete().eq('id', id);
+    if (error) { setRows(prev); showToast(t('Delete failed', 'فشل الحذف')); return; }
     showToast(t('Activity removed', 'تم حذف النشاط'));
+  };
+
+  const handleSeed = async () => {
+    if (!user) return;
+    setSeeding(true);
+    const payload = sampleRows.map(r => ({
+      user_id: user.id,
+      type: r.type,
+      channel: r.channel,
+      primary_en: r.primaryEn,
+      primary_ar: r.primaryAr,
+      preview_en: r.previewEn,
+      preview_ar: r.previewAr,
+      status: r.status,
+      assignee: r.assignee ?? null,
+      updated_at: new Date(r.updatedAt).toISOString(),
+    }));
+    const { error } = await supabase.from('activities').insert(payload);
+    setSeeding(false);
+    if (error) { showToast(t('Seeding failed', 'فشل تعبئة البيانات')); return; }
+    showToast(t('Sample data added', 'تمت إضافة البيانات التجريبية'));
+    await fetchRows();
   };
 
   return (
@@ -202,15 +269,35 @@ export function RecentActivityTable() {
               {t('Conversations, tickets, and insights — all in one place', 'المحادثات والتذاكر والاستبصارات — في مكان واحد')}
             </p>
           </div>
-          <span className="text-[12px] text-muted-foreground">
-            {t(`${sorted.length} items`, `${sorted.length} عنصرًا`)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-muted-foreground">
+              {t(`${sorted.length} items`, `${sorted.length} عنصرًا`)}
+            </span>
+            {user && (
+              <button
+                onClick={handleSeed}
+                disabled={seeding}
+                className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors disabled:opacity-60"
+              >
+                {seeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                {t('Add sample data', 'إضافة بيانات تجريبية')}
+              </button>
+            )}
+          </div>
         </div>
 
-        {sorted.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <Loader2 className="w-6 h-6 animate-spin mb-3" />
+            <p className="text-[13px]">{t('Loading activity…', 'جارٍ تحميل النشاط…')}</p>
+          </div>
+        ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Inbox className="w-10 h-10 mb-3 opacity-60" />
-            <p className="text-[14px]">{t('No activity yet', 'لا يوجد نشاط بعد')}</p>
+            <p className="text-[14px] mb-1">{t('No activity yet', 'لا يوجد نشاط بعد')}</p>
+            <p className="text-[12px] opacity-80">
+              {t('Click "Add sample data" to populate this table.', 'اضغط على "إضافة بيانات تجريبية" لتعبئة هذا الجدول.')}
+            </p>
           </div>
         ) : (
           <div className="max-h-[520px] overflow-y-auto">
