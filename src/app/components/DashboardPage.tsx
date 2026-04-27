@@ -12,6 +12,7 @@ import {
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   TooltipProps
 } from 'recharts';
+import { RecentActivityTable } from './dashboard/RecentActivityTable';
 
 interface InsightIssue {
   id: string;
