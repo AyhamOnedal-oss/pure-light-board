@@ -14,7 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      activities: {
+        Row: {
+          assignee: string | null
+          channel: Database["public"]["Enums"]["activity_channel"]
+          created_at: string
+          id: string
+          preview_ar: string
+          preview_en: string
+          primary_ar: string
+          primary_en: string
+          status: Database["public"]["Enums"]["activity_status"]
+          type: Database["public"]["Enums"]["activity_type"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          assignee?: string | null
+          channel?: Database["public"]["Enums"]["activity_channel"]
+          created_at?: string
+          id?: string
+          preview_ar?: string
+          preview_en?: string
+          primary_ar: string
+          primary_en: string
+          status?: Database["public"]["Enums"]["activity_status"]
+          type: Database["public"]["Enums"]["activity_type"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          assignee?: string | null
+          channel?: Database["public"]["Enums"]["activity_channel"]
+          created_at?: string
+          id?: string
+          preview_ar?: string
+          preview_en?: string
+          primary_ar?: string
+          primary_en?: string
+          status?: Database["public"]["Enums"]["activity_status"]
+          type?: Database["public"]["Enums"]["activity_type"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +67,15 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      activity_channel:
+        | "whatsapp"
+        | "instagram"
+        | "tiktok"
+        | "snapchat"
+        | "web"
+        | "none"
+      activity_status: "open" | "pending" | "resolved" | "trending" | "new"
+      activity_type: "conversation" | "ticket" | "insight"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +202,17 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      activity_channel: [
+        "whatsapp",
+        "instagram",
+        "tiktok",
+        "snapchat",
+        "web",
+        "none",
+      ],
+      activity_status: ["open", "pending", "resolved", "trending", "new"],
+      activity_type: ["conversation", "ticket", "insight"],
+    },
   },
 } as const
