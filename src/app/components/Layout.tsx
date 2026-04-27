@@ -100,9 +100,10 @@ export function Layout() {
 
   const logo = theme === 'dark' ? logoDark : logoLight;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setUserMenuOpen(false);
-    navigate('/login');
+    try { await signOut(); } catch {}
+    navigate('/login', { replace: true });
   };
 
   const SidebarContent = () => (
