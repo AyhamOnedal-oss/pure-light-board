@@ -1,26 +1,21 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
 import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 
-// TODO: Backend integration - replace with actual registered emails check
-const MOCK_REGISTERED_EMAILS = ['shrman@samksa.ai', 'support@samksa.ai'];
-
-// TODO: Backend integration - replace with actual user credentials
-const MOCK_USERS = [
-  { email: 'shrman@samksa.ai', password: '123456Aa', role: 'user' },
-  { email: 'support@samksa.ai', password: '123456Aa', role: 'admin' },
-];
-
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading } = useApp();
   const navigate = useNavigate();
+  const location = useLocation() as { state?: { from?: string } };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   // Forgot password state
   const [view, setView] = useState<'login' | 'forgot'>('login');
@@ -29,30 +24,43 @@ export function LoginPage() {
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  // If already signed in, bounce to intended destination (or /dashboard).
+  useEffect(() => {
+    if (!authLoading && session) {
+      const dest = location.state?.from || '/dashboard';
+      navigate(dest, { replace: true });
+    }
+  }, [authLoading, session, navigate, location.state]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    setSignupSuccess(false);
 
     if (!email || !password) {
       setLoginError(t('Please enter email and password', 'يرجى إدخال البريد الإلكتروني وكلمة المرور'));
       return;
     }
 
-    // TODO: Backend integration - validate credentials against server
-    const user = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-    if (!user) {
-      setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
-      return;
-    }
-
-    localStorage.setItem('fuqah_logged_in', 'true');
-    localStorage.setItem('fuqah_user_email', user.email);
-    localStorage.setItem('fuqah_user_role', user.role);
-    
-    if (user.role === 'admin') {
-      navigate('/admin');
+    setLoginLoading(true);
+    if (mode === 'signin') {
+      const { error } = await signIn(email.trim(), password);
+      setLoginLoading(false);
+      if (error) {
+        setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
+        return;
+      }
+      const dest = location.state?.from || '/dashboard';
+      navigate(dest, { replace: true });
     } else {
-      navigate('/dashboard');
+      const { error } = await signUp(email.trim(), password);
+      setLoginLoading(false);
+      if (error) {
+        setLoginError(error);
+        return;
+      }
+      // If email confirmation is enabled, no session yet — show a success hint.
+      setSignupSuccess(true);
     }
   };
 
@@ -66,19 +74,13 @@ export function LoginPage() {
     }
 
     setForgotLoading(true);
-    // TODO: Backend integration - call API to check email and send reset link
-    // Example: const result = await api.forgotPassword({ email: forgotEmail });
-    await new Promise(r => setTimeout(r, 1200));
+    const { error } = await sendPasswordReset(forgotEmail.trim());
     setForgotLoading(false);
 
-    const emailExists = MOCK_REGISTERED_EMAILS.includes(forgotEmail.toLowerCase());
-
-    if (!emailExists) {
-      setForgotError(t('This email is not registered', 'هذا البريد الإلكتروني غير مسجل'));
+    if (error) {
+      setForgotError(error);
       return;
     }
-
-    // TODO: Backend sends reset email here
     setForgotSuccess(true);
   };
 
@@ -167,15 +169,25 @@ export function LoginPage() {
 
               <button
                 type="submit"
+                disabled={loginLoading}
                 className="w-full py-3 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[15px]"
                 style={{ fontWeight: 600 }}
               >
-                {t('Sign In', 'تسجيل الدخول')}
+                {loginLoading
+                  ? t('Please wait…', 'يرجى الانتظار…')
+                  : (mode === 'signin' ? t('Sign In', 'تسجيل الدخول') : t('Create Account', 'إنشاء حساب'))}
               </button>
 
               {loginError && (
                 <p className="flex items-center gap-1 text-red-400 text-[12px] mt-1.5">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {loginError}
+                </p>
+              )}
+
+              {signupSuccess && (
+                <p className="flex items-center gap-1 text-emerald-400 text-[12px] mt-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  {t('Account created. Check your email to confirm, then sign in.', 'تم إنشاء الحساب. تحقق من بريدك للتأكيد، ثم سجّل الدخول.')}
                 </p>
               )}
 
@@ -187,6 +199,20 @@ export function LoginPage() {
                   style={{ fontWeight: 500 }}
                 >
                   {t('Forgot your password?', 'نسيت كلمة المرور؟')}
+                </button>
+              </div>
+
+              <div className="text-center text-[13px] text-muted-foreground">
+                {mode === 'signin'
+                  ? t("Don't have an account?", 'ليس لديك حساب؟')
+                  : t('Already have an account?', 'لديك حساب بالفعل؟')}{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setLoginError(''); setSignupSuccess(false); }}
+                  className="text-[#043CC8] hover:underline"
+                  style={{ fontWeight: 600 }}
+                >
+                  {mode === 'signin' ? t('Create one', 'أنشئ واحدًا') : t('Sign in', 'تسجيل الدخول')}
                 </button>
               </div>
             </form>

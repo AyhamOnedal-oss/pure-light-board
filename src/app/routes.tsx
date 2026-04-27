@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { LoginPage } from './components/LoginPage';
 import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Layout } from './components/Layout';
+import { RequireAuth } from './components/RequireAuth';
 import { DashboardPage } from './components/DashboardPage';
 import { TeamPage } from './components/TeamPage';
 import { ConversationsPage } from './components/ConversationsPage';
@@ -31,7 +32,7 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     path: '/dashboard',
-    element: <Layout />,
+    element: <RequireAuth><Layout /></RequireAuth>,
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'team', element: <TeamPage /> },
@@ -47,7 +48,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/admin',
-    element: <AdminLayout />,
+    element: <RequireAuth><AdminLayout /></RequireAuth>,
     children: [
       { index: true, element: <AdminDashboard /> },
       { path: 'reports/:platform', element: <AdminReports /> },

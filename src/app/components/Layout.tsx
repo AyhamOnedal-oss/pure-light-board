@@ -29,7 +29,7 @@ function readCurrentUserPermissions(): MemberPermissions | 'all' {
 }
 
 export function Layout() {
-  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir } = useApp();
+  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut } = useApp();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -100,9 +100,10 @@ export function Layout() {
 
   const logo = theme === 'dark' ? logoDark : logoLight;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setUserMenuOpen(false);
-    navigate('/login');
+    try { await signOut(); } catch {}
+    navigate('/login', { replace: true });
   };
 
   const SidebarContent = () => (

@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import type { Session, User } from '@supabase/supabase-js';
+import { supabase } from '../../integrations/supabase/client';
 
 type Language = 'en' | 'ar';
 type Theme = 'dark' | 'light';
@@ -31,6 +33,14 @@ interface AppContextType {
   pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string }) => void;
   toasts: Toast[];
   showToast: (message: string) => void;
+  // Auth
+  session: Session | null;
+  user: User | null;
+  authLoading: boolean;
+  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signOut: () => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<{ error: string | null }>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -92,6 +102,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  // Supabase auth state — listener BEFORE getSession to avoid races
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      setAuthLoading(false);
+    });
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setAuthLoading(false);
+    });
+    return () => { subscription.unsubscribe(); };
+  }, []);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error: error?.message ?? null };
+  }, []);
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+    });
+    return { error: error?.message ?? null };
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
+
+  const sendPasswordReset = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    return { error: error?.message ?? null };
+  }, []);
+
   const setLanguage = (l: Language) => {
     setLanguageState(l);
     localStorage.setItem('fuqah_language', l);
@@ -127,7 +178,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AppContext.Provider value={{ language, setLanguage, theme, setTheme, t, dir, notifications, markRead, unreadCount, pushNotification, toasts, showToast }}>
+    <AppContext.Provider value={{
+      language, setLanguage, theme, setTheme, t, dir,
+      notifications, markRead, unreadCount, pushNotification,
+      toasts, showToast,
+      session, user: session?.user ?? null, authLoading,
+      signIn, signUp, signOut, sendPasswordReset,
+    }}>
       {children}
     </AppContext.Provider>
   );

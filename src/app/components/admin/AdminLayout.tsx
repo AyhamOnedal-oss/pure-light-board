@@ -12,7 +12,7 @@ import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 
 export function AdminLayout() {
-  const { t, theme, setTheme, language, setLanguage, dir, showToast, pushNotification } = useApp();
+  const { t, theme, setTheme, language, setLanguage, dir, showToast, pushNotification, signOut } = useApp();
   const [reportsOpen, setReportsOpen] = useState(false);
   const [invoicesOpen, setInvoicesOpen] = useState(false);
   const [customersOpen, setCustomersOpen] = useState(false);
@@ -49,7 +49,11 @@ export function AdminLayout() {
 
   const logo = theme === 'dark' ? logoDark : logoLight;
 
-  const handleLogout = () => { setUserMenuOpen(false); navigate('/login'); };
+  const handleLogout = async () => {
+    setUserMenuOpen(false);
+    try { await signOut(); } catch {}
+    navigate('/login', { replace: true });
+  };
 
   const handleSendNotification = () => {
     const title = notifTitle.trim();
