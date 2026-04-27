@@ -169,15 +169,25 @@ export function LoginPage() {
 
               <button
                 type="submit"
+                disabled={loginLoading}
                 className="w-full py-3 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[15px]"
                 style={{ fontWeight: 600 }}
               >
-                {t('Sign In', 'تسجيل الدخول')}
+                {loginLoading
+                  ? t('Please wait…', 'يرجى الانتظار…')
+                  : (mode === 'signin' ? t('Sign In', 'تسجيل الدخول') : t('Create Account', 'إنشاء حساب'))}
               </button>
 
               {loginError && (
                 <p className="flex items-center gap-1 text-red-400 text-[12px] mt-1.5">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {loginError}
+                </p>
+              )}
+
+              {signupSuccess && (
+                <p className="flex items-center gap-1 text-emerald-400 text-[12px] mt-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  {t('Account created. Check your email to confirm, then sign in.', 'تم إنشاء الحساب. تحقق من بريدك للتأكيد، ثم سجّل الدخول.')}
                 </p>
               )}
 
@@ -189,6 +199,20 @@ export function LoginPage() {
                   style={{ fontWeight: 500 }}
                 >
                   {t('Forgot your password?', 'نسيت كلمة المرور؟')}
+                </button>
+              </div>
+
+              <div className="text-center text-[13px] text-muted-foreground">
+                {mode === 'signin'
+                  ? t("Don't have an account?", 'ليس لديك حساب؟')
+                  : t('Already have an account?', 'لديك حساب بالفعل؟')}{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setLoginError(''); setSignupSuccess(false); }}
+                  className="text-[#043CC8] hover:underline"
+                  style={{ fontWeight: 600 }}
+                >
+                  {mode === 'signin' ? t('Create one', 'أنشئ واحدًا') : t('Sign in', 'تسجيل الدخول')}
                 </button>
               </div>
             </form>
