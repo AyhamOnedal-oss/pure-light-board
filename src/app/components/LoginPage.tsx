@@ -1,26 +1,21 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
 import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 
-// TODO: Backend integration - replace with actual registered emails check
-const MOCK_REGISTERED_EMAILS = ['shrman@samksa.ai', 'support@samksa.ai'];
-
-// TODO: Backend integration - replace with actual user credentials
-const MOCK_USERS = [
-  { email: 'shrman@samksa.ai', password: '123456Aa', role: 'user' },
-  { email: 'support@samksa.ai', password: '123456Aa', role: 'admin' },
-];
-
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading } = useApp();
   const navigate = useNavigate();
+  const location = useLocation() as { state?: { from?: string } };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   // Forgot password state
   const [view, setView] = useState<'login' | 'forgot'>('login');
@@ -29,30 +24,43 @@ export function LoginPage() {
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  // If already signed in, bounce to intended destination (or /dashboard).
+  useEffect(() => {
+    if (!authLoading && session) {
+      const dest = location.state?.from || '/dashboard';
+      navigate(dest, { replace: true });
+    }
+  }, [authLoading, session, navigate, location.state]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    setSignupSuccess(false);
 
     if (!email || !password) {
       setLoginError(t('Please enter email and password', 'يرجى إدخال البريد الإلكتروني وكلمة المرور'));
       return;
     }
 
-    // TODO: Backend integration - validate credentials against server
-    const user = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-    if (!user) {
-      setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
-      return;
-    }
-
-    localStorage.setItem('fuqah_logged_in', 'true');
-    localStorage.setItem('fuqah_user_email', user.email);
-    localStorage.setItem('fuqah_user_role', user.role);
-    
-    if (user.role === 'admin') {
-      navigate('/admin');
+    setLoginLoading(true);
+    if (mode === 'signin') {
+      const { error } = await signIn(email.trim(), password);
+      setLoginLoading(false);
+      if (error) {
+        setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
+        return;
+      }
+      const dest = location.state?.from || '/dashboard';
+      navigate(dest, { replace: true });
     } else {
-      navigate('/dashboard');
+      const { error } = await signUp(email.trim(), password);
+      setLoginLoading(false);
+      if (error) {
+        setLoginError(error);
+        return;
+      }
+      // If email confirmation is enabled, no session yet — show a success hint.
+      setSignupSuccess(true);
     }
   };
 
@@ -66,19 +74,13 @@ export function LoginPage() {
     }
 
     setForgotLoading(true);
-    // TODO: Backend integration - call API to check email and send reset link
-    // Example: const result = await api.forgotPassword({ email: forgotEmail });
-    await new Promise(r => setTimeout(r, 1200));
+    const { error } = await sendPasswordReset(forgotEmail.trim());
     setForgotLoading(false);
 
-    const emailExists = MOCK_REGISTERED_EMAILS.includes(forgotEmail.toLowerCase());
-
-    if (!emailExists) {
-      setForgotError(t('This email is not registered', 'هذا البريد الإلكتروني غير مسجل'));
+    if (error) {
+      setForgotError(error);
       return;
     }
-
-    // TODO: Backend sends reset email here
     setForgotSuccess(true);
   };
 
