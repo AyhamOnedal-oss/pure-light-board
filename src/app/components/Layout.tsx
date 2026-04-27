@@ -29,7 +29,7 @@ function readCurrentUserPermissions(): MemberPermissions | 'all' {
 }
 
 export function Layout() {
-  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir } = useApp();
+  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut } = useApp();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
