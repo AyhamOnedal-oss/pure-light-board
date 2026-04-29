@@ -400,6 +400,45 @@ export type Database = {
         }
         Relationships: []
       }
+      team_members: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          invited_by: string | null
+          name: string
+          permissions: Json
+          phone: string | null
+          status: Database["public"]["Enums"]["team_member_status"]
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          invited_by?: string | null
+          name: string
+          permissions?: Json
+          phone?: string | null
+          status?: Database["public"]["Enums"]["team_member_status"]
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          invited_by?: string | null
+          name?: string
+          permissions?: Json
+          phone?: string | null
+          status?: Database["public"]["Enums"]["team_member_status"]
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tenant_members: {
         Row: {
           created_at: string
@@ -681,6 +720,7 @@ export type Database = {
         | "other"
       conversation_status: "new" | "open" | "pending" | "resolved" | "closed"
       message_sender: "customer" | "agent" | "ai" | "system"
+      team_member_status: "active" | "inactive"
       tenant_platform: "salla" | "zid" | "manual"
       tenant_role: "owner" | "admin" | "agent" | "viewer"
       tenant_status: "active" | "suspended" | "trial"
@@ -845,6 +885,7 @@ export const Constants = {
       ],
       conversation_status: ["new", "open", "pending", "resolved", "closed"],
       message_sender: ["customer", "agent", "ai", "system"],
+      team_member_status: ["active", "inactive"],
       tenant_platform: ["salla", "zid", "manual"],
       tenant_role: ["owner", "admin", "agent", "viewer"],
       tenant_status: ["active", "suspended", "trial"],
