@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
+import { supabase } from '../../integrations/supabase/client';
 
 type Language = 'en' | 'ar';
 type Theme = 'dark' | 'light';
@@ -32,11 +33,12 @@ interface AppContextType {
   pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string }) => void;
   toasts: Toast[];
   showToast: (message: string) => void;
-  // Auth (mock)
+  // Auth
   session: Session | null;
   user: User | null;
   authLoading: boolean;
-  isMockAuth: boolean;
+  tenantId: string | null;
+  tenantLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -102,53 +104,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Mock auth state — no Supabase, no email validation. Persists in localStorage.
-  const MOCK_AUTH_KEY = 'fuqah.mock.session';
-  const buildMockSession = (email: string): Session => ({
-    access_token: 'mock-token',
-    refresh_token: 'mock-refresh',
-    token_type: 'bearer',
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    user: {
-      id: 'mock-user-id',
-      aud: 'authenticated',
-      email,
-      app_metadata: {},
-      user_metadata: {},
-      created_at: new Date().toISOString(),
-    } as User,
-  });
+  // Real Supabase auth
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [tenantLoading, setTenantLoading] = useState(false);
 
-  const [session, setSession] = useState<Session | null>(() => {
-    try {
-      const raw = localStorage.getItem(MOCK_AUTH_KEY);
-      return raw ? (JSON.parse(raw) as Session) : null;
-    } catch { return null; }
-  });
-  const [authLoading] = useState(false);
-
-  const signIn = useCallback(async (email: string, _password: string) => {
-    const s = buildMockSession(email || 'abc@icloud.com');
-    localStorage.setItem(MOCK_AUTH_KEY, JSON.stringify(s));
-    setSession(s);
-    return { error: null };
+  // Auth listener — set up FIRST, then fetch initial session
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+    });
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setAuthLoading(false);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = useCallback(async (email: string, _password: string) => {
-    const s = buildMockSession(email || 'abc@icloud.com');
-    localStorage.setItem(MOCK_AUTH_KEY, JSON.stringify(s));
-    setSession(s);
-    return { error: null };
+  // Resolve tenant for the current user
+  useEffect(() => {
+    if (!session?.user) { setTenantId(null); return; }
+    let cancelled = false;
+    setTenantLoading(true);
+    supabase
+      .from('tenant_members')
+      .select('tenant_id, role, created_at')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) {
+          setTenantId(data?.tenant_id ?? null);
+          setTenantLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [session?.user?.id]);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error: error?.message ?? null };
+  }, []);
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    const redirectUrl = `${window.location.origin}/dashboard`;
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectUrl },
+    });
+    return { error: error?.message ?? null };
   }, []);
 
   const signOut = useCallback(async () => {
-    localStorage.removeItem(MOCK_AUTH_KEY);
+    await supabase.auth.signOut();
     setSession(null);
+    setTenantId(null);
   }, []);
 
-  const sendPasswordReset = useCallback(async (_email: string) => {
-    return { error: null };
+  const sendPasswordReset = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    return { error: error?.message ?? null };
   }, []);
 
   const setLanguage = (l: Language) => {
@@ -190,7 +210,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       language, setLanguage, theme, setTheme, t, dir,
       notifications, markRead, unreadCount, pushNotification,
       toasts, showToast,
-      session, user: session?.user ?? null, authLoading, isMockAuth: true,
+      session, user: session?.user ?? null, authLoading,
+      tenantId, tenantLoading,
       signIn, signUp, signOut, sendPasswordReset,
     }}>
       {children}
