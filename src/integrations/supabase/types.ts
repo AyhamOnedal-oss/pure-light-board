@@ -532,6 +532,7 @@ export type Database = {
           conversation_id: string | null
           created_at: string
           description: string | null
+          display_code: string | null
           id: string
           number: number
           priority: Database["public"]["Enums"]["ticket_priority"]
@@ -548,6 +549,7 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string
           description?: string | null
+          display_code?: string | null
           id?: string
           number?: number
           priority?: Database["public"]["Enums"]["ticket_priority"]
@@ -564,6 +566,7 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string
           description?: string | null
+          display_code?: string | null
           id?: string
           number?: number
           priority?: Database["public"]["Enums"]["ticket_priority"]
@@ -732,6 +735,7 @@ export type Database = {
         | "other"
         | "request"
         | "suggestion"
+        | "shipping_request"
       conversation_status: "new" | "open" | "pending" | "resolved" | "closed"
       message_sender: "customer" | "agent" | "ai" | "system"
       team_member_status: "active" | "inactive"
@@ -898,6 +902,7 @@ export const Constants = {
         "other",
         "request",
         "suggestion",
+        "shipping_request",
       ],
       conversation_status: ["new", "open", "pending", "resolved", "closed"],
       message_sender: ["customer", "agent", "ai", "system"],
