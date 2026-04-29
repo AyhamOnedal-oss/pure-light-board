@@ -87,6 +87,42 @@ export type Database = {
           },
         ]
       }
+      ai_training_settings: {
+        Row: {
+          bubble_visible: boolean
+          created_at: string
+          file_name: string | null
+          file_url: string | null
+          id: string
+          mode: string
+          prompt: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          bubble_visible?: boolean
+          created_at?: string
+          file_name?: string | null
+          file_url?: string | null
+          id?: string
+          mode?: string
+          prompt?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          bubble_visible?: boolean
+          created_at?: string
+          file_name?: string | null
+          file_url?: string | null
+          id?: string
+          mode?: string
+          prompt?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       channels: {
         Row: {
           config: Json
@@ -130,6 +166,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      chat_widget_settings: {
+        Row: {
+          created_at: string
+          id: string
+          inactivity_close_seconds: number
+          inactivity_enabled: boolean
+          inactivity_prompt_seconds: number
+          position: string
+          preview_mode: string
+          primary_color: string
+          rating_inactivity_seconds: number
+          tenant_id: string
+          updated_at: string
+          welcome_bubble_enabled: boolean
+          welcome_bubble_line1: string
+          welcome_bubble_line2: string
+          widget_inner_color: string
+          widget_outer_color: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          inactivity_close_seconds?: number
+          inactivity_enabled?: boolean
+          inactivity_prompt_seconds?: number
+          position?: string
+          preview_mode?: string
+          primary_color?: string
+          rating_inactivity_seconds?: number
+          tenant_id: string
+          updated_at?: string
+          welcome_bubble_enabled?: boolean
+          welcome_bubble_line1?: string
+          welcome_bubble_line2?: string
+          widget_inner_color?: string
+          widget_outer_color?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          inactivity_close_seconds?: number
+          inactivity_enabled?: boolean
+          inactivity_prompt_seconds?: number
+          position?: string
+          preview_mode?: string
+          primary_color?: string
+          rating_inactivity_seconds?: number
+          tenant_id?: string
+          updated_at?: string
+          welcome_bubble_enabled?: boolean
+          welcome_bubble_line1?: string
+          welcome_bubble_line2?: string
+          widget_inner_color?: string
+          widget_outer_color?: string
+        }
+        Relationships: []
       }
       conversations: {
         Row: {
@@ -389,6 +482,7 @@ export type Database = {
           display_name: string | null
           id: string
           locale: string
+          phone: string | null
           updated_at: string
           user_id: string
         }
@@ -398,6 +492,7 @@ export type Database = {
           display_name?: string | null
           id?: string
           locale?: string
+          phone?: string | null
           updated_at?: string
           user_id: string
         }
@@ -407,6 +502,7 @@ export type Database = {
           display_name?: string | null
           id?: string
           locale?: string
+          phone?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -491,8 +587,10 @@ export type Database = {
           created_at: string
           domain: string | null
           external_store_id: string | null
+          icon_url: string | null
           id: string
           locale: string
+          logo_url: string | null
           name: string
           plan: string
           platform: Database["public"]["Enums"]["tenant_platform"]
@@ -503,8 +601,10 @@ export type Database = {
           created_at?: string
           domain?: string | null
           external_store_id?: string | null
+          icon_url?: string | null
           id?: string
           locale?: string
+          logo_url?: string | null
           name: string
           plan?: string
           platform?: Database["public"]["Enums"]["tenant_platform"]
@@ -515,8 +615,10 @@ export type Database = {
           created_at?: string
           domain?: string | null
           external_store_id?: string | null
+          icon_url?: string | null
           id?: string
           locale?: string
+          logo_url?: string | null
           name?: string
           plan?: string
           platform?: Database["public"]["Enums"]["tenant_platform"]
