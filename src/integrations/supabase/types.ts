@@ -525,6 +525,51 @@ export type Database = {
         }
         Relationships: []
       }
+      ticket_activities: {
+        Row: {
+          attachment: Json | null
+          author_name: string
+          author_role: string
+          author_user_id: string | null
+          created_at: string
+          edited_at: string | null
+          id: string
+          status: string | null
+          tenant_id: string
+          text: string | null
+          ticket_id: string
+          type: string
+        }
+        Insert: {
+          attachment?: Json | null
+          author_name: string
+          author_role?: string
+          author_user_id?: string | null
+          created_at?: string
+          edited_at?: string | null
+          id?: string
+          status?: string | null
+          tenant_id: string
+          text?: string | null
+          ticket_id: string
+          type: string
+        }
+        Update: {
+          attachment?: Json | null
+          author_name?: string
+          author_role?: string
+          author_user_id?: string | null
+          created_at?: string
+          edited_at?: string | null
+          id?: string
+          status?: string | null
+          tenant_id?: string
+          text?: string | null
+          ticket_id?: string
+          type?: string
+        }
+        Relationships: []
+      }
       tickets: {
         Row: {
           assignee_user_id: string | null
