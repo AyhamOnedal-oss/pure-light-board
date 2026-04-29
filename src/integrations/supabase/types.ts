@@ -139,10 +139,12 @@ export type Database = {
           category: Database["public"]["Enums"]["conversation_category"] | null
           channel_id: string | null
           channel_kind: Database["public"]["Enums"]["channel_kind"]
+          close_reason: string | null
           created_at: string
           csat_comment: string | null
           csat_rating: number | null
           customer_id: string | null
+          display_code: string | null
           first_response_at: string | null
           id: string
           language: string
@@ -160,10 +162,12 @@ export type Database = {
           category?: Database["public"]["Enums"]["conversation_category"] | null
           channel_id?: string | null
           channel_kind?: Database["public"]["Enums"]["channel_kind"]
+          close_reason?: string | null
           created_at?: string
           csat_comment?: string | null
           csat_rating?: number | null
           customer_id?: string | null
+          display_code?: string | null
           first_response_at?: string | null
           id?: string
           language?: string
@@ -181,10 +185,12 @@ export type Database = {
           category?: Database["public"]["Enums"]["conversation_category"] | null
           channel_id?: string | null
           channel_kind?: Database["public"]["Enums"]["channel_kind"]
+          close_reason?: string | null
           created_at?: string
           csat_comment?: string | null
           csat_rating?: number | null
           customer_id?: string | null
+          display_code?: string | null
           first_response_at?: string | null
           id?: string
           language?: string
@@ -221,6 +227,7 @@ export type Database = {
       }
       customers: {
         Row: {
+          avatar_color: string | null
           created_at: string
           display_name: string | null
           display_name_ar: string | null
@@ -234,6 +241,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          avatar_color?: string | null
           created_at?: string
           display_name?: string | null
           display_name_ar?: string | null
@@ -247,6 +255,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          avatar_color?: string | null
           created_at?: string
           display_name?: string | null
           display_name_ar?: string | null
@@ -277,6 +286,7 @@ export type Database = {
           body: string
           conversation_id: string
           created_at: string
+          feedback: string | null
           id: string
           sender: Database["public"]["Enums"]["message_sender"]
           sender_user_id: string | null
@@ -290,6 +300,7 @@ export type Database = {
           body?: string
           conversation_id: string
           created_at?: string
+          feedback?: string | null
           id?: string
           sender: Database["public"]["Enums"]["message_sender"]
           sender_user_id?: string | null
@@ -303,6 +314,7 @@ export type Database = {
           body?: string
           conversation_id?: string
           created_at?: string
+          feedback?: string | null
           id?: string
           sender?: Database["public"]["Enums"]["message_sender"]
           sender_user_id?: string | null
@@ -718,6 +730,8 @@ export type Database = {
         | "complaint"
         | "inquiry"
         | "other"
+        | "request"
+        | "suggestion"
       conversation_status: "new" | "open" | "pending" | "resolved" | "closed"
       message_sender: "customer" | "agent" | "ai" | "system"
       team_member_status: "active" | "inactive"
@@ -882,6 +896,8 @@ export const Constants = {
         "complaint",
         "inquiry",
         "other",
+        "request",
+        "suggestion",
       ],
       conversation_status: ["new", "open", "pending", "resolved", "closed"],
       message_sender: ["customer", "agent", "ai", "system"],
