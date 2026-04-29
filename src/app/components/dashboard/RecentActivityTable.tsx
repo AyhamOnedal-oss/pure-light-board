@@ -149,20 +149,20 @@ const typeIcon: Record<ActivityType, React.ComponentType<{ className?: string }>
 };
 
 export function RecentActivityTable() {
-  const { t, language, dir, showToast, user, isMockAuth } = useApp();
-  const [rows, setRows] = useState<ActivityRow[]>(isMockAuth ? [sampleRows[0]] : []);
-  const [loading, setLoading] = useState(!isMockAuth);
+  const { t, language, dir, showToast, user, tenantId } = useApp();
+  const [rows, setRows] = useState<ActivityRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [selected, setSelected] = useState<ActivityRow | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const fetchRows = useCallback(async () => {
-    if (isMockAuth) { setRows([sampleRows[0]]); setLoading(false); return; }
-    if (!user) { setRows([]); setLoading(false); return; }
+    if (!user || !tenantId) { setRows([]); setLoading(false); return; }
     setLoading(true);
     const { data, error } = await supabase
       .from('activities')
       .select('id, type, channel, primary_en, primary_ar, preview_en, preview_ar, status, assignee, updated_at')
+      .eq('tenant_id', tenantId)
       .order('updated_at', { ascending: false })
       .limit(200);
     if (error) {
@@ -183,7 +183,7 @@ export function RecentActivityTable() {
       })));
     }
     setLoading(false);
-  }, [user, showToast, t, isMockAuth]);
+  }, [user, tenantId, showToast, t]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
@@ -207,7 +207,6 @@ export function RecentActivityTable() {
   const handleResolve = async (row: ActivityRow) => {
     const prev = rows;
     setRows(p => p.map(r => r.id === row.id ? { ...r, status: 'resolved', updatedAt: Date.now() } : r));
-    if (isMockAuth) { showToast(t('Marked as resolved', 'تم التحديد كمحلول')); return; }
     const { error } = await supabase.from('activities').update({ status: 'resolved' }).eq('id', row.id);
     if (error) { setRows(prev); showToast(t('Update failed', 'فشل التحديث')); return; }
     showToast(t('Marked as resolved', 'تم التحديد كمحلول'));
@@ -216,7 +215,6 @@ export function RecentActivityTable() {
   const handleAssign = async (row: ActivityRow, agent: string) => {
     const prev = rows;
     setRows(p => p.map(r => r.id === row.id ? { ...r, assignee: agent, updatedAt: Date.now() } : r));
-    if (isMockAuth) { showToast(t(`Assigned to ${agent}`, `تم الإسناد إلى ${agent}`)); return; }
     const { error } = await supabase.from('activities').update({ assignee: agent }).eq('id', row.id);
     if (error) { setRows(prev); showToast(t('Assignment failed', 'فشل الإسناد')); return; }
     showToast(t(`Assigned to ${agent}`, `تم الإسناد إلى ${agent}`));
@@ -228,22 +226,16 @@ export function RecentActivityTable() {
     const prev = rows;
     setRows(p => p.filter(r => r.id !== id));
     setConfirmDeleteId(null);
-    if (isMockAuth) { showToast(t('Activity removed', 'تم حذف النشاط')); return; }
     const { error } = await supabase.from('activities').delete().eq('id', id);
     if (error) { setRows(prev); showToast(t('Delete failed', 'فشل الحذف')); return; }
     showToast(t('Activity removed', 'تم حذف النشاط'));
   };
 
   const handleSeed = async () => {
-    if (isMockAuth) {
-      setRows([sampleRows[0]]);
-      showToast(t('Sample data added', 'تمت إضافة البيانات التجريبية'));
-      return;
-    }
-    if (!user) return;
+    if (!user || !tenantId) return;
     setSeeding(true);
     const payload = sampleRows.map(r => ({
-      user_id: user.id,
+      tenant_id: tenantId,
       type: r.type,
       channel: r.channel,
       primary_en: r.primaryEn,
