@@ -1,93 +1,61 @@
-# Unified Activity Feed Table — User Dashboard
+## Rename all tables with page-prefix naming
 
-Add a clean, neat activity table at the bottom of `/dashboard` (DashboardPage) that aggregates conversations, tickets, and insight items into a single feed. Mock data only — no Supabase wiring yet. Bilingual (EN/AR) and dark/light aware to match the rest of the dashboard.
+### Current table names → new names
 
-## Scope (this phase)
+| Current | New | Reason |
+|---|---|---|
+| `tenants` | `settings_workspace` | Workspace identity, edited in Settings → Store |
+| `profiles` | `settings_account` | Edited in Settings → Account |
+| `plan_quotas` | `settings_plans` | Settings → Plans |
+| `ai_training_settings` | `settings_train_ai` | Settings → Train AI |
+| `chat_widget_settings` | `settings_chat_design` | Settings → Customize |
+| `team_members` | `team_team_members` *(or just keep)* | Team page |
+| `tenant_members` | `auth_tenant_members` | Auth/membership (cross-page) |
+| `user_roles` | `auth_user_roles` | Auth (cross-page) |
+| `conversations` | `conversations_main` | Conversations page |
+| `messages` | `conversations_messages` | Conversations page |
+| `customers` | `conversations_customers` | Used by conversations + tickets |
+| `channels` | `conversations_channels` | Conversation channels |
+| `tickets` | `tickets_main` | Tickets page |
+| `ticket_activities` | `tickets_activities` | Tickets page |
+| `activities` | `dashboard_activities` | Dashboard recent activity |
+| `usage_daily` | `dashboard_usage_daily` | Dashboard analytics |
 
-- Page: `/dashboard` only (DashboardPage.tsx)
-- Next phases (not now): `/dashboard/team`, then other pages — same component reused once stable
+### What gets touched
 
-## What the user sees
+**Database (one big migration):**
+- `ALTER TABLE … RENAME TO …` for all 16 tables
+- Drop + recreate every RLS policy (policies don't follow renames cleanly when they reference table names in expressions)
+- Update 2 trigger functions: `handle_new_user()` (references `tenants`, `tenant_members`, `profiles`, `plan_quotas`) and `create_tenant_default_settings()` (references the new settings tables)
+- Update the 2 RLS helper functions: `is_tenant_member()`, `tenant_role_at_least()` (reference `tenant_members`)
+- Sequences, indexes, foreign-key-style columns keep working (they reference table OIDs, not names)
 
-A new card titled **"Recent Activity"** under the existing dashboard charts:
+**Code:**
+- `src/integrations/supabase/types.ts` — auto-regenerates after migration, no manual edit
+- Only 2 hardcoded references found in `src/` and `supabase/`:
+  - `.from('activities')` → `.from('dashboard_activities')`
+  - `.from('tenant_members')` → `.from('auth_tenant_members')`
+- All other tables in the codebase are referenced only via legacy localStorage / mock data / the old edge-function backend (`make-server-fc841b6e`), not via the Supabase client. So actual breakage surface is tiny.
 
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Recent Activity                                          [Filter ▾] [⋯]   │
-├────┬──────────┬──────────┬──────────────────┬──────────┬──────────┬───────┤
-│ #  │ Type     │ Channel  │ Customer / Subj. │ Status   │ Updated  │  ⋯   │
-├────┼──────────┼──────────┼──────────────────┼──────────┼──────────┼───────┤
-│ 01 │ Convo    │ WhatsApp │ Sara · "Refund…" │ Open     │ 2m ago   │  ⋯   │
-│ 02 │ Ticket   │ Web      │ #T-1043 Delivery │ Pending  │ 12m ago  │  ⋯   │
-│ 03 │ Insight  │ —        │ Cash on delivery │ Trending │ 1h ago   │  ⋯   │
-│ …                                                                          │
-└────────────────────────────────────────────────────────────────────────────┘
-                                                Showing 8 of 24 · [View all] │
-```
+### Risks
 
-### Columns
-1. **#** — row index
-2. **Type** — colored badge: Conversation / Ticket / Insight
-3. **Channel** — WhatsApp, Instagram, TikTok, Web, Snapchat, etc., with the matching icon already in `src/imports/`
-4. **Customer / Subject** — primary line (name or ticket #) + truncated secondary line (preview text)
-5. **Status** — badge: Open, Pending, Resolved, Trending, New
-6. **Updated** — relative time ("2m ago", "1h ago")
-7. **Actions** — `⋯` dropdown per row
+- The signup trigger `handle_new_user()` runs on every new user. If its rewrite has a typo, **no one can sign up**. We test by signing up a throwaway account right after.
+- Any external integration that hits the REST API by table name (e.g. `…/rest/v1/tenants`) will 404. None found in this project, but worth knowing.
+- Once renamed, going back means another full rename migration.
 
-### Row actions (dropdown)
-- **View** — opens a side sheet with full item details (read-only, mock)
-- **Mark as resolved** — toggles row status to Resolved with a toast
-- **Assign…** — submenu listing 4 mock agents; sets assignee with toast
-- **Delete** — confirm dialog, removes the row from local state with undo toast
+### Execution order
 
-All actions operate on local React state since data is mocked.
+1. **Single migration** that does, in one transaction:
+   - Rename all 16 tables
+   - Drop and recreate every affected RLS policy with the new names
+   - Recreate `handle_new_user()`, `create_tenant_default_settings()`, `is_tenant_member()`, `tenant_role_at_least()` with new table names
+2. After approval, update the 2 code references (`activities`, `tenant_members`) in the same turn.
+3. Verify with a SELECT against the new names + a smoke-test sign-up.
 
-## Visual polish (neat)
+### Naming nits to confirm
 
-- Card style matches existing dashboard cards (same radius, border, shadow, padding)
-- Sticky table header inside the card; max height ~520px with internal scroll so the page doesn't grow uncontrollably
-- Zebra rows off; instead use a subtle row hover background
-- Type and Status use small filled badges with their own color (Convo=blue, Ticket=amber, Insight=violet; Open=blue, Pending=amber, Resolved=green, Trending=violet, New=slate)
-- Channel cell shows a 16px round icon + label
-- Empty state: centered illustration + "No activity yet" copy
-- Fully RTL-mirrored when Arabic is active (uses `useApp().t(en, ar)` and `dir`)
-- Light + dark theme tokens from `src/styles/theme.css` only — no hard-coded colors
+- Should I drop the `_main` suffix and just call them `conversations`, `tickets` (the page name = the table)? It's cleaner. Let me know.
+- `team_team_members` looks silly — keep as `team_members`?
+- Cross-page tables (`auth_tenant_members`, `auth_user_roles`, `conversations_customers`) — happy with the prefix I chose?
 
-## Mock data
-
-- ~24 rows generated inline at the top of the new component covering all three Types and all five channels, with realistic customer names, message previews, statuses, and timestamps spanning the last 24 hours
-- Bilingual labels for Type, Status, and preview text via `t(en, ar)`
-
-## Technical details
-
-**New file:** `src/app/components/dashboard/RecentActivityTable.tsx`
-- Default export `RecentActivityTable`
-- Uses shadcn primitives already in repo: `Card`, `Table`, `Badge`, `DropdownMenu`, `Dialog`, `Sheet`, `Button`
-- Channel icons resolved from `src/imports/` via a small `channelMeta` map (icon path + label)
-- Local state: `rows: ActivityRow[]`, `selected: ActivityRow | null` (for the View sheet), `confirmDeleteId: string | null`
-- Toasts via existing `ToastContainer` mechanism (or `sonner` if already wired — will check on implementation)
-- Time formatting: tiny inline `formatRelative(date, lang)` — no new dependency
-
-**Edit:** `src/app/components/DashboardPage.tsx`
-- Import `RecentActivityTable`
-- Render `<RecentActivityTable />` as the last block inside the existing dashboard layout, wrapped in the same outer container/grid the other sections use
-- No changes to existing charts or insights
-
-**No changes to:**
-- Routing (`src/app/routes.tsx`)
-- Supabase, schema, or types
-- Other pages (Team, Conversations, Tickets, Admin, Settings)
-
-## Out of scope (deferred)
-
-- Search, column filters, sorting, pagination, CSV export — explicitly skipped per your selection (row actions only)
-- Live Supabase data — mock only this phase
-- Reusing the table on Team / other pages — next phase, after this one is verified stable
-
-## Verification checklist after build
-
-- `/dashboard` renders without errors in EN and AR
-- Table is visible under existing content, looks consistent with surrounding cards
-- All four row actions work on mock data and show toasts
-- Dark and light themes both look clean
-- No regressions on Team, Conversations, Tickets, or Admin pages
+Reply with any name tweaks and I'll execute.
