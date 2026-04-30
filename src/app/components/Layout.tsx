@@ -10,8 +10,6 @@ import {
 } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
-import { mockConversations } from './ConversationsPage';
-import { buildTicketsFromConversations } from './TicketsPage';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
 import { getCurrentMemberId, isAllowed, MemberPermissions, PermissionKey } from '../utils/permissions';
 
@@ -65,17 +63,9 @@ export function Layout() {
     return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
   }, []);
 
-  const ticketsSeenTs = getTs(notifKeys.ticketsListSeen(CURRENT_USER_ID));
-  const conversationsSeenTs = getTs(notifKeys.conversationsListSeen(CURRENT_USER_ID));
-  const ticketsBadge = React.useMemo(() => {
-    const list = buildTicketsFromConversations();
-    return list.filter(tk => toMs(tk.createdAt) > ticketsSeenTs).length;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketsSeenTs, badgeVersion]);
-  const conversationsBadge = React.useMemo(() => {
-    return mockConversations.filter(c => toMs(c.createdAt) > conversationsSeenTs).length;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationsSeenTs, badgeVersion]);
+  // Sidebar unread badges — TODO: wire to live counts from DB.
+  const ticketsBadge = 0;
+  const conversationsBadge = 0;
 
   const userPerms = readCurrentUserPermissions();
   const can = (key: PermissionKey) => userPerms === 'all' ? true : isAllowed(userPerms, key);
