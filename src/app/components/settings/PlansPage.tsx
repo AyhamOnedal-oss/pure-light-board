@@ -1,16 +1,49 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, Sector } from 'recharts';
 import { CreditCard, Zap } from 'lucide-react';
 import { useLocation } from 'react-router';
 
 export function PlansPage() {
-  const { t, theme } = useApp();
+  const { t, theme, tenantId } = useApp();
   const location = useLocation();
   const [chartReady, setChartReady] = React.useState(false);
   const [activeIdx, setActiveIdx] = React.useState<number | undefined>(undefined);
   const [chartKey, setChartKey] = React.useState(0);
+  const [planData, setPlanData] = useState({
+    name: 'Free',
+    price: '0 SAR/mo',
+    start: new Date().toISOString().slice(0, 10),
+    end: '—',
+    totalWords: 100000,
+    usedWords: 0,
+  });
+
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      const [{ data: plan }, { data: workspace }] = await Promise.all([
+        supabase.from('settings_plans').select('monthly_word_quota, monthly_words_used, period_start').eq('tenant_id', tenantId).maybeSingle(),
+        supabase.from('settings_workspace').select('plan').eq('id', tenantId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const start = plan?.period_start ?? new Date().toISOString().slice(0, 10);
+      const endDate = new Date(start);
+      endDate.setMonth(endDate.getMonth() + 1);
+      setPlanData({
+        name: workspace?.plan ? (workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)) : 'Free',
+        price: workspace?.plan === 'professional' ? '299 SAR/mo' : workspace?.plan === 'growth' ? '199 SAR/mo' : workspace?.plan === 'starter' ? '99 SAR/mo' : '0 SAR/mo',
+        start,
+        end: endDate.toISOString().slice(0, 10),
+        totalWords: plan?.monthly_word_quota ?? 100000,
+        usedWords: plan?.monthly_words_used ?? 0,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   React.useEffect(() => {
     setChartReady(false);
@@ -19,17 +52,10 @@ export function PlansPage() {
     return () => { clearTimeout(timer); setChartReady(false); };
   }, [location.pathname]);
 
-  const currentPlan = {
-    name: 'Professional',
-    price: '299 SAR/mo',
-    start: '2026-01-01',
-    end: '2026-12-31',
-    totalWords: 2000000,
-    usedWords: 1200000,
-  };
+  const currentPlan = planData;
 
   const remaining = currentPlan.totalWords - currentPlan.usedWords;
-  const usagePercent = Math.round((currentPlan.usedWords / currentPlan.totalWords) * 100);
+  const usagePercent = currentPlan.totalWords > 0 ? Math.round((currentPlan.usedWords / currentPlan.totalWords) * 100) : 0;
 
   const usageData = [
     { name: t('Used', 'مستخدم'), value: currentPlan.usedWords, color: '#043CC8' },
@@ -43,9 +69,7 @@ export function PlansPage() {
   const animatedTotal = useAnimatedNumber(currentPlan.totalWords, 2000, 200);
 
   const history = [
-    { name: 'Starter', price: '99 SAR/mo', start: '2025-01-01', end: '2025-06-30', status: 'expired' },
-    { name: 'Growth', price: '199 SAR/mo', start: '2025-07-01', end: '2025-12-31', status: 'expired' },
-    { name: 'Professional', price: '299 SAR/mo', start: '2026-01-01', end: '2026-12-31', status: 'active' },
+    { name: currentPlan.name, price: currentPlan.price, start: currentPlan.start, end: currentPlan.end, status: 'active' },
   ];
 
   return (
