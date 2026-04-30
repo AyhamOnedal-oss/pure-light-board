@@ -128,7 +128,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     setTenantLoading(true);
     supabase
-      .from('tenant_members')
+      .from('auth_tenant_members')
       .select('tenant_id, role, created_at')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: true })

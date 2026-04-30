@@ -160,7 +160,7 @@ export function RecentActivityTable() {
     if (!user || !tenantId) { setRows([]); setLoading(false); return; }
     setLoading(true);
     const { data, error } = await supabase
-      .from('activities')
+      .from('dashboard_activities')
       .select('id, type, channel, primary_en, primary_ar, preview_en, preview_ar, status, assignee, updated_at')
       .eq('tenant_id', tenantId)
       .order('updated_at', { ascending: false })
@@ -207,7 +207,7 @@ export function RecentActivityTable() {
   const handleResolve = async (row: ActivityRow) => {
     const prev = rows;
     setRows(p => p.map(r => r.id === row.id ? { ...r, status: 'resolved', updatedAt: Date.now() } : r));
-    const { error } = await supabase.from('activities').update({ status: 'resolved' }).eq('id', row.id);
+    const { error } = await supabase.from('dashboard_activities').update({ status: 'resolved' }).eq('id', row.id);
     if (error) { setRows(prev); showToast(t('Update failed', 'فشل التحديث')); return; }
     showToast(t('Marked as resolved', 'تم التحديد كمحلول'));
   };
@@ -215,7 +215,7 @@ export function RecentActivityTable() {
   const handleAssign = async (row: ActivityRow, agent: string) => {
     const prev = rows;
     setRows(p => p.map(r => r.id === row.id ? { ...r, assignee: agent, updatedAt: Date.now() } : r));
-    const { error } = await supabase.from('activities').update({ assignee: agent }).eq('id', row.id);
+    const { error } = await supabase.from('dashboard_activities').update({ assignee: agent }).eq('id', row.id);
     if (error) { setRows(prev); showToast(t('Assignment failed', 'فشل الإسناد')); return; }
     showToast(t(`Assigned to ${agent}`, `تم الإسناد إلى ${agent}`));
   };
@@ -226,7 +226,7 @@ export function RecentActivityTable() {
     const prev = rows;
     setRows(p => p.filter(r => r.id !== id));
     setConfirmDeleteId(null);
-    const { error } = await supabase.from('activities').delete().eq('id', id);
+    const { error } = await supabase.from('dashboard_activities').delete().eq('id', id);
     if (error) { setRows(prev); showToast(t('Delete failed', 'فشل الحذف')); return; }
     showToast(t('Activity removed', 'تم حذف النشاط'));
   };
@@ -246,7 +246,7 @@ export function RecentActivityTable() {
       assignee: r.assignee ?? null,
       updated_at: new Date(r.updatedAt).toISOString(),
     }));
-    const { error } = await supabase.from('activities').insert(payload);
+    const { error } = await supabase.from('dashboard_activities').insert(payload);
     setSeeding(false);
     if (error) { showToast(t('Seeding failed', 'فشل تعبئة البيانات')); return; }
     showToast(t('Sample data added', 'تمت إضافة البيانات التجريبية'));
