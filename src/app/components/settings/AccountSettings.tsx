@@ -1,28 +1,39 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Lock, X, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
-
-const ACCOUNT_STORAGE_KEY = 'fuqah_account_settings';
-
-function loadAccountData() {
-  try {
-    const stored = localStorage.getItem(ACCOUNT_STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return { name: 'Ahmed Hassan', email: 'shrman@samksa.ai', phone: '550000000' };
-}
-
-function saveAccountData(data: any) {
-  try { localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(data)); } catch {}
-}
+import { supabase } from '../../../integrations/supabase/client';
 
 export function AccountSettings() {
-  const { t, showToast } = useApp();
-  const defaults = loadAccountData();
-  const [name, setName] = useState(defaults.name);
-  const [email, setEmail] = useState(defaults.email);
-  const [phone, setPhone] = useState(defaults.phone);
-  const [saved, setSaved] = useState({ ...defaults });
+  const { t, showToast, user } = useApp();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [phone, setPhone] = useState('');
+  const [saved, setSaved] = useState({ name: '', email: user?.email ?? '', phone: '' });
+  const [saving, setSaving] = useState(false);
+
+  // Load profile from settings_account
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('settings_account')
+        .select('display_name, phone')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      const next = {
+        name: data?.display_name ?? '',
+        email: user.email ?? '',
+        phone: data?.phone ?? '',
+      };
+      setName(next.name);
+      setPhone(next.phone);
+      setSaved(next);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email]);
+
   const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [phoneError, setPhoneError] = useState('');
@@ -64,11 +75,19 @@ export function AccountSettings() {
     return valid;
   };
 
-  const handleSave = () => {
-    if (!validate()) return;
+  const handleSave = async () => {
+    if (!validate() || !user?.id) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from('settings_account')
+      .upsert({ user_id: user.id, display_name: name, phone: phone || null }, { onConflict: 'user_id' });
+    setSaving(false);
+    if (error) {
+      showToast(t('Failed to save. Try again.', 'فشل الحفظ. حاول مجدداً.'));
+      return;
+    }
     const data = { name, email, phone };
     setSaved(data);
-    saveAccountData(data);
     showToast(t('Account settings saved successfully', 'تم حفظ إعدادات الحساب بنجاح'));
   };
 
@@ -104,10 +123,13 @@ export function AccountSettings() {
 
     if (!currentPassword) {
       errors.current = t('Please enter your current password', 'يرجى إدخال كلمة المرور الحالية');
-    } else {
-      // TODO: Backend integration - validate current password against server
-      const MOCK_CURRENT_PASSWORD = '123456Aa';
-      if (currentPassword !== MOCK_CURRENT_PASSWORD) {
+    } else if (user?.email) {
+      // Verify current password by re-authenticating
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (signInErr) {
         errors.current = t('Incorrect current password', 'كلمة المرور الحالية غير صحيحة');
       }
     }
@@ -129,9 +151,12 @@ export function AccountSettings() {
     if (Object.keys(errors).length > 0) return;
 
     setPwLoading(true);
-    // TODO: Backend integration - call API to change password
-    await new Promise(r => setTimeout(r, 1000));
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     setPwLoading(false);
+    if (error) {
+      setPwErrors({ newPw: error.message });
+      return;
+    }
     resetPasswordModal();
     showToast(t('Password updated successfully', 'تم تحديث كلمة المرور بنجاح'));
   };
@@ -188,8 +213,8 @@ export function AccountSettings() {
               <button onClick={handleCancel} className="flex-1 py-2.5 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 active:scale-[0.98] transition-all text-[14px]" style={{ fontWeight: 500 }}>
                 {t('Cancel', 'إلغاء')}
               </button>
-              <button onClick={handleSave} className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[14px]" style={{ fontWeight: 500 }}>
-                {t('Save Changes', 'حفظ التغييرات')}
+              <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[14px] disabled:opacity-60" style={{ fontWeight: 500 }}>
+                {saving ? t('Saving...', 'جاري الحفظ...') : t('Save Changes', 'حفظ التغييرات')}
               </button>
             </>
           )}
