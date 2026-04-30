@@ -185,10 +185,12 @@ export type Database = {
           id: string
           language: string
           last_message_at: string
+          rating_comment: string | null
           resolved_at: string | null
           status: Database["public"]["Enums"]["conversation_status"]
           subject: string | null
           tenant_id: string
+          ticket_status: string | null
           updated_at: string
         }
         Insert: {
@@ -208,10 +210,12 @@ export type Database = {
           id?: string
           language?: string
           last_message_at?: string
+          rating_comment?: string | null
           resolved_at?: string | null
           status?: Database["public"]["Enums"]["conversation_status"]
           subject?: string | null
           tenant_id: string
+          ticket_status?: string | null
           updated_at?: string
         }
         Update: {
@@ -231,10 +235,12 @@ export type Database = {
           id?: string
           language?: string
           last_message_at?: string
+          rating_comment?: string | null
           resolved_at?: string | null
           status?: Database["public"]["Enums"]["conversation_status"]
           subject?: string | null
           tenant_id?: string
+          ticket_status?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -270,7 +276,9 @@ export type Database = {
           conversation_id: string
           created_at: string
           feedback: string | null
+          file_name: string | null
           id: string
+          kind: string
           sender: Database["public"]["Enums"]["message_sender"]
           sender_user_id: string | null
           tenant_id: string
@@ -284,7 +292,9 @@ export type Database = {
           conversation_id: string
           created_at?: string
           feedback?: string | null
+          file_name?: string | null
           id?: string
+          kind?: string
           sender: Database["public"]["Enums"]["message_sender"]
           sender_user_id?: string | null
           tenant_id: string
@@ -298,7 +308,9 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           feedback?: string | null
+          file_name?: string | null
           id?: string
+          kind?: string
           sender?: Database["public"]["Enums"]["message_sender"]
           sender_user_id?: string | null
           tenant_id?: string
@@ -764,11 +776,16 @@ export type Database = {
           category: Database["public"]["Enums"]["conversation_category"] | null
           conversation_id: string | null
           created_at: string
+          customer_avatar_color: string | null
+          customer_id: string | null
+          customer_name: string | null
+          customer_phone: string | null
           description: string | null
           display_code: string | null
           id: string
           number: number
           priority: Database["public"]["Enums"]["ticket_priority"]
+          rating: number | null
           resolved_at: string | null
           sla_due_at: string | null
           status: Database["public"]["Enums"]["ticket_status"]
@@ -781,11 +798,16 @@ export type Database = {
           category?: Database["public"]["Enums"]["conversation_category"] | null
           conversation_id?: string | null
           created_at?: string
+          customer_avatar_color?: string | null
+          customer_id?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
           description?: string | null
           display_code?: string | null
           id?: string
           number?: number
           priority?: Database["public"]["Enums"]["ticket_priority"]
+          rating?: number | null
           resolved_at?: string | null
           sla_due_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
@@ -798,11 +820,16 @@ export type Database = {
           category?: Database["public"]["Enums"]["conversation_category"] | null
           conversation_id?: string | null
           created_at?: string
+          customer_avatar_color?: string | null
+          customer_id?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
           description?: string | null
           display_code?: string | null
           id?: string
           number?: number
           priority?: Database["public"]["Enums"]["ticket_priority"]
+          rating?: number | null
           resolved_at?: string | null
           sla_due_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
