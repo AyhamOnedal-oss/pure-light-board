@@ -282,8 +282,9 @@ function MemberModal({
 }
 
 export function TeamPage() {
-  const { t, showToast, dir } = useApp();
-  const [members, setMembers] = useState(loadMembers());
+  const { t, showToast, dir, tenantId, user } = useApp();
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editMember, setEditMember] = useState<Member | null>(null);
@@ -292,10 +293,34 @@ export function TeamPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const menuButtonRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
-  // Persist members to localStorage whenever they change
+  // Load members from Supabase
   React.useEffect(() => {
-    saveMembers(members);
-  }, [members]);
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('id, name, email, phone, status, permissions')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.log('Failed to load team members:', error.message);
+      } else if (data) {
+        setMembers(data.map(m => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          phone: m.phone || '',
+          status: m.status as 'active' | 'inactive',
+          permissions: (m.permissions || {}) as MemberPermissions,
+        })));
+      }
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -317,9 +342,13 @@ export function TeamPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const toggleStatus = (id: string) => {
+  const toggleStatus = async (id: string) => {
     const member = members.find(x => x.id === id);
-    setMembers(m => m.map(x => x.id === id ? { ...x, status: x.status === 'active' ? 'inactive' : 'active' } : x));
+    if (!member) return;
+    const newStatus = member.status === 'active' ? 'inactive' : 'active';
+    const { error } = await supabase.from('team_members').update({ status: newStatus }).eq('id', id);
+    if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
+    setMembers(m => m.map(x => x.id === id ? { ...x, status: newStatus } : x));
     setMenuOpen(null);
     if (member?.status === 'active') {
       showToast(t('Member disabled. They will see: "Your account has been disabled"', 'تم تعطيل العضو. سيرى رسالة: "تم تعطيل حسابك"'));
@@ -333,8 +362,10 @@ export function TeamPage() {
     setMenuOpen(null);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteConfirm) return;
+    const { error } = await supabase.from('team_members').delete().eq('id', deleteConfirm);
+    if (error) { showToast(t('Failed to delete', 'فشل الحذف')); return; }
     setMembers(m => m.filter(x => x.id !== deleteConfirm));
     setDeleteConfirm(null);
     showToast(t('Member deleted', 'تم حذف العضو'));
@@ -358,15 +389,31 @@ export function TeamPage() {
     setMenuOpen(null);
   };
 
-  const handleAdd = () => {
-    if (!validateForm()) return;
-    setMembers([...members, { id: Date.now().toString(), ...formData, status: 'active' }]);
+  const handleAdd = async () => {
+    if (!validateForm() || !tenantId) return;
+    const { data, error } = await supabase.from('team_members').insert({
+      tenant_id: tenantId,
+      name: formData.name,
+      email: formData.email,
+      phone: formData.phone || null,
+      permissions: formData.permissions,
+      invited_by: user?.id ?? null,
+    }).select('id').single();
+    if (error || !data) { showToast(t('Failed to add member', 'فشل إضافة العضو')); return; }
+    setMembers([...members, { id: data.id, ...formData, status: 'active' }]);
     setShowAdd(false);
     showToast(t(`Member added. Invitation email will be sent to ${formData.email}`, `تمت إضافة العضو. سيتم إرسال دعوة إلى ${formData.email}`));
   };
 
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!editMember || !validateForm()) return;
+    const { error } = await supabase.from('team_members').update({
+      name: formData.name,
+      email: formData.email,
+      phone: formData.phone || null,
+      permissions: formData.permissions,
+    }).eq('id', editMember.id);
+    if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
     setMembers(m => m.map(x => x.id === editMember.id ? { ...x, ...formData } : x));
     setEditMember(null);
     showToast(t('Member updated successfully', 'تم تحديث العضو بنجاح'));
