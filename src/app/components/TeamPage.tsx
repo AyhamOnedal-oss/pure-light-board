@@ -434,7 +434,7 @@ export function TeamPage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Team', 'الفريق')}</h1>
-          <p className="text-muted-foreground text-[14px] mt-1">{t(`${members.length} members`, `${members.length} أعضاء`)}</p>
+          <p className="text-muted-foreground text-[14px] mt-1">{loading ? t('Loading…', 'جارٍ التحميل…') : t(`${members.length} members`, `${members.length} أعضاء`)}</p>
         </div>
         <button onClick={openAddModal} className="flex items-center gap-2 px-4 py-2.5 bg-[#043CC8] text-white rounded-xl hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[14px]" style={{ fontWeight: 500 }}>
           <Plus className="w-4 h-4" /> {t('Add Member', 'إضافة عضو')}
