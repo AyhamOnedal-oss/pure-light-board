@@ -1,38 +1,61 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Save, Upload, Trash2, ToggleLeft, ToggleRight, FileSpreadsheet, X, AlertTriangle, RotateCcw } from 'lucide-react';
+import { supabase } from '../../../integrations/supabase/client';
 
-const TRAIN_STORAGE_KEY = 'fuqah_train_ai';
-
-function loadTrainData() {
-  try {
-    const stored = localStorage.getItem(TRAIN_STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return {
-    prompt: 'You are a helpful customer service assistant for an e-commerce store. Always be polite, professional, and resolve issues efficiently. When customers ask about returns, explain our 14-day return policy.',
-    fileName: '',
-    bubbleVisible: true,
-    mode: 'prompt',
-  };
-}
-
-function saveTrainData(data: any) {
-  try { localStorage.setItem(TRAIN_STORAGE_KEY, JSON.stringify(data)); } catch {}
-}
+const DEFAULT_TRAIN = {
+  prompt: '',
+  fileName: '',
+  bubbleVisible: true,
+  mode: 'prompt' as 'prompt' | 'file',
+};
 
 export function TrainAI() {
-  const { t, showToast } = useApp();
-  const stored = loadTrainData();
-  const [mode, setMode] = useState<'prompt' | 'file'>(stored.mode || 'prompt');
-  const [savedMode, setSavedMode] = useState<'prompt' | 'file'>(stored.mode || 'prompt');
-  const [prompt, setPrompt] = useState(stored.prompt);
-  const [savedPrompt, setSavedPrompt] = useState(stored.prompt);
-  const [bubbleVisible, setBubbleVisible] = useState(stored.bubbleVisible);
-  const [savedBubbleVisible, setSavedBubbleVisible] = useState(stored.bubbleVisible);
-  const [fileName, setFileName] = useState(stored.fileName);
-  const [savedFileName, setSavedFileName] = useState(stored.fileName);
+  const { t, showToast, tenantId } = useApp();
+  const [mode, setMode] = useState<'prompt' | 'file'>(DEFAULT_TRAIN.mode);
+  const [savedMode, setSavedMode] = useState<'prompt' | 'file'>(DEFAULT_TRAIN.mode);
+  const [prompt, setPrompt] = useState(DEFAULT_TRAIN.prompt);
+  const [savedPrompt, setSavedPrompt] = useState(DEFAULT_TRAIN.prompt);
+  const [bubbleVisible, setBubbleVisible] = useState(DEFAULT_TRAIN.bubbleVisible);
+  const [savedBubbleVisible, setSavedBubbleVisible] = useState(DEFAULT_TRAIN.bubbleVisible);
+  const [fileName, setFileName] = useState(DEFAULT_TRAIN.fileName);
+  const [savedFileName, setSavedFileName] = useState(DEFAULT_TRAIN.fileName);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Load from Supabase
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('settings_train_ai')
+        .select('mode, prompt, file_name, bubble_visible')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const m = (data.mode as 'prompt' | 'file') || 'prompt';
+      setMode(m); setSavedMode(m);
+      setPrompt(data.prompt || ''); setSavedPrompt(data.prompt || '');
+      setFileName(data.file_name || ''); setSavedFileName(data.file_name || '');
+      setBubbleVisible(data.bubble_visible ?? true); setSavedBubbleVisible(data.bubble_visible ?? true);
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  const persist = async (next: { prompt: string; fileName: string; bubbleVisible: boolean; mode: 'prompt' | 'file' }) => {
+    if (!tenantId) return false;
+    const { error } = await supabase
+      .from('settings_train_ai')
+      .upsert({
+        tenant_id: tenantId,
+        mode: next.mode,
+        prompt: next.prompt,
+        file_name: next.fileName || null,
+        bubble_visible: next.bubbleVisible,
+      }, { onConflict: 'tenant_id' });
+    if (error) { console.log('Train AI save failed:', error.message); return false; }
+    return true;
+  };
 
   const hasPromptChanges = prompt !== savedPrompt;
   const hasFileChanges = fileName !== savedFileName;
@@ -56,11 +79,10 @@ export function TrainAI() {
     setMode(newMode);
   };
 
-  const savePrompt = () => {
-    setSavedPrompt(prompt);
-    setSavedMode(mode);
-    setSavedFileName(fileName);
-    saveTrainData({ prompt, fileName, bubbleVisible: savedBubbleVisible, mode });
+  const savePrompt = async () => {
+    const ok = await persist({ prompt, fileName, bubbleVisible: savedBubbleVisible, mode });
+    if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
+    setSavedPrompt(prompt); setSavedMode(mode); setSavedFileName(fileName);
     showToast(t('Training settings saved successfully', 'تم حفظ إعدادات التدريب بنجاح'));
   };
 
@@ -73,36 +95,35 @@ export function TrainAI() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFileDeleteConfirm, setShowFileDeleteConfirm] = useState(false);
 
-  const deletePrompt = () => {
-    setPrompt('');
-    setSavedPrompt('');
-    saveTrainData({ prompt: '', fileName: savedFileName, bubbleVisible: savedBubbleVisible, mode });
+  const deletePrompt = async () => {
+    const ok = await persist({ prompt: '', fileName: savedFileName, bubbleVisible: savedBubbleVisible, mode });
+    if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
+    setPrompt(''); setSavedPrompt('');
     showToast(t('Training prompt deleted', 'تم حذف نص التدريب'));
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setFileName(file.name);
-      setSavedFileName(file.name);
-      setSavedMode(mode);
-      saveTrainData({ prompt: savedPrompt, fileName: file.name, bubbleVisible: savedBubbleVisible, mode });
+      const ok = await persist({ prompt: savedPrompt, fileName: file.name, bubbleVisible: savedBubbleVisible, mode });
+      if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
+      setFileName(file.name); setSavedFileName(file.name); setSavedMode(mode);
       showToast(t('Training file saved successfully', 'تم حفظ ملف التدريب بنجاح'));
     }
   };
 
-  const saveFile = () => {
-    setSavedFileName(fileName);
-    setSavedMode(mode);
-    saveTrainData({ prompt: savedPrompt, fileName, bubbleVisible: savedBubbleVisible, mode });
+  const saveFile = async () => {
+    const ok = await persist({ prompt: savedPrompt, fileName, bubbleVisible: savedBubbleVisible, mode });
+    if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
+    setSavedFileName(fileName); setSavedMode(mode);
     showToast(t('Training file saved successfully', 'تم حفظ ملف التدريب بنجاح'));
   };
 
-  const removeFile = () => {
-    setFileName('');
-    setSavedFileName('');
+  const removeFile = async () => {
+    const ok = await persist({ prompt: savedPrompt, fileName: '', bubbleVisible: savedBubbleVisible, mode });
+    if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
+    setFileName(''); setSavedFileName('');
     if (fileRef.current) fileRef.current.value = '';
-    saveTrainData({ prompt: savedPrompt, fileName: '', bubbleVisible: savedBubbleVisible, mode });
     showToast(t('Training file removed', 'تم إزالة ملف التدريب'));
   };
 
@@ -110,9 +131,10 @@ export function TrainAI() {
     setBubbleVisible(!bubbleVisible);
   };
 
-  const saveBubble = () => {
+  const saveBubble = async () => {
+    const ok = await persist({ prompt: savedPrompt, fileName: savedFileName, bubbleVisible, mode: savedMode });
+    if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
     setSavedBubbleVisible(bubbleVisible);
-    saveTrainData({ prompt: savedPrompt, fileName: savedFileName, bubbleVisible, mode: savedMode });
     showToast(t('Bubble visibility saved', 'تم حفظ إعداد فقاعة المحادثة'));
   };
 
@@ -120,10 +142,10 @@ export function TrainAI() {
     setBubbleVisible(savedBubbleVisible);
   };
 
-  const resetBubble = () => {
-    setBubbleVisible(true);
-    setSavedBubbleVisible(true);
-    saveTrainData({ prompt: savedPrompt, fileName: savedFileName, bubbleVisible: true, mode: savedMode });
+  const resetBubble = async () => {
+    const ok = await persist({ prompt: savedPrompt, fileName: savedFileName, bubbleVisible: true, mode: savedMode });
+    if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
+    setBubbleVisible(true); setSavedBubbleVisible(true);
     showToast(t('Bubble visibility reset to default', 'تم إعادة تعيين فقاعة المحادثة'));
   };
 
