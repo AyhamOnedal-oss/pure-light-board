@@ -40,6 +40,7 @@ interface AppContextType {
   tenantId: string | null;
   tenantLoading: boolean;
   isSuperAdmin: boolean;
+  roleLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -111,6 +112,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [tenantLoading, setTenantLoading] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [roleLoading, setRoleLoading] = useState(true);
 
   // Auth listener — set up FIRST, then fetch initial session
   useEffect(() => {
@@ -147,8 +149,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Resolve super_admin role for the current user
   useEffect(() => {
-    if (!session?.user) { setIsSuperAdmin(false); return; }
+    if (!session?.user) { setIsSuperAdmin(false); setRoleLoading(false); return; }
     let cancelled = false;
+    setRoleLoading(true);
     supabase
       .from('auth_user_roles')
       .select('role')
@@ -156,7 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .eq('role', 'super_admin')
       .maybeSingle()
       .then(({ data }) => {
-        if (!cancelled) setIsSuperAdmin(!!data);
+        if (!cancelled) { setIsSuperAdmin(!!data); setRoleLoading(false); }
       });
     return () => { cancelled = true; };
   }, [session?.user?.id]);
@@ -231,6 +234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       session, user: session?.user ?? null, authLoading,
       tenantId, tenantLoading,
       isSuperAdmin,
+      roleLoading,
       signIn, signUp, signOut, sendPasswordReset,
     }}>
       {children}

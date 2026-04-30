@@ -6,7 +6,7 @@ import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, roleLoading } = useApp();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   const [email, setEmail] = useState('');
@@ -26,11 +26,11 @@ export function LoginPage() {
 
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
-    if (!authLoading && session) {
+    if (!authLoading && !roleLoading && session) {
       const dest = location.state?.from || (isSuperAdmin ? '/admin' : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, session, navigate, location.state, isSuperAdmin]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

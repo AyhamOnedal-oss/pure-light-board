@@ -3,10 +3,10 @@ import { Navigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
 
 export function RequireAuth({ children, requireSuperAdmin = false }: { children: React.ReactNode; requireSuperAdmin?: boolean }) {
-  const { session, authLoading, isSuperAdmin } = useApp();
+  const { session, authLoading, isSuperAdmin, roleLoading } = useApp();
   const location = useLocation();
 
-  if (authLoading) {
+  if (authLoading || (requireSuperAdmin && roleLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
