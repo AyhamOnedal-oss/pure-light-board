@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, MoreHorizontal, FolderOpen, CheckCircle, Trash2, ArrowLeft, Ticket, Paperclip, Image, Download, ThumbsUp, ThumbsDown, Copy, Check, StickyNote } from 'lucide-react';
-import { mockConversations } from './ConversationsPage';
+import { Search, MoreHorizontal, FolderOpen, CheckCircle, Trash2, ArrowLeft, Ticket, Download, ThumbsUp, ThumbsDown, Copy, Check, StickyNote, Sparkles, Loader2 } from 'lucide-react';
 import whatsappIcon from '../../imports/whatsapp.png';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { AttachmentBubble } from './chat/AttachmentBubble';
 import { NotesActivityPanel, Activity, AuthorRole } from './chat/NotesActivityPanel';
-import { CURRENT_USER_ID, CURRENT_USER_NAME, CURRENT_USER_ROLE, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
+import { CURRENT_USER_ID, CURRENT_USER_NAME, CURRENT_USER_ROLE, notifKeys, getTs, setTs } from '../utils/notifications';
+import { supabase } from '../../integrations/supabase/client';
+import { seedDemoData } from '../services/seedDemoData';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -14,10 +15,20 @@ interface Message {
   feedback?: 'positive' | 'negative';
 }
 
+type UICategory = 'complaint' | 'inquiry' | 'request' | 'suggestion';
+type UIPriority = 'low' | 'medium' | 'high';
+type UIStatus = 'open' | 'closed';
+
 interface TicketItem {
-  id: string; customerId: string; category: 'complaint' | 'inquiry' | 'request' | 'suggestion';
-  priority: 'low' | 'medium' | 'high'; status: 'open' | 'closed';
-  createdAt: string; closedAt?: string; customerName: string; avatarColor: string;
+  id: string;
+  customerId: string; // phone
+  category: UICategory;
+  priority: UIPriority;
+  status: UIStatus;
+  createdAt: string;
+  closedAt?: string;
+  customerName: string;
+  avatarColor: string;
   conversationId?: string;
   messages: Message[];
   activities: Activity[];
@@ -25,134 +36,29 @@ interface TicketItem {
 
 const CURRENT_USER = { id: CURRENT_USER_ID, name: CURRENT_USER_NAME, role: CURRENT_USER_ROLE as AuthorRole };
 
-function isoFromLocal(s: string): string {
-  try { return new Date(s.replace(' ', 'T')).toISOString(); } catch { return new Date().toISOString(); }
+function formatTimeOnly(iso: string): string {
+  try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+}
+function formatDateTime(iso: string): string {
+  try { const d = new Date(iso); return `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 5)}`; } catch { return ''; }
 }
 
-const ACTIVITIES_KEY = 'fuqah.tickets.activities.v1';
-
-function loadActivityStore(): Record<string, Activity[]> {
-  try {
-    const raw = localStorage.getItem(ACTIVITIES_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+function dbCategoryToUI(c: string | null): UICategory {
+  if (c === 'complaint' || c === 'inquiry' || c === 'request' || c === 'suggestion') return c;
+  return 'inquiry';
 }
-function saveActivityStore(store: Record<string, Activity[]>) {
-  try { localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(store)); } catch {}
+function dbPriorityToUI(p: string): UIPriority {
+  if (p === 'low' || p === 'medium' || p === 'high') return p;
+  if (p === 'urgent') return 'high';
+  return 'medium';
 }
-function seedActivities(createdAt: string, closedAt?: string, status?: 'open' | 'closed'): Activity[] {
-  const acts: Activity[] = [
-    {
-      id: `act-created-${createdAt}`,
-      type: 'status',
-      status: 'created',
-      author: 'System',
-      authorRole: 'admin',
-      timestamp: isoFromLocal(createdAt),
-    },
-  ];
-  if (closedAt && status === 'closed') {
-    acts.push({
-      id: `act-close-${closedAt}`,
-      type: 'status',
-      status: 'closed',
-      author: 'System',
-      authorRole: 'admin',
-      timestamp: isoFromLocal(closedAt),
-    });
-  }
-  return acts;
-}
-
-export function buildTicketsFromConversations(): TicketItem[] {
-  const ticketConversations = mockConversations.filter(c => c.hasTicket);
-  const manualTickets: TicketItem[] = [
-    {
-      id: 'TK-005', customerId: '+966 59 654 3210', category: 'complaint', priority: 'high', status: 'open',
-      createdAt: '2026-04-14 07:00', customerName: 'Ali Saeed', avatarColor: '#8b5cf6',
-      activities: seedActivities('2026-04-14 07:00'),
-      messages: [
-        { id: '1', sender: 'customer', text: 'طلبي متأخر أكثر من أسبوع. ذا محبط جداً.', time: '07:00 AM', type: 'text' },
-        { id: '2', sender: 'ai', text: 'أعتذر بشدة عن التأخير. دعني أتحقق من حالة طلبك فوراً.', time: '07:00 AM', type: 'text', feedback: 'negative' },
-        { id: '3', sender: 'ai', text: 'طلبك حالياً في مركز التوزيع. التسليم المتوقع غداً. تم تصنيفه كأولوية.', time: '07:01 AM', type: 'text', feedback: 'positive' },
-      ]
-    },
-    {
-      id: 'TK-006', customerId: '+966 58 111 2222', category: 'request', priority: 'medium', status: 'closed',
-      createdAt: '2026-04-11 15:30', closedAt: '2026-04-12 09:00', customerName: 'Sara Mohammed', avatarColor: '#f59e0b',
-      activities: [
-        ...seedActivities('2026-04-11 15:30', '2026-04-12 09:00', 'closed'),
-        {
-          id: 'act-note-1',
-          type: 'note',
-          text: 'تمت مراجعة الطلب وتحديث العنوان بنجاح. لا حاجة لإجراء إضافي.',
-          author: 'Ahmed Al-Rashid',
-          authorRole: 'admin',
-          timestamp: isoFromLocal('2026-04-12 09:05'),
-        },
-      ],
-      messages: [
-        { id: '1', sender: 'customer', text: 'هل يمكنني تغيير عنوان التوصيل؟ انتقلت الأسبوع الماضي.', time: '03:30 PM', type: 'text' },
-        { id: '2', sender: 'ai', text: 'بالطبع! يرجى تقديم عنوانك الجديد وسأقوم بتحديثه فوراً.', time: '03:30 PM', type: 'text', feedback: 'positive' },
-        { id: '3', sender: 'customer', text: 'العنوان الجديد: 123 طريق الملك فهد، الرياض', time: '03:31 PM', type: 'text' },
-        { id: '4', sender: 'ai', text: 'تم تحديث العنوان بنجاح! سيتم توصيل طلبك إلى العنوان الجديد.', time: '03:32 PM', type: 'text', feedback: 'positive' },
-      ]
-    },
-  ];
-
-  const categoryMap: Record<string, 'complaint' | 'inquiry' | 'request' | 'suggestion'> = {
-    'CV-001': 'inquiry',
-    'CV-002': 'request',
-    'CV-005': 'complaint',
-  };
-  const priorityMap: Record<string, 'low' | 'medium' | 'high'> = {
-    'CV-001': 'low',
-    'CV-002': 'medium',
-    'CV-005': 'high',
-  };
-  const customerIdMap: Record<string, string> = {
-    'CV-001': '+966 55 123 4567',
-    'CV-002': '+966 54 456 7890',
-    'CV-005': '+966 59 654 3210',
-  };
-
-  const fromConversations: TicketItem[] = ticketConversations.map((c, i) => ({
-    id: `TK-00${i + 1}`,
-    customerId: customerIdMap[c.id] || '+966 50 000 0000',
-    category: categoryMap[c.id] || 'inquiry',
-    priority: priorityMap[c.id] || 'medium',
-    status: c.ticketStatus as 'open' | 'closed',
-    createdAt: '2026-04-14 09:30',
-    closedAt: c.ticketStatus === 'closed' ? '2026-04-14 16:45' : undefined,
-    customerName: c.name,
-    avatarColor: c.avatarColor,
-    conversationId: c.id,
-    activities: seedActivities(
-      '2026-04-14 09:30',
-      c.ticketStatus === 'closed' ? '2026-04-14 16:45' : undefined,
-      c.ticketStatus as 'open' | 'closed',
-    ),
-    messages: c.messages.map(m => ({
-      id: m.id,
-      sender: m.sender,
-      text: m.text,
-      time: m.time,
-      type: m.type,
-      fileName: m.fileName,
-      feedback: m.feedback,
-    })),
-  }));
-
-  return [...fromConversations, ...manualTickets];
+function dbStatusToUI(s: string): UIStatus {
+  return s === 'closed' || s === 'resolved' ? 'closed' : 'open';
 }
 
 export function TicketsPage() {
-  const { t, showToast, dir } = useApp();
-  const [tickets, setTickets] = useState<TicketItem[]>(() => {
-    const base = buildTicketsFromConversations();
-    const store = loadActivityStore();
-    return base.map(tk => store[tk.id] ? { ...tk, activities: store[tk.id] } : tk);
-  });
+  const { t, showToast, dir, tenantId } = useApp();
+  const [tickets, setTickets] = useState<TicketItem[]>([]);
   const [selected, setSelected] = useState<TicketItem | null>(null);
   const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
@@ -160,31 +66,118 @@ export function TicketsPage() {
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [bumpV, setBumpV] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const bump = () => setBumpV(v => v + 1);
+  React.useMemo(() => bumpV, [bumpV]);
 
-  useEffect(() => {
-    const store: Record<string, Activity[]> = {};
-    tickets.forEach(tk => { store[tk.id] = tk.activities; });
-    saveActivityStore(store);
-  }, [tickets]);
+  const loadTickets = async () => {
+    if (!tenantId) return;
+    setLoading(true);
+    try {
+      const { data: rows } = await supabase
+        .from('tickets_main')
+        .select('id, subject, conversation_id, category, priority, status, customer_name, customer_phone, customer_avatar_color, created_at, resolved_at, number')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false });
+
+      if (!rows || rows.length === 0) { setTickets([]); setLoading(false); return; }
+
+      const ticketIds = rows.map(r => r.id);
+      const convIds = rows.map(r => r.conversation_id).filter(Boolean) as string[];
+
+      const [{ data: activities }, { data: messages }] = await Promise.all([
+        supabase.from('tickets_activities')
+          .select('id, ticket_id, type, status, text, attachment, author_name, author_role, created_at, edited_at')
+          .in('ticket_id', ticketIds)
+          .order('created_at', { ascending: true }),
+        convIds.length > 0
+          ? supabase.from('conversations_messages')
+              .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
+              .in('conversation_id', convIds)
+              .order('created_at', { ascending: true })
+          : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string }> }),
+      ]);
+
+      const actsByTk = new Map<string, Activity[]>();
+      (activities || []).forEach(a => {
+        const arr = actsByTk.get(a.ticket_id) || [];
+        arr.push({
+          id: a.id,
+          type: (a.type === 'note' ? 'note' : 'status'),
+          text: a.text || undefined,
+          status: (a.status === 'open' || a.status === 'closed' || a.status === 'created') ? a.status : undefined,
+          author: a.author_name,
+          authorRole: (a.author_role === 'admin' ? 'admin' : 'team'),
+          timestamp: a.created_at,
+          editedAt: a.edited_at || undefined,
+          attachment: (a.attachment as Activity['attachment']) || undefined,
+        });
+        actsByTk.set(a.ticket_id, arr);
+      });
+
+      const msgsByConv = new Map<string, Message[]>();
+      (messages || []).forEach(m => {
+        const arr = msgsByConv.get(m.conversation_id) || [];
+        arr.push({
+          id: m.id,
+          sender: m.sender === 'customer' ? 'customer' : 'ai',
+          text: m.body || '',
+          time: formatTimeOnly(m.created_at),
+          type: (m.kind as 'text' | 'image' | 'file') || 'text',
+          fileName: m.file_name || undefined,
+          feedback: m.feedback === 'positive' ? 'positive' : m.feedback === 'negative' ? 'negative' : undefined,
+        });
+        msgsByConv.set(m.conversation_id, arr);
+      });
+
+      const mapped: TicketItem[] = rows.map(r => ({
+        id: r.id,
+        customerId: r.customer_phone || '',
+        category: dbCategoryToUI(r.category),
+        priority: dbPriorityToUI(r.priority),
+        status: dbStatusToUI(r.status),
+        createdAt: formatDateTime(r.created_at),
+        closedAt: r.resolved_at ? formatDateTime(r.resolved_at) : undefined,
+        customerName: r.customer_name || t('Unknown', 'مجهول'),
+        avatarColor: r.customer_avatar_color || '#043CC8',
+        conversationId: r.conversation_id || undefined,
+        messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
+        activities: actsByTk.get(r.id) || [],
+      }));
+
+      setTickets(mapped);
+      if (selected) {
+        const fresh = mapped.find(m => m.id === selected.id);
+        if (fresh) setSelected(fresh);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadTickets(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId]);
+
+  const handleSeed = async () => {
+    if (!tenantId) return;
+    setSeeding(true);
+    const res = await seedDemoData(tenantId);
+    setSeeding(false);
+    if (res.ok) { showToast(t('Demo data added', 'تمت إضافة بيانات تجريبية')); await loadTickets(); }
+    else showToast(res.error || t('Failed to seed', 'فشل التحميل'));
+  };
 
   const unreadCount = (tk: TicketItem): number => {
     const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
     return tk.activities.reduce((n, a) => (new Date(a.timestamp).getTime() > seen ? n + 1 : n), 0);
   };
-
   const isNewTicket = (tk: TicketItem): boolean => {
     const opened = getTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
     return opened === 0;
   };
-  // re-render when bumpV changes
-  React.useMemo(() => bumpV, [bumpV]);
 
   const openNotes = () => {
-    if (selected) {
-      setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id));
-      bump();
-    }
+    if (selected) { setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id)); bump(); }
     setNotesOpen(true);
   };
 
@@ -213,102 +206,81 @@ export function TicketsPage() {
     high: { en: 'High', ar: 'عالي', color: '#ff4466' },
   };
 
-  const filtered = tickets.filter(tk =>
+  const filtered = useMemo(() => tickets.filter(tk =>
     tk.id.toLowerCase().includes(search.toLowerCase()) ||
     tk.customerId.includes(search) ||
     tk.customerName.toLowerCase().includes(search.toLowerCase())
-  );
+  ), [tickets, search]);
 
-  const toggleStatus = (id: string) => {
+  const toggleStatus = async (id: string) => {
+    const tk = tickets.find(x => x.id === id);
+    if (!tk || !tenantId) return;
+    const newStatus: UIStatus = tk.status === 'open' ? 'closed' : 'open';
+    const dbStatus = newStatus === 'closed' ? 'closed' : 'open';
     const nowIso = new Date().toISOString();
-    setTickets(tk => tk.map(x => {
-      if (x.id !== id) return x;
-      const newStatus = x.status === 'open' ? 'closed' as const : 'open' as const;
-      const act: Activity = {
-        id: `act-${Date.now()}`,
-        type: 'status',
-        status: newStatus,
-        author: CURRENT_USER.name,
-        authorRole: CURRENT_USER.role,
-        timestamp: nowIso,
-      };
-      return {
-        ...x,
-        status: newStatus,
-        closedAt: newStatus === 'closed' ? '2026-04-14 12:00' : undefined,
-        activities: [...x.activities, act],
-      };
-    }));
-    if (selected?.id === id) {
-      setSelected(prev => {
-        if (!prev) return null;
-        const newStatus = prev.status === 'open' ? 'closed' as const : 'open' as const;
-        const act: Activity = {
-          id: `act-${Date.now()}`,
-          type: 'status',
-          status: newStatus,
-          author: CURRENT_USER.name,
-          authorRole: CURRENT_USER.role,
-          timestamp: nowIso,
-        };
-        return {
-          ...prev,
-          status: newStatus,
-          closedAt: newStatus === 'closed' ? '2026-04-14 12:00' : undefined,
-          activities: [...prev.activities, act],
-        };
-      });
-    }
+    const { error } = await supabase
+      .from('tickets_main')
+      .update({ status: dbStatus, resolved_at: newStatus === 'closed' ? nowIso : null })
+      .eq('id', id);
+    if (error) { showToast(error.message); return; }
+    await supabase.from('tickets_activities').insert({
+      tenant_id: tenantId, ticket_id: id, type: 'status', status: newStatus,
+      author_name: CURRENT_USER.name, author_role: CURRENT_USER.role,
+    });
     setMenuOpen(null);
     showToast(t('Ticket status updated', 'تم تحديث حالة التذكرة'));
+    await loadTickets();
   };
 
-  const addNote = (text: string, attachment?: import('./chat/NotesActivityPanel').Activity['attachment']) => {
-    if (!selected) return;
+  const addNote = async (text: string, attachment?: import('./chat/NotesActivityPanel').Activity['attachment']) => {
+    if (!selected || !tenantId) return;
     if (!text && !attachment) return;
-    const act: Activity = {
-      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    const { error } = await supabase.from('tickets_activities').insert({
+      tenant_id: tenantId,
+      ticket_id: selected.id,
       type: 'note',
-      text,
-      attachment,
-      author: CURRENT_USER.name,
-      authorRole: CURRENT_USER.role,
-      timestamp: new Date().toISOString(),
-    };
-    setTickets(tk => tk.map(x => x.id === selected.id ? { ...x, activities: [...x.activities, act] } : x));
-    setSelected(prev => prev ? { ...prev, activities: [...prev.activities, act] } : null);
-    setLastSeen(s => ({ ...s, [selected.id]: Date.now() }));
+      text: text || null,
+      attachment: (attachment ? (attachment as unknown as Record<string, unknown>) : null) as never,
+      author_name: CURRENT_USER.name,
+      author_role: CURRENT_USER.role,
+    });
+    if (error) { showToast(error.message); return; }
     showToast(t('Note added', 'تمت إضافة الملاحظة'));
+    await loadTickets();
   };
 
-  const editNote = (noteId: string, text: string) => {
+  const editNote = async (noteId: string, text: string) => {
     if (!selected) return;
-    const editedAt = new Date().toISOString();
-    const mutate = (acts: Activity[]) => acts.map(a =>
-      a.id === noteId && a.type === 'note' && a.author === CURRENT_USER.name
-        ? { ...a, text, editedAt }
-        : a
-    );
-    setTickets(tk => tk.map(x => x.id === selected.id ? { ...x, activities: mutate(x.activities) } : x));
-    setSelected(prev => prev ? { ...prev, activities: mutate(prev.activities) } : null);
+    const { error } = await supabase
+      .from('tickets_activities')
+      .update({ text, edited_at: new Date().toISOString() })
+      .eq('id', noteId)
+      .eq('author_name', CURRENT_USER.name);
+    if (error) { showToast(error.message); return; }
     showToast(t('Note updated', 'تم تعديل الملاحظة'));
+    await loadTickets();
   };
 
-  const deleteNote = (noteId: string) => {
+  const deleteNote = async (noteId: string) => {
     if (!selected) return;
-    const mutate = (acts: Activity[]) => acts.filter(a =>
-      !(a.id === noteId && a.type === 'note' && a.author === CURRENT_USER.name)
-    );
-    setTickets(tk => tk.map(x => x.id === selected.id ? { ...x, activities: mutate(x.activities) } : x));
-    setSelected(prev => prev ? { ...prev, activities: mutate(prev.activities) } : null);
+    const { error } = await supabase
+      .from('tickets_activities')
+      .delete()
+      .eq('id', noteId)
+      .eq('author_name', CURRENT_USER.name);
+    if (error) { showToast(error.message); return; }
     showToast(t('Note deleted', 'تم حذف الملاحظة'));
+    await loadTickets();
   };
 
-  const deleteTicket = (id: string) => {
-    setTickets(tk => tk.filter(x => x.id !== id));
+  const deleteTicket = async (id: string) => {
+    await supabase.from('tickets_activities').delete().eq('ticket_id', id);
+    const { error } = await supabase.from('tickets_main').delete().eq('id', id);
+    if (error) { showToast(error.message); return; }
     if (selected?.id === id) setSelected(null);
     setMenuOpen(null);
     showToast(t('Ticket deleted', 'تم حذف التذكرة'));
+    await loadTickets();
   };
 
   const getAiBubbleStyle = (msg: Message) => {
@@ -321,7 +293,6 @@ export function TicketsPage() {
       <h1 className="text-[24px] mb-4" style={{ fontWeight: 700 }}>{t('Tickets', 'التذاكر')}</h1>
 
       <div className="flex h-[calc(100%-3rem)] bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
-        {/* Ticket List */}
         <div className={`${selected ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[320px] lg:w-[340px] border-e border-border shrink-0`}>
           <div className="p-3 border-b border-border">
             <div className="relative">
@@ -335,7 +306,23 @@ export function TicketsPage() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {filtered.map(tk => {
+            {loading ? (
+              <div className="p-8 flex items-center justify-center text-muted-foreground text-[13px]"><Loader2 className="w-4 h-4 animate-spin me-2" /> {t('Loading...', 'جاري التحميل...')}</div>
+            ) : filtered.length === 0 ? (
+              <div className="p-8 text-center">
+                <Ticket className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-[13px] text-muted-foreground mb-3">{t('No tickets yet', 'لا توجد تذاكر بعد')}</p>
+                <button
+                  onClick={handleSeed}
+                  disabled={seeding || !tenantId}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#043CC8] hover:bg-[#043CC8]/90 disabled:opacity-50 text-white text-[12px] transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  {seeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  {t('Add demo data', 'إضافة بيانات تجريبية')}
+                </button>
+              </div>
+            ) : filtered.map(tk => {
               const cat = categoryMap[tk.category];
               const pri = priorityMap[tk.priority];
               return (
@@ -369,13 +356,13 @@ export function TicketsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-1">
-                      <span className="text-[10px] text-muted-foreground/60" style={{ fontWeight: 500 }}>{tk.id}</span>
+                      <span className="text-[10px] text-muted-foreground/60" style={{ fontWeight: 500 }}>#{tk.id.slice(0, 8)}</span>
                       <span className="text-[9px] px-1.5 py-[1px] rounded" style={{ backgroundColor: cat.color + '12', color: cat.color, fontWeight: 600 }}>
                         {t(cat.en, cat.ar)}
                       </span>
                     </div>
                     <p className="text-[12px] text-muted-foreground truncate mt-1">
-                      {tk.messages[tk.messages.length - 1]?.text || tk.messages[tk.messages.length - 1]?.fileName}
+                      {tk.messages[tk.messages.length - 1]?.text || tk.messages[tk.messages.length - 1]?.fileName || ''}
                     </p>
                     <div className="flex items-center gap-1 mt-1">
                       <span className="text-[9px] px-1.5 py-[1px] rounded" style={{ backgroundColor: pri.color + '12', color: pri.color, fontWeight: 600 }}>
@@ -391,10 +378,8 @@ export function TicketsPage() {
           </div>
         </div>
 
-        {/* Ticket Detail View */}
         {selected ? (
           <div className="flex flex-col flex-1 min-w-0">
-            {/* Ticket Info Header */}
             <div className="px-4 lg:px-5 py-3 border-b border-border bg-muted/20 space-y-2">
               <div className="flex items-center gap-3">
                 <button className="md:hidden p-1" onClick={() => setSelected(null)}>
@@ -406,7 +391,7 @@ export function TicketsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-[14px]" style={{ fontWeight: 600 }}>{getDisplayName(selected.customerName)}</p>
-                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.id}</span>
+                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>#{selected.id.slice(0, 8)}</span>
                   </div>
                   <button
                     type="button"
@@ -415,30 +400,18 @@ export function TicketsPage() {
                       const text = selected.customerId;
                       let ok = false;
                       try {
-                        if (navigator.clipboard && window.isSecureContext) {
-                          await navigator.clipboard.writeText(text);
-                          ok = true;
-                        }
+                        if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; }
                       } catch {}
                       if (!ok) {
                         try {
                           const ta = document.createElement('textarea');
-                          ta.value = text;
-                          ta.setAttribute('readonly', '');
-                          ta.style.position = 'fixed';
-                          ta.style.top = '-1000px';
-                          ta.style.opacity = '0';
-                          document.body.appendChild(ta);
-                          ta.select();
-                          document.execCommand('copy');
-                          document.body.removeChild(ta);
+                          ta.value = text; ta.setAttribute('readonly', '');
+                          ta.style.position = 'fixed'; ta.style.top = '-1000px'; ta.style.opacity = '0';
+                          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
                           ok = true;
                         } catch {}
                       }
-                      if (ok) {
-                        setCopiedPhone(true);
-                        setTimeout(() => setCopiedPhone(false), 1500);
-                      }
+                      if (ok) { setCopiedPhone(true); setTimeout(() => setCopiedPhone(false), 1500); }
                     }}
                     className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
                     title={t('Copy phone', 'نسخ الهاتف')}
@@ -471,15 +444,17 @@ export function TicketsPage() {
                       </span>
                     )}
                   </button>
-                  <a
-                    href={`https://wa.me/${selected.customerId.replace(/\s|\+/g, '')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1.5 hover:bg-green-500/10 rounded-xl transition-colors"
-                    title="WhatsApp"
-                  >
-                    <img src={whatsappIcon} alt="WhatsApp" className="w-8 h-8 object-contain drop-shadow-sm" />
-                  </a>
+                  {selected.customerId && (
+                    <a
+                      href={`https://wa.me/${selected.customerId.replace(/\s|\+/g, '')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1.5 hover:bg-green-500/10 rounded-xl transition-colors"
+                      title="WhatsApp"
+                    >
+                      <img src={whatsappIcon} alt="WhatsApp" className="w-8 h-8 object-contain drop-shadow-sm" />
+                    </a>
+                  )}
                   <div className="relative">
                     <button onClick={() => setMenuOpen(menuOpen === selected.id ? null : selected.id)} className="p-2 hover:bg-muted rounded-xl transition-colors">
                       <MoreHorizontal className="w-[18px] h-[18px] text-muted-foreground" />
@@ -503,7 +478,6 @@ export function TicketsPage() {
                 </div>
               </div>
 
-              {/* Ticket Meta */}
               <div className="flex items-center gap-2 flex-wrap ps-12 md:ps-0">
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
                   {t(categoryMap[selected.category].en, categoryMap[selected.category].ar)}
@@ -525,9 +499,12 @@ export function TicketsPage() {
               </div>
             </div>
 
-            {/* Conversation Messages */}
             <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-3">
-              {selected.messages.map(msg => (
+              {selected.messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center">
+                  <p className="text-[13px] text-muted-foreground">{t('No linked conversation messages', 'لا توجد رسائل محادثة مرتبطة')}</p>
+                </div>
+              ) : selected.messages.map(msg => (
                 <div key={msg.id} className={`flex ${msg.sender === 'customer' ? 'justify-start' : 'justify-end'}`}>
                   <div className="max-w-[75%]">
                     <div className={`rounded-2xl text-[14px] ${
@@ -547,7 +524,6 @@ export function TicketsPage() {
                         {msg.time}
                       </p>
                     </div>
-                    {/* Feedback indicator — icons only */}
                     {msg.feedback && msg.sender === 'ai' && (
                       <div className="flex items-center mt-1.5 justify-end">
                         {msg.feedback === 'positive' ? (
@@ -601,7 +577,7 @@ export function TicketsPage() {
             ticketId: selected.id,
             conversationId: selected.conversationId,
             storeName: getStoreName(),
-            dateISO: new Date(selected.createdAt.replace(' ', 'T')).toISOString(),
+            dateISO: new Date().toISOString(),
             status: selected.status,
             messages: selected.messages.map(m => ({
               id: m.id, sender: m.sender, text: m.text, time: m.time, type: m.type, fileName: m.fileName,
