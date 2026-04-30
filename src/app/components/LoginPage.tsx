@@ -6,7 +6,7 @@ import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin } = useApp();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   const [email, setEmail] = useState('');
@@ -27,10 +27,10 @@ export function LoginPage() {
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
     if (!authLoading && session) {
-      const dest = location.state?.from || '/dashboard';
+      const dest = location.state?.from || (isSuperAdmin ? '/admin' : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, session, navigate, location.state]);
+  }, [authLoading, session, navigate, location.state, isSuperAdmin]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,8 +50,7 @@ export function LoginPage() {
         setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
         return;
       }
-      const dest = location.state?.from || '/dashboard';
-      navigate(dest, { replace: true });
+      // Role-based destination is handled by the effect above once session/isSuperAdmin resolve.
     } else {
       const { error } = await signUp(email.trim(), password);
       setLoginLoading(false);
