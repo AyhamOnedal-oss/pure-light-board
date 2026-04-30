@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, Star, ArrowLeft, Paperclip, Image, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot } from 'lucide-react';
+import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2 } from 'lucide-react';
 import { AttachmentBubble } from './chat/AttachmentBubble';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
-import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
+import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
+import { supabase } from '../../integrations/supabase/client';
+import { seedDemoData } from '../services/seedDemoData';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -14,7 +16,7 @@ interface Message {
 type ChatCloseReason = 'customer_manual' | 'ai_request' | 'idle';
 type ChatCategory = 'inquiry' | 'complaint' | 'request' | 'suggestion';
 
-interface Conversation {
+export interface Conversation {
   id: string; name: string; avatarColor: string; lastMessage: string;
   time: string; rating: number; hasTicket: boolean; ticketStatus?: 'open' | 'closed'; messages: Message[];
   ratingComment?: string;
@@ -25,87 +27,141 @@ interface Conversation {
   closedAt?: string;
 }
 
-export const mockConversations: Conversation[] = [
-  {
-    id: 'CV-001', name: 'Fatima Al-Zahrani', avatarColor: '#043CC8',
-    lastMessage: 'شكراً لمساعدتك!', time: 'منذ دقيقتين', rating: 5, hasTicket: true, ticketStatus: 'closed',
-    ratingComment: 'دعم ممتاز! حصلت على معلومات التتبع فوراً.',
-    chatStatus: 'closed', closeReason: 'customer_manual', category: 'inquiry',
-    createdAt: '2026-04-14 09:30', closedAt: '2026-04-14 16:45',
-    messages: [
-      { id: '1', sender: 'customer', text: 'مرحباً، أحتاج مساعدة في تتبع طلبي #45231', time: '10:30 AM', type: 'text' },
-      { id: '2', sender: 'ai', text: 'مرحباً فاطمة! يسعدني مساعدتك. طلبك #45231 في الطريق ومن المتوقع وصوله غداً.', time: '10:30 AM', type: 'text', feedback: 'positive' },
-      { id: '3', sender: 'customer', text: 'هل يمكنك إرسال لقطة شاشة التتبع؟', time: '10:31 AM', type: 'text' },
-      { id: '4', sender: 'ai', text: '', time: '10:31 AM', type: 'image', fileName: 'tracking-screenshot.png', feedback: 'positive' },
-      { id: '5', sender: 'customer', text: 'شكراً لمساعدتك!', time: '10:32 AM', type: 'text' },
-    ]
-  },
-  {
-    id: 'CV-002', name: 'Mohammed Ali', avatarColor: '#10b981',
-    lastMessage: 'أريد إرجاع هذا المنتج', time: 'منذ 15 دقيقة', rating: 4, hasTicket: true, ticketStatus: 'open',
-    chatStatus: 'open', category: 'request', createdAt: '2026-04-22 09:15',
-    messages: [
-      { id: '1', sender: 'customer', text: 'أريد إرجاع هذا المنتج', time: '9:15 AM', type: 'text' },
-      { id: '2', sender: 'ai', text: 'أتفهم ذلك. هل يمكنك مشاركة رقم الطلب وسبب الإرجاع؟', time: '9:15 AM', type: 'text', feedback: 'positive' },
-      { id: '3', sender: 'customer', text: 'طلب #78432. المقاس خاطئ.', time: '9:16 AM', type: 'text' },
-      { id: '4', sender: 'customer', text: '', time: '9:16 AM', type: 'file', fileName: 'receipt.pdf' },
-      { id: '5', sender: 'ai', text: 'تم بدء عملية الإرجاع للطلب #78432. ستتلقى ملصق الشحن عبر البريد الإلكتروني خلال 24 ساعة.', time: '9:17 AM', type: 'text', feedback: 'positive' },
-    ]
-  },
-  {
-    id: 'CV-003', name: 'Nora Saeed', avatarColor: '#f59e0b',
-    lastMessage: 'هل يتوفر هذا باللون الأزرق؟', time: 'منذ ساعة', rating: 5, hasTicket: false,
-    ratingComment: 'سريع جداً ومفيد!',
-    chatStatus: 'closed', closeReason: 'ai_request', category: 'inquiry',
-    createdAt: '2026-04-22 08:00', closedAt: '2026-04-22 08:20',
-    messages: [
-      { id: '1', sender: 'customer', text: 'هل يتوفر هذا باللون الأزرق؟', time: '8:00 AM', type: 'text' },
-      { id: '2', sender: 'ai', text: 'نعم! لدينا أزرق داكن، أزرق سماوي، وأزرق ملكي. أيهم يهمك؟', time: '8:00 AM', type: 'text', feedback: 'positive' },
-    ]
-  },
-  {
-    id: 'CV-004', name: 'Abdullah Qasim', avatarColor: '#8b5cf6',
-    lastMessage: 'متى يبدأ التخفيض؟', time: 'منذ 3 ساعات', rating: 3, hasTicket: false,
-    chatStatus: 'closed', closeReason: 'idle', category: 'inquiry',
-    createdAt: '2026-04-22 06:30', closedAt: '2026-04-22 07:00',
-    messages: [
-      { id: '1', sender: 'customer', text: 'متى يبدأ التخفيض؟', time: '6:30 AM', type: 'text' },
-      { id: '2', sender: 'ai', text: 'تخفيضاتنا الموسمية تبدأ يوم الاثنين القادم بخصومات تصل إلى 40%!', time: '6:30 AM', type: 'text', feedback: 'negative' },
-    ]
-  },
-  {
-    id: 'CV-005', name: 'Reem Hassan', avatarColor: '#ff4466',
-    lastMessage: 'المنتج وصل تالف', time: 'منذ 5 ساعات', rating: 2, hasTicket: true, ticketStatus: 'open',
-    chatStatus: 'open', category: 'complaint', createdAt: '2026-04-22 04:00',
-    messages: [
-      { id: '1', sender: 'customer', text: 'المنتج وصل تالف', time: '4:00 AM', type: 'text' },
-      { id: '2', sender: 'ai', text: 'أنا آسف لسماع ذلك! هل يمكنك مشاركة صور الضرر؟', time: '4:00 AM', type: 'text', feedback: 'negative' },
-      { id: '3', sender: 'customer', text: '', time: '4:01 AM', type: 'image', fileName: 'damaged-item.jpg' },
-    ]
-  },
-  {
-    id: 'CV-006', name: 'Hassan Faisal', avatarColor: '#00C9BD',
-    lastMessage: 'شكراً على الرد السريع!', time: 'منذ 6 ساعات', rating: 5, hasTicket: false,
-    chatStatus: 'closed', closeReason: 'customer_manual', category: 'inquiry',
-    createdAt: '2026-04-22 03:00', closedAt: '2026-04-22 03:05',
-    messages: [
-      { id: '1', sender: 'customer', text: 'هل هذا المنتج متوفر؟', time: '3:00 AM', type: 'text' },
-      { id: '2', sender: 'ai', text: 'نعم، متوفر في المخزون! هل ترغب في إضافته إلى سلة التسوق؟', time: '3:00 AM', type: 'text', feedback: 'positive' },
-      { id: '3', sender: 'customer', text: 'شكراً على الرد السريع!', time: '3:01 AM', type: 'text' },
-    ]
-  },
-];
+// Kept for backwards compat with any legacy import; populated from DB now.
+export const mockConversations: Conversation[] = [];
+
+const COLORS = ['#043CC8', '#10b981', '#f59e0b', '#8b5cf6', '#ff4466', '#00C9BD', '#ec4899'];
+function colorFor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return COLORS[h % COLORS.length];
+}
+
+function relativeTime(iso: string, lang: 'en' | 'ar'): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return lang === 'ar' ? 'الآن' : 'now';
+  if (m < 60) return lang === 'ar' ? `منذ ${m} د` : `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return lang === 'ar' ? `منذ ${h} س` : `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return lang === 'ar' ? `منذ ${d} ي` : `${d}d ago`;
+}
+
+function formatTimeOnly(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function formatDateTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 5)}`;
+  } catch { return ''; }
+}
 
 export function ConversationsPage() {
-  const { t } = useApp();
+  const { t, language, tenantId, showToast } = useApp();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [search, setSearch] = useState('');
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [, setBumpV] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
+
+  const loadConversations = async () => {
+    if (!tenantId) return;
+    setLoading(true);
+    try {
+      const { data: convs } = await supabase
+        .from('conversations_main')
+        .select('id, customer_id, subject, category, status, ticket_status, csat_rating, rating_comment, close_reason, created_at, resolved_at, last_message_at')
+        .eq('tenant_id', tenantId)
+        .order('last_message_at', { ascending: false });
+
+      if (!convs || convs.length === 0) { setConversations([]); setLoading(false); return; }
+
+      const customerIds = Array.from(new Set(convs.map(c => c.customer_id).filter(Boolean) as string[]));
+      const convIds = convs.map(c => c.id);
+
+      const [{ data: customers }, { data: messages }] = await Promise.all([
+        customerIds.length > 0
+          ? supabase.from('conversations_customers').select('id, display_name, display_name_ar, phone, avatar_color').in('id', customerIds)
+          : Promise.resolve({ data: [] as { id: string; display_name: string | null; display_name_ar: string | null; phone: string | null; avatar_color: string | null }[] }),
+        supabase.from('conversations_messages')
+          .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
+          .in('conversation_id', convIds)
+          .order('created_at', { ascending: true }),
+      ]);
+
+      const cMap = new Map((customers || []).map(c => [c.id, c]));
+      const msgsByConv = new Map<string, Message[]>();
+      (messages || []).forEach(m => {
+        const arr = msgsByConv.get(m.conversation_id) || [];
+        arr.push({
+          id: m.id,
+          sender: m.sender === 'customer' ? 'customer' : 'ai',
+          text: m.body || '',
+          time: formatTimeOnly(m.created_at),
+          type: (m.kind as 'text' | 'image' | 'file') || 'text',
+          fileName: m.file_name || undefined,
+          feedback: m.feedback === 'positive' ? 'positive' : m.feedback === 'negative' ? 'negative' : undefined,
+        });
+        msgsByConv.set(m.conversation_id, arr);
+      });
+
+      const mapped: Conversation[] = convs.map(c => {
+        const cust = c.customer_id ? cMap.get(c.customer_id) : null;
+        const name = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || cust?.phone || t('Unknown', 'مجهول');
+        const msgs = msgsByConv.get(c.id) || [];
+        const last = msgs[msgs.length - 1];
+        const isClosed = c.status === 'closed' || c.status === 'resolved';
+        return {
+          id: c.id,
+          name,
+          avatarColor: cust?.avatar_color || colorFor(c.id),
+          lastMessage: last?.text || (last?.fileName ? last.fileName : ''),
+          time: relativeTime(c.last_message_at || c.created_at, language),
+          rating: c.csat_rating || 0,
+          ratingComment: c.rating_comment || undefined,
+          hasTicket: !!c.ticket_status,
+          ticketStatus: (c.ticket_status === 'open' || c.ticket_status === 'closed') ? c.ticket_status : undefined,
+          chatStatus: isClosed ? 'closed' : 'open',
+          closeReason: (c.close_reason as ChatCloseReason | null) || undefined,
+          category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? c.category : 'inquiry') as ChatCategory,
+          createdAt: formatDateTime(c.created_at),
+          closedAt: c.resolved_at ? formatDateTime(c.resolved_at) : undefined,
+          messages: msgs,
+        };
+      });
+
+      setConversations(mapped);
+      // Refresh selected if needed
+      if (selected) {
+        const fresh = mapped.find(m => m.id === selected.id);
+        if (fresh) setSelected(fresh);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadConversations(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId, language]);
+
+  const handleSeed = async () => {
+    if (!tenantId) return;
+    setSeeding(true);
+    const res = await seedDemoData(tenantId);
+    setSeeding(false);
+    if (res.ok) { showToast(t('Demo data added', 'تمت إضافة بيانات تجريبية')); await loadConversations(); }
+    else showToast(res.error || t('Failed to seed', 'فشل التحميل'));
+  };
 
   const isNewConversation = (c: Conversation): boolean => {
     const opened = getTs(notifKeys.conversationOpened(CURRENT_USER_ID, c.id));
-    return opened === 0 && toMs(c.createdAt) > 0;
+    return opened === 0;
   };
   const handleSelect = (c: Conversation) => {
     setTs(notifKeys.conversationOpened(CURRENT_USER_ID, c.id));
@@ -133,10 +189,10 @@ export function ConversationsPage() {
     idle: { en: 'Closed due to inactivity', ar: 'أُغلقت بسبب الخمول', icon: Clock },
   };
 
-  const filtered = mockConversations.filter(c =>
+  const filtered = useMemo(() => conversations.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.id.toLowerCase().includes(search.toLowerCase())
-  );
+  ), [conversations, search]);
 
   return (
     <div className="h-[calc(100vh-7rem)]">
@@ -157,7 +213,23 @@ export function ConversationsPage() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {filtered.map(c => (
+            {loading ? (
+              <div className="p-8 flex items-center justify-center text-muted-foreground text-[13px]"><Loader2 className="w-4 h-4 animate-spin me-2" /> {t('Loading...', 'جاري التحميل...')}</div>
+            ) : filtered.length === 0 ? (
+              <div className="p-8 text-center">
+                <MessageSquare className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-[13px] text-muted-foreground mb-3">{t('No conversations yet', 'لا توجد محادثات بعد')}</p>
+                <button
+                  onClick={handleSeed}
+                  disabled={seeding || !tenantId}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#043CC8] hover:bg-[#043CC8]/90 disabled:opacity-50 text-white text-[12px] transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  {seeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  {t('Add demo data', 'إضافة بيانات تجريبية')}
+                </button>
+              </div>
+            ) : filtered.map(c => (
               <button
                 key={c.id}
                 onClick={() => handleSelect(c)}
@@ -183,7 +255,7 @@ export function ConversationsPage() {
                       <span className="text-[11px] text-muted-foreground">{c.time}</span>
                     </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground/60 mt-0.5" style={{ fontWeight: 500 }}>{c.id}</p>
+                  <p className="text-[11px] text-muted-foreground/60 mt-0.5" style={{ fontWeight: 500 }}>{c.id.slice(0, 8)}</p>
                   <p className="text-[13px] text-muted-foreground truncate mt-0.5">{c.lastMessage}</p>
                   <div className="mt-1.5 flex items-center gap-1 flex-wrap">
                     {c.hasTicket && c.ticketStatus === 'open' ? (
@@ -234,7 +306,6 @@ export function ConversationsPage() {
         {/* Chat */}
         {selected ? (
           <div className="flex flex-col flex-1 min-w-0">
-            {/* Header */}
             <div className="px-4 lg:px-5 py-3 border-b border-border bg-muted/20 space-y-2">
             <div className="flex items-center gap-3">
               <button className="md:hidden p-1" onClick={() => setSelected(null)}>
@@ -246,7 +317,7 @@ export function ConversationsPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-[14px]" style={{ fontWeight: 600 }}>{getDisplayName(selected.name)}</p>
-                  <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.id}</span>
+                  <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.id.slice(0, 8)}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   {[1,2,3,4,5].map(s => (
@@ -281,7 +352,6 @@ export function ConversationsPage() {
               </div>
             </div>
 
-            {/* Meta row */}
             <div className="flex items-center gap-2 flex-wrap ps-12 md:ps-0">
               {selected.category && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
@@ -313,7 +383,6 @@ export function ConversationsPage() {
             </div>
             </div>
 
-            {/* Customer Rating Comment */}
             {selected.ratingComment && (
               <div className="px-4 lg:px-5 py-2.5 border-b border-border bg-yellow-500/5 flex items-start gap-2">
                 <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400 shrink-0 mt-0.5" />
@@ -323,7 +392,6 @@ export function ConversationsPage() {
               </div>
             )}
 
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-3">
               {selected.messages.map(msg => (
                 <div key={msg.id} className={`flex ${msg.sender === 'customer' ? 'justify-start' : 'justify-end'}`}>
@@ -345,7 +413,6 @@ export function ConversationsPage() {
                         {msg.time}
                       </p>
                     </div>
-                    {/* Feedback indicator — icons only */}
                     {msg.feedback && (
                       <div className={`flex items-center mt-1.5 ${msg.sender === 'ai' ? 'justify-end' : ''}`}>
                         {msg.feedback === 'positive' ? (
