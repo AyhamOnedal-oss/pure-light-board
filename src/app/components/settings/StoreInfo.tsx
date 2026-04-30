@@ -1,23 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Upload, Store, X, Image, Loader2 } from 'lucide-react';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { supabase } from '../../../integrations/supabase/client';
 
-const STORE_STORAGE_KEY = 'fuqah_store_info';
-const STORE_ID = 'store_shrman';
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-fc841b6e`;
-
-function loadLocalData() {
-  try {
-    const stored = localStorage.getItem(STORE_STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return { storeName: 'My E-Commerce Store', domain: 'store.example.com', logo: '', icon: '' };
-}
-
-function saveLocalData(data: any) {
-  try { localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data)); } catch {}
-}
+const DEFAULTS = { storeName: '', domain: '', logo: '', icon: '' };
 
 const ACCEPTED_FORMATS = 'image/jpeg,image/jpg,image/png';
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
@@ -93,76 +79,81 @@ function ImageUploadField({ label, description, hint, value, onChange, onRemove,
 }
 
 export function StoreInfo() {
-  const { t, showToast } = useApp();
-  const localDefaults = loadLocalData();
-  const [storeName, setStoreName] = useState(localDefaults.storeName);
-  const [domain, setDomain] = useState(localDefaults.domain);
-  const [logo, setLogo] = useState(localDefaults.logo || '');
-  const [icon, setIcon] = useState(localDefaults.icon || '');
-  const [saved, setSaved] = useState({ storeName: localDefaults.storeName, domain: localDefaults.domain, logo: localDefaults.logo || '', icon: localDefaults.icon || '' });
+  const { t, showToast, tenantId, tenantLoading } = useApp();
+  const [storeName, setStoreName] = useState(DEFAULTS.storeName);
+  const [domain, setDomain] = useState(DEFAULTS.domain);
+  const [logo, setLogo] = useState('');
+  const [icon, setIcon] = useState('');
+  const [saved, setSaved] = useState(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Load from Supabase on mount
+  // Load from Supabase (settings_workspace) on mount / tenant change
   useEffect(() => {
+    if (tenantLoading) return;
+    if (!tenantId) { setLoading(false); return; }
+    let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/store-branding/${STORE_ID}`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
-        });
-        if (res.ok) {
-          const { branding } = await res.json();
-          if (branding) {
-            const data = {
-              storeName: branding.storeName || localDefaults.storeName,
-              domain: branding.domain || localDefaults.domain,
-              logo: branding.logo || '',
-              icon: branding.icon || '',
-            };
-            setStoreName(data.storeName);
-            setDomain(data.domain);
-            setLogo(data.logo);
-            setIcon(data.icon);
-            setSaved(data);
-            saveLocalData(data);
-          }
+        const { data, error } = await supabase
+          .from('settings_workspace')
+          .select('name, domain, logo_url, icon_url')
+          .eq('id', tenantId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          console.log('Failed to load workspace:', error.message);
+        } else if (data) {
+          const next = {
+            storeName: data.name ?? '',
+            domain: data.domain ?? '',
+            logo: data.logo_url ?? '',
+            icon: data.icon_url ?? '',
+          };
+          setStoreName(next.storeName);
+          setDomain(next.domain);
+          setLogo(next.logo);
+          setIcon(next.icon);
+          setSaved(next);
         }
-      } catch (err) {
-        console.log('Failed to fetch store branding from Supabase, using local:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, []);
+    return () => { cancelled = true; };
+  }, [tenantId, tenantLoading]);
 
   const hasChanges = storeName !== saved.storeName || domain !== saved.domain || logo !== saved.logo || icon !== saved.icon;
+
+  const persist = async (data: { storeName: string; domain: string; logo: string; icon: string }) => {
+    if (!tenantId) return false;
+    const { error } = await supabase
+      .from('settings_workspace')
+      .update({
+        name: data.storeName || 'Workspace',
+        domain: data.domain || null,
+        logo_url: data.logo || null,
+        icon_url: data.icon || null,
+      })
+      .eq('id', tenantId);
+    if (error) {
+      console.log('Save failed:', error.message);
+      return false;
+    }
+    return true;
+  };
 
   const handleSave = async () => {
     const data = { storeName, domain, logo, icon };
     setSaving(true);
-    try {
-      const res = await fetch(`${API_BASE}/store-branding`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${publicAnonKey}`,
-        },
-        body: JSON.stringify({ storeId: STORE_ID, branding: data }),
-      });
-      if (!res.ok) {
-        const errData = await res.json();
-        console.log('Error saving store branding:', errData);
-        showToast(t('Failed to save. Try again.', 'فشل الحفظ. حاول مجدداً.'));
-        return;
-      }
+    const ok = await persist(data);
+    setSaving(false);
+    if (ok) {
       setSaved(data);
-      saveLocalData(data);
       showToast(t('Store info saved successfully', 'تم حفظ معلومات المتجر بنجاح'));
-    } catch (err) {
-      console.log('Error saving store branding:', err);
+    } else {
       showToast(t('Failed to save. Try again.', 'فشل الحفظ. حاول مجدداً.'));
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -212,19 +203,13 @@ export function StoreInfo() {
             setLogo('');
             const data = { storeName, domain, logo: '', icon };
             setSaving(true);
-            try {
-              await fetch(`${API_BASE}/store-branding`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-                body: JSON.stringify({ storeId: STORE_ID, branding: data }),
-              });
+            const ok = await persist(data);
+            setSaving(false);
+            if (ok) {
               setSaved(data);
-              saveLocalData(data);
               showToast(t('Logo deleted successfully', 'تم حذف الشعار بنجاح'));
-            } catch (err) {
-              console.log('Error deleting logo:', err);
-            } finally {
-              setSaving(false);
+            } else {
+              showToast(t('Failed to save. Try again.', 'فشل الحفظ. حاول مجدداً.'));
             }
           }}
           inputId="logo-upload"
@@ -242,19 +227,13 @@ export function StoreInfo() {
             setIcon('');
             const data = { storeName, domain, logo, icon: '' };
             setSaving(true);
-            try {
-              await fetch(`${API_BASE}/store-branding`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-                body: JSON.stringify({ storeId: STORE_ID, branding: data }),
-              });
+            const ok = await persist(data);
+            setSaving(false);
+            if (ok) {
               setSaved(data);
-              saveLocalData(data);
               showToast(t('Icon deleted successfully', 'تم حذف الأيقونة بنجاح'));
-            } catch (err) {
-              console.log('Error deleting icon:', err);
-            } finally {
-              setSaving(false);
+            } else {
+              showToast(t('Failed to save. Try again.', 'فشل الحفظ. حاول مجدداً.'));
             }
           }}
           inputId="icon-upload"
