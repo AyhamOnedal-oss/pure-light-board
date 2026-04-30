@@ -48,7 +48,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/admin',
-    element: <RequireAuth><AdminLayout /></RequireAuth>,
+    element: <RequireAuth requireSuperAdmin><AdminLayout /></RequireAuth>,
     children: [
       { index: true, element: <AdminDashboard /> },
       { path: 'reports/:platform', element: <AdminReports /> },

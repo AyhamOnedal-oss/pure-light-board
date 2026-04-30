@@ -2,8 +2,8 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
 
-export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { session, authLoading } = useApp();
+export function RequireAuth({ children, requireSuperAdmin = false }: { children: React.ReactNode; requireSuperAdmin?: boolean }) {
+  const { session, authLoading, isSuperAdmin } = useApp();
   const location = useLocation();
 
   if (authLoading) {
@@ -16,6 +16,10 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!session) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (requireSuperAdmin && !isSuperAdmin) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
