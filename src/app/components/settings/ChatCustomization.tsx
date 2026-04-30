@@ -2,10 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Paperclip, ArrowUp, Sun, Moon, Loader2, MessageCircle, Clock, X, AlertTriangle, RotateCcw } from 'lucide-react';
 import iconImg from '../../../imports/FUQAH-AI-icon-01@2x.png';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
-
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-fc841b6e`;
-const STORE_ID = 'store_shrman'; // Unique store identifier for this user
+import { supabase } from '../../../integrations/supabase/client';
 
 const CHAT_CUSTOM_KEY = 'fuqah_chat_customization';
 
@@ -48,27 +45,47 @@ function saveChatCustom(data: any) {
   try { localStorage.setItem(CHAT_CUSTOM_KEY, JSON.stringify(data)); } catch {}
 }
 
-async function saveToSupabase(settings: any) {
-  const res = await fetch(`${API_BASE}/chat-settings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-    body: JSON.stringify({ storeId: STORE_ID, settings }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to save to server');
-  }
-  return res.json();
+async function saveToSupabase(tenantId: string, settings: any) {
+  const { error } = await supabase.from('settings_chat_design').upsert({
+    tenant_id: tenantId,
+    primary_color: settings.primaryColor,
+    widget_outer_color: settings.widgetOuter,
+    widget_inner_color: settings.widgetInner,
+    position: settings.position,
+    preview_mode: settings.previewMode,
+    welcome_bubble_enabled: settings.welcomeBubbleEnabled,
+    welcome_bubble_line1: settings.welcomeBubbleLine1,
+    welcome_bubble_line2: settings.welcomeBubbleLine2,
+    inactivity_enabled: settings.inactivityEnabled,
+    inactivity_prompt_seconds: settings.inactivityPromptSeconds,
+    inactivity_close_seconds: settings.inactivityCloseSeconds,
+    rating_inactivity_seconds: settings.ratingInactivitySeconds,
+  }, { onConflict: 'tenant_id' });
+  if (error) throw new Error(error.message);
 }
 
-async function loadFromSupabase() {
-  const res = await fetch(`${API_BASE}/chat-settings/${STORE_ID}`, {
-    headers: { 'Authorization': `Bearer ${publicAnonKey}` },
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error('Failed to load from server');
-  const data = await res.json();
-  return data.settings;
+async function loadFromSupabase(tenantId: string) {
+  const { data, error } = await supabase
+    .from('settings_chat_design')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return {
+    primaryColor: data.primary_color,
+    widgetOuter: data.widget_outer_color,
+    widgetInner: data.widget_inner_color,
+    position: data.position,
+    previewMode: data.preview_mode,
+    welcomeBubbleEnabled: data.welcome_bubble_enabled,
+    welcomeBubbleLine1: data.welcome_bubble_line1,
+    welcomeBubbleLine2: data.welcome_bubble_line2,
+    inactivityEnabled: data.inactivity_enabled,
+    inactivityPromptSeconds: data.inactivity_prompt_seconds,
+    inactivityCloseSeconds: data.inactivity_close_seconds,
+    ratingInactivitySeconds: data.rating_inactivity_seconds,
+  };
 }
 
 // Module-level persistent saved state (survives component remounts)
@@ -95,7 +112,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 }
 
 export function ChatCustomization() {
-  const { t, showToast } = useApp();
+  const { t, showToast, tenantId } = useApp();
 
   const [primaryColor, setPrimaryColor] = useState(persistedSaved.primaryColor);
   const [widgetOuter, setWidgetOuter] = useState(persistedSaved.widgetOuter);
@@ -146,7 +163,8 @@ export function ChatCustomization() {
 
   // Load from Supabase on mount
   useEffect(() => {
-    loadFromSupabase().then(settings => {
+    if (!tenantId) return;
+    loadFromSupabase(tenantId).then(settings => {
       if (settings) {
         const s = {
           primaryColor: settings.primaryColor || '#000000',
@@ -184,7 +202,7 @@ export function ChatCustomization() {
       console.log('Error loading settings from Supabase:', err);
       setLoadedFromServer(true);
     });
-  }, []);
+  }, [tenantId]);
 
   const hasChanges =
     primaryColor !== saved.primaryColor ||
@@ -213,7 +231,8 @@ export function ChatCustomization() {
     };
     setSaving(true);
     try {
-      await saveToSupabase(newSaved);
+      if (!tenantId) throw new Error('No tenant');
+      await saveToSupabase(tenantId, newSaved);
       setSaved(newSaved);
       Object.assign(persistedSaved, newSaved);
       saveChatCustom(newSaved);

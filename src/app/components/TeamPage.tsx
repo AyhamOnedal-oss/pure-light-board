@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Plus, MoreHorizontal, Edit, UserX, Mail, Trash2, X, ChevronDown, ChevronRight, Shield, LayoutDashboard, Users, MessageSquare, Ticket, Settings, Brain, Paintbrush, MessageCircle, CreditCard, User, Store } from 'lucide-react';
+import { supabase } from '../../integrations/supabase/client';
 import {
   MemberPermissions,
   PermissionKey,
@@ -18,29 +19,7 @@ interface Member {
   permissions: MemberPermissions;
 }
 
-const initialMembers: Member[] = [
-  { id: '1', name: 'Sara Al-Rashid', email: 'sara@store.com', phone: '551234567', status: 'active', permissions: { home: true, conversations: true, tickets: true } },
-  { id: '2', name: 'Omar Khalid', email: 'omar@store.com', phone: '509876543', status: 'active', permissions: { home: true, team: true, conversations: true, tickets: true } },
-  { id: '3', name: 'Layla Ahmed', email: 'layla@store.com', phone: '544567890', status: 'inactive', permissions: { home: true, conversations: true } },
-  { id: '4', name: 'Khalid Nasser', email: 'khalid@store.com', phone: '563210987', status: 'active', permissions: { home: true, tickets: true } },
-  { id: '5', name: 'Nora Saeed', email: 'nora@store.com', phone: '596543210', status: 'active', permissions: { home: true, conversations: true, tickets: true, settings: true, settings_test_chat: true } },
-];
-
-const TEAM_STORAGE_KEY = 'fuqah_team_members';
-
-function loadMembers(): Member[] {
-  try {
-    const stored = localStorage.getItem(TEAM_STORAGE_KEY);
-    if (!stored) return initialMembers;
-    const parsed: Member[] = JSON.parse(stored);
-    // Migrate older entries without permissions
-    return parsed.map(m => ({ ...m, permissions: m.permissions || {} }));
-  } catch { return initialMembers; }
-}
-
-function saveMembers(members: Member[]) {
-  try { localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(members)); } catch {}
-}
+// Members are now persisted in the team_members table.
 
 interface FormData {
   name: string;
@@ -303,8 +282,9 @@ function MemberModal({
 }
 
 export function TeamPage() {
-  const { t, showToast, dir } = useApp();
-  const [members, setMembers] = useState(loadMembers());
+  const { t, showToast, dir, tenantId, user } = useApp();
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editMember, setEditMember] = useState<Member | null>(null);
@@ -313,10 +293,34 @@ export function TeamPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const menuButtonRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
-  // Persist members to localStorage whenever they change
+  // Load members from Supabase
   React.useEffect(() => {
-    saveMembers(members);
-  }, [members]);
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('id, name, email, phone, status, permissions')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.log('Failed to load team members:', error.message);
+      } else if (data) {
+        setMembers(data.map(m => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          phone: m.phone || '',
+          status: m.status as 'active' | 'inactive',
+          permissions: (m.permissions || {}) as MemberPermissions,
+        })));
+      }
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -338,9 +342,13 @@ export function TeamPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const toggleStatus = (id: string) => {
+  const toggleStatus = async (id: string) => {
     const member = members.find(x => x.id === id);
-    setMembers(m => m.map(x => x.id === id ? { ...x, status: x.status === 'active' ? 'inactive' : 'active' } : x));
+    if (!member) return;
+    const newStatus = member.status === 'active' ? 'inactive' : 'active';
+    const { error } = await supabase.from('team_members').update({ status: newStatus }).eq('id', id);
+    if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
+    setMembers(m => m.map(x => x.id === id ? { ...x, status: newStatus } : x));
     setMenuOpen(null);
     if (member?.status === 'active') {
       showToast(t('Member disabled. They will see: "Your account has been disabled"', 'تم تعطيل العضو. سيرى رسالة: "تم تعطيل حسابك"'));
@@ -354,8 +362,10 @@ export function TeamPage() {
     setMenuOpen(null);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteConfirm) return;
+    const { error } = await supabase.from('team_members').delete().eq('id', deleteConfirm);
+    if (error) { showToast(t('Failed to delete', 'فشل الحذف')); return; }
     setMembers(m => m.filter(x => x.id !== deleteConfirm));
     setDeleteConfirm(null);
     showToast(t('Member deleted', 'تم حذف العضو'));
@@ -379,15 +389,31 @@ export function TeamPage() {
     setMenuOpen(null);
   };
 
-  const handleAdd = () => {
-    if (!validateForm()) return;
-    setMembers([...members, { id: Date.now().toString(), ...formData, status: 'active' }]);
+  const handleAdd = async () => {
+    if (!validateForm() || !tenantId) return;
+    const { data, error } = await supabase.from('team_members').insert({
+      tenant_id: tenantId,
+      name: formData.name,
+      email: formData.email,
+      phone: formData.phone || null,
+      permissions: formData.permissions,
+      invited_by: user?.id ?? null,
+    }).select('id').single();
+    if (error || !data) { showToast(t('Failed to add member', 'فشل إضافة العضو')); return; }
+    setMembers([...members, { id: data.id, ...formData, status: 'active' }]);
     setShowAdd(false);
     showToast(t(`Member added. Invitation email will be sent to ${formData.email}`, `تمت إضافة العضو. سيتم إرسال دعوة إلى ${formData.email}`));
   };
 
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!editMember || !validateForm()) return;
+    const { error } = await supabase.from('team_members').update({
+      name: formData.name,
+      email: formData.email,
+      phone: formData.phone || null,
+      permissions: formData.permissions,
+    }).eq('id', editMember.id);
+    if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
     setMembers(m => m.map(x => x.id === editMember.id ? { ...x, ...formData } : x));
     setEditMember(null);
     showToast(t('Member updated successfully', 'تم تحديث العضو بنجاح'));
@@ -408,7 +434,7 @@ export function TeamPage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Team', 'الفريق')}</h1>
-          <p className="text-muted-foreground text-[14px] mt-1">{t(`${members.length} members`, `${members.length} أعضاء`)}</p>
+          <p className="text-muted-foreground text-[14px] mt-1">{loading ? t('Loading…', 'جارٍ التحميل…') : t(`${members.length} members`, `${members.length} أعضاء`)}</p>
         </div>
         <button onClick={openAddModal} className="flex items-center gap-2 px-4 py-2.5 bg-[#043CC8] text-white rounded-xl hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[14px]" style={{ fontWeight: 500 }}>
           <Plus className="w-4 h-4" /> {t('Add Member', 'إضافة عضو')}
