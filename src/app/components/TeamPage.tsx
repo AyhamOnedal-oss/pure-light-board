@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Plus, MoreHorizontal, Edit, UserX, Mail, Trash2, X, ChevronDown, ChevronRight, Shield, LayoutDashboard, Users, MessageSquare, Ticket, Settings, Brain, Paintbrush, MessageCircle, CreditCard, User, Store } from 'lucide-react';
+import { supabase } from '../../integrations/supabase/client';
 import {
   MemberPermissions,
   PermissionKey,
@@ -18,29 +19,7 @@ interface Member {
   permissions: MemberPermissions;
 }
 
-const initialMembers: Member[] = [
-  { id: '1', name: 'Sara Al-Rashid', email: 'sara@store.com', phone: '551234567', status: 'active', permissions: { home: true, conversations: true, tickets: true } },
-  { id: '2', name: 'Omar Khalid', email: 'omar@store.com', phone: '509876543', status: 'active', permissions: { home: true, team: true, conversations: true, tickets: true } },
-  { id: '3', name: 'Layla Ahmed', email: 'layla@store.com', phone: '544567890', status: 'inactive', permissions: { home: true, conversations: true } },
-  { id: '4', name: 'Khalid Nasser', email: 'khalid@store.com', phone: '563210987', status: 'active', permissions: { home: true, tickets: true } },
-  { id: '5', name: 'Nora Saeed', email: 'nora@store.com', phone: '596543210', status: 'active', permissions: { home: true, conversations: true, tickets: true, settings: true, settings_test_chat: true } },
-];
-
-const TEAM_STORAGE_KEY = 'fuqah_team_members';
-
-function loadMembers(): Member[] {
-  try {
-    const stored = localStorage.getItem(TEAM_STORAGE_KEY);
-    if (!stored) return initialMembers;
-    const parsed: Member[] = JSON.parse(stored);
-    // Migrate older entries without permissions
-    return parsed.map(m => ({ ...m, permissions: m.permissions || {} }));
-  } catch { return initialMembers; }
-}
-
-function saveMembers(members: Member[]) {
-  try { localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(members)); } catch {}
-}
+// Members are now persisted in the team_members table.
 
 interface FormData {
   name: string;
