@@ -27,7 +27,13 @@ export function LoginPage() {
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
     if (!authLoading && !roleLoading && session) {
-      const dest = location.state?.from || (isSuperAdmin ? '/admin' : '/dashboard');
+      // Super admins always land on /admin, regardless of any prior `from` location
+      // (which may point to /dashboard from an unauthenticated redirect).
+      const dest = isSuperAdmin
+        ? '/admin'
+        : (location.state?.from && !location.state.from.startsWith('/admin')
+            ? location.state.from
+            : '/dashboard');
       navigate(dest, { replace: true });
     }
   }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin]);
