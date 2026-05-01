@@ -6,7 +6,7 @@ export function RequireAuth({ children, requireSuperAdmin = false }: { children:
   const { session, authLoading, isSuperAdmin, roleLoading } = useApp();
   const location = useLocation();
 
-  if (authLoading || (requireSuperAdmin && roleLoading)) {
+  if (authLoading || roleLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -20,6 +20,11 @@ export function RequireAuth({ children, requireSuperAdmin = false }: { children:
 
   if (requireSuperAdmin && !isSuperAdmin) {
     return <Navigate to="/dashboard" replace />;
+  }
+
+  // If a super admin lands on a user route, send them to the admin panel.
+  if (!requireSuperAdmin && isSuperAdmin && location.pathname.startsWith('/dashboard')) {
+    return <Navigate to="/admin" replace />;
   }
 
   return <>{children}</>;
