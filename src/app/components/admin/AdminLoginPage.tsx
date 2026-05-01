@@ -6,7 +6,7 @@ import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 
 export function AdminLoginPage() {
-  const { t, theme, setTheme, language, setLanguage } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn } = useApp();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,14 +25,14 @@ export function AdminLoginPage() {
     if (Object.keys(newErrors).length > 0) return;
 
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1000));
+    const { error } = await signIn(email.trim(), password);
     setLoading(false);
-
-    if (email === 'support@samksa.ai' && password === '123456Aa') {
-      navigate('/admin');
-    } else {
+    if (error) {
       setErrors({ general: t('Invalid admin credentials', 'بيانات الأدمن غير صحيحة') });
+      return;
     }
+    // RequireAuth + LoginPage effect will route super_admin users to /admin.
+    navigate('/admin', { replace: true });
   };
 
   const inputClass = "w-full px-4 py-3 rounded-xl bg-input-background border border-border focus:border-[#043CC8] focus:ring-2 focus:ring-[#043CC8]/20 outline-none transition-all text-[14px] text-foreground";
@@ -72,7 +72,7 @@ export function AdminLoginPage() {
             <div>
               <label className="block text-[13px] mb-2 text-muted-foreground">{t('Email', 'البريد الإلكتروني')}</label>
               <input type="email" value={email} onChange={e => { setEmail(e.target.value); setErrors(p => ({ ...p, email: undefined, general: undefined })); }}
-                placeholder="support@samksa.ai" className={errors.email ? inputErrorClass : inputClass} />
+                placeholder="admin@fuqah.ai" className={errors.email ? inputErrorClass : inputClass} />
               {errors.email && <p className="flex items-center gap-1 text-red-400 text-[12px] mt-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.email}</p>}
             </div>
             <div>

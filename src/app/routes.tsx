@@ -14,6 +14,7 @@ import { AccountSettings } from './components/settings/AccountSettings';
 import { StoreInfo } from './components/settings/StoreInfo';
 import { PlansPage } from './components/settings/PlansPage';
 import { AdminLayout } from './components/admin/AdminLayout';
+import { AdminLoginPage } from './components/admin/AdminLoginPage';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminReports } from './components/admin/AdminReports';
 import { AdminCustomers } from './components/admin/AdminCustomers';
@@ -28,7 +29,7 @@ import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailP
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/dashboard" replace /> },
   { path: '/login', element: <LoginPage /> },
-  { path: '/admin/login', element: <Navigate to="/login" replace /> },
+  { path: '/admin/login', element: <AdminLoginPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     path: '/dashboard',
