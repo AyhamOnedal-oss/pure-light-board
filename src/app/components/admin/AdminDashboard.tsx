@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { AnimatedValue } from '../AnimatedNumber';
 import { motion } from 'motion/react';
@@ -10,6 +10,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, LabelList
 } from 'recharts';
+import {
+  fetchAdminDashboard,
+  ADMIN_DASHBOARD_MOCK,
+  type AdminDashboardData,
+  type PlanTier,
+} from '../../services/adminDashboard';
 
 const dateFilters = [
   { key: 'current_month', en: 'Current Month', ar: 'الشهر الحالي' },
@@ -58,120 +64,129 @@ export function AdminDashboard() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // Live data from Supabase (admin_dash_* tables). Falls back to the same
+  // mock numbers shipped with the dashboard if Supabase is empty/unreachable.
+  const [data, setData] = useState<AdminDashboardData>(ADMIN_DASHBOARD_MOCK);
+  useEffect(() => {
+    let alive = true;
+    fetchAdminDashboard().then(d => { if (alive) setData(d); });
+    return () => { alive = false; };
+  }, []);
+
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
+  // KPI cards ← admin_dash_kpi_snapshots
   const kpis = [
-    { icon: Users, label: t('Total Customers', 'إجمالي العملاء'), value: 1247, color: '#043CC8', change: 12.5, up: true },
-    { icon: UserX, label: t('Inactive Customers', 'العملاء غير النشطين'), value: 355, color: '#ff4466', change: 3.2, up: true },
-    { icon: Trash2, label: t('Total Uninstalls', 'إجمالي إلغاء التثبيت'), value: 89, color: '#f97316', change: 8.1, up: true },
-    { icon: UserCheck, label: t('Active Customers', 'العملاء النشطون'), value: 892, color: '#22c55e', change: 15.3, up: true },
-    { icon: MousePointerClick, label: t('Total Bubble Clicks', 'إجمالي نقرات الفقاعة'), value: 45230, color: '#a855f7', change: 22.7, up: true },
-    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: 1.2, suffix: 's', color: '#00C9BD', change: 5.4, up: false },
-  ];
+    { icon: Users,             label: t('Total Customers',     'إجمالي العملاء'),         value: data.kpi.total_customers,       color: '#043CC8', change: data.kpi.total_customers_change,       up: true },
+    { icon: UserX,             label: t('Inactive Customers',  'العملاء غير النشطين'),    value: data.kpi.inactive_customers,    color: '#ff4466', change: data.kpi.inactive_customers_change,    up: true },
+    { icon: Trash2,            label: t('Total Uninstalls',    'إجمالي إلغاء التثبيت'),  value: data.kpi.total_uninstalls,      color: '#f97316', change: data.kpi.total_uninstalls_change,      up: true },
+    { icon: UserCheck,         label: t('Active Customers',    'العملاء النشطون'),         value: data.kpi.active_customers,      color: '#22c55e', change: data.kpi.active_customers_change,      up: true },
+    { icon: MousePointerClick, label: t('Total Bubble Clicks', 'إجمالي نقرات الفقاعة'),  value: data.kpi.total_bubble_clicks,   color: '#a855f7', change: data.kpi.total_bubble_clicks_change,   up: true },
+    { icon: Clock,             label: t('Avg Response Time',   'متوسط وقت الاستجابة'),    value: data.kpi.avg_response_seconds,  color: '#00C9BD', change: data.kpi.avg_response_seconds_change,  up: false, suffix: 's' as string | undefined },
+  ] as Array<{ icon: any; label: string; value: number; color: string; change: number; up: boolean; suffix?: string }>;
 
-  // #1 Words Usage - FULL 12 months
-  const wordsData = [
-    { name: t('Jan', 'يناير'), words: 165000 },
-    { name: t('Feb', 'فبراير'), words: 173000 },
-    { name: t('Mar', 'مارس'), words: 190000 },
-    { name: t('Apr', 'أبريل'), words: 197000 },
-    { name: t('May', 'مايو'), words: 208000 },
-    { name: t('Jun', 'يونيو'), words: 223000 },
-    { name: t('Jul', 'يوليو'), words: 235000 },
-    { name: t('Aug', 'أغسطس'), words: 220000 },
-    { name: t('Sep', 'سبتمبر'), words: 252000 },
-    { name: t('Oct', 'أكتوبر'), words: 271000 },
-    { name: t('Nov', 'نوفمبر'), words: 287000 },
-    { name: t('Dec', 'ديسمبر'), words: 308000 },
+  // Reusable month label helper for chart x-axes
+  const monthNames: Array<[string, string]> = [
+    ['Jan','يناير'],['Feb','فبراير'],['Mar','مارس'],['Apr','أبريل'],['May','مايو'],['Jun','يونيو'],
+    ['Jul','يوليو'],['Aug','أغسطس'],['Sep','سبتمبر'],['Oct','أكتوبر'],['Nov','نوفمبر'],['Dec','ديسمبر'],
   ];
+  const planLabel = (p: PlanTier): string => ({
+    trial:        t('Trial', 'تجريبي'),
+    economy:      t('Economy', 'اقتصادي'),
+    basic:        t('Basic', 'أساسي'),
+    professional: t('Professional', 'احترافي'),
+    business:     t('Business', 'أعمال'),
+  }[p]);
 
-  const currentPlansData = [
-    { name: t('Economy', 'اقتصادي'), value: 312, color: PLAN_COLORS.economy },
-    { name: t('Basic', 'أساسي'), value: 285, color: PLAN_COLORS.basic },
-    { name: t('Professional', 'احترافي'), value: 198, color: PLAN_COLORS.professional },
-    { name: t('Business', 'أعمال'), value: 97, color: PLAN_COLORS.business },
-  ];
+  // #1 Words Usage  ← admin_dash_words_monthly
+  const wordsData = useMemo(() => {
+    const byMonth = new Map(data.wordsMonthly.map(w => [w.month, w.words]));
+    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
+  }, [data.wordsMonthly, language]);
 
-  // #3 Platform subs - proper colors per status
-  const platformSubsData = [
-    { name: t('Active', 'نشط'), zid: 520, salla: 372 },
-    { name: t('Inactive', 'غير نشط'), zid: 180, salla: 175 },
-    { name: t('Cancelled', 'ملغي'), zid: 45, salla: 44 },
-  ];
+  // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
+  const currentPlansData = useMemo(() => {
+    const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
+    return order.map(plan => {
+      const row = data.planDistribution.find(p => p.platform === null && p.plan === plan);
+      return { name: planLabel(plan), value: row?.subscribers ?? 0, color: PLAN_COLORS[plan] };
+    });
+  }, [data.planDistribution, language]);
 
-  const newSubscribers = [
-    { name: t('Elegant Store', 'متجر أنيق'), platform: 'Zid', date: '2026-04-15', totalTokens: 50000, usedTokens: 12000, logo: 'ES' },
-    { name: t('Fashion Hub', 'مركز الموضة'), platform: 'Salla', date: '2026-04-14', totalTokens: 100000, usedTokens: 5000, logo: 'FH' },
-    { name: t('Tech Galaxy', 'مجرة التقنية'), platform: 'Zid', date: '2026-04-13', totalTokens: 50000, usedTokens: 31000, logo: 'TG' },
-    { name: t('Home Decor', 'ديكور المنزل'), platform: 'Salla', date: '2026-04-12', totalTokens: 200000, usedTokens: 89000, logo: 'HD' },
-    { name: t('Sweet Treats', 'حلويات لذيذة'), platform: 'Zid', date: '2026-04-11', totalTokens: 50000, usedTokens: 2000, logo: 'ST' },
-    { name: t('Auto Parts', 'قطع غيار'), platform: 'Salla', date: '2026-04-10', totalTokens: 100000, usedTokens: 67000, logo: 'AP' },
-    { name: t('Book World', 'عالم الكتب'), platform: 'Zid', date: '2026-04-09', totalTokens: 50000, usedTokens: 44000, logo: 'BW' },
-  ];
+  // #3 Subscriptions by Platform  ← admin_dash_platform_subs
+  const platformSubsData = useMemo(() => {
+    const statuses: Array<['active'|'inactive'|'cancelled', string]> = [
+      ['active',    t('Active', 'نشط')],
+      ['inactive',  t('Inactive', 'غير نشط')],
+      ['cancelled', t('Cancelled', 'ملغي')],
+    ];
+    return statuses.map(([s, label]) => ({
+      name: label,
+      zid:   data.platformSubs.find(p => p.status === s && p.platform === 'zid')?.count ?? 0,
+      salla: data.platformSubs.find(p => p.status === s && p.platform === 'salla')?.count ?? 0,
+    }));
+  }, [data.platformSubs, language]);
 
-  const serverUsage = [
-    { name: 'Supabase', usage: 72, fill: '#22c55e' },
-    { name: 'Hostinger', usage: 45, fill: '#043CC8' },
-    { name: 'Resend', usage: 38, fill: '#a855f7' },
-    { name: 'OpenAI', usage: 85, fill: '#ff4466' },
-  ];
+  // New Subscribers list  ← admin_dash_new_subscribers
+  const newSubscribers = useMemo(() => data.newSubscribers.map(s => ({
+    name: s.store_name,
+    platform: s.platform === 'zid' ? 'Zid' : 'Salla',
+    date: s.subscribed_on,
+    totalTokens: s.total_tokens,
+    usedTokens: s.used_tokens,
+    logo: s.logo_initials,
+  })), [data.newSubscribers]);
 
-  const firstSubData = [
-    { name: t('Trial', 'تجريبي'), value: 580, color: PLAN_COLORS.trial },
-    { name: t('Economy', 'اقتصادي'), value: 210, color: PLAN_COLORS.economy },
-    { name: t('Basic', 'أساسي'), value: 185, color: PLAN_COLORS.basic },
-    { name: t('Professional', 'احترافي'), value: 165, color: PLAN_COLORS.professional },
-    { name: t('Business', 'أعمال'), value: 107, color: PLAN_COLORS.business },
-  ];
+  // Server usage bars  ← admin_dash_servers
+  const serverUsage = useMemo(() => data.servers.map(s => ({
+    name: s.name, usage: s.usage_percent, fill: s.color,
+  })), [data.servers]);
 
-  const customerSourceData = [
-    { name: t('Zid', 'زد'), value: 745, color: '#043CC8' },
-    { name: t('Salla', 'سلة'), value: 502, color: '#22c55e' },
-  ];
+  // First Subscription Type pie  ← admin_dash_first_sub_type
+  const firstSubData = useMemo(() => {
+    const order: PlanTier[] = ['trial', 'economy', 'basic', 'professional', 'business'];
+    return order.map(plan => ({
+      name: planLabel(plan),
+      value: data.firstSubType.find(f => f.plan === plan)?.count ?? 0,
+      color: PLAN_COLORS[plan],
+    }));
+  }, [data.firstSubType, language]);
 
-  const uninstallData = [
-    { name: t('Zid', 'زد'), value: 42, fill: '#ff4466' },
-    { name: t('Salla', 'سلة'), value: 47, fill: '#f97316' },
-  ];
+  // Customer Source pie  ← admin_dash_customer_source
+  const customerSourceData = useMemo(() => ([
+    { name: t('Zid', 'زد'),   value: data.customerSource.find(s => s.platform === 'zid')?.count ?? 0,   color: '#043CC8' },
+    { name: t('Salla', 'سلة'), value: data.customerSource.find(s => s.platform === 'salla')?.count ?? 0, color: '#22c55e' },
+  ]), [data.customerSource, language]);
+
+  // Uninstall comparison bar  ← admin_dash_uninstalls
+  const uninstallData = useMemo(() => ([
+    { name: t('Zid', 'زد'),   value: data.uninstalls.find(u => u.platform === 'zid')?.count ?? 0,   fill: '#ff4466' },
+    { name: t('Salla', 'سلة'), value: data.uninstalls.find(u => u.platform === 'salla')?.count ?? 0, fill: '#f97316' },
+  ]), [data.uninstalls, language]);
 
   const planColorArr = [PLAN_COLORS.economy, PLAN_COLORS.basic, PLAN_COLORS.professional, PLAN_COLORS.business];
 
-  const zidPlanData = [
-    { name: t('Economy', 'اقتصادي'), value: 185 },
-    { name: t('Basic', 'أساسي'), value: 165 },
-    { name: t('Professional', 'احترافي'), value: 112 },
-    { name: t('Business', 'أعمال'), value: 58 },
-  ];
-  const sallaPlanData = [
-    { name: t('Economy', 'اقتصادي'), value: 127 },
-    { name: t('Basic', 'أساسي'), value: 120 },
-    { name: t('Professional', 'احترافي'), value: 86 },
-    { name: t('Business', 'أعمال'), value: 39 },
-  ];
+  // Per-platform plan bars  ← admin_dash_plan_distribution (platform = 'zid' | 'salla')
+  const buildPlatformPlan = (pf: 'zid' | 'salla') => {
+    const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
+    return order.map(plan => ({
+      name: planLabel(plan),
+      value: data.planDistribution.find(p => p.platform === pf && p.plan === plan)?.subscribers ?? 0,
+    }));
+  };
+  const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [data.planDistribution, language]);
+  const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [data.planDistribution, language]);
 
-  const serverStatus = [
-    { name: 'Supabase', status: 'connected' },
-    { name: 'OpenAI', status: 'connected' },
-    { name: 'Hostinger', status: 'connected' },
-    { name: 'Resend', status: 'disconnected' },
-  ];
+  // Server Status grid  ← admin_dash_servers
+  const serverStatus = useMemo(() => data.servers.map(s => ({ name: s.name, status: s.status })), [data.servers]);
 
-  // #10 New Subscribers Over Time - 12 months
-  const newSubsOverTime = [
-    { name: t('Jan', 'يناير'), zid: 35, salla: 28 },
-    { name: t('Feb', 'فبراير'), zid: 42, salla: 31 },
-    { name: t('Mar', 'مارس'), zid: 38, salla: 35 },
-    { name: t('Apr', 'أبريل'), zid: 50, salla: 40 },
-    { name: t('May', 'مايو'), zid: 55, salla: 43 },
-    { name: t('Jun', 'يونيو'), zid: 48, salla: 46 },
-    { name: t('Jul', 'يوليو'), zid: 60, salla: 50 },
-    { name: t('Aug', 'أغسطس'), zid: 52, salla: 47 },
-    { name: t('Sep', 'سبتمبر'), zid: 65, salla: 55 },
-    { name: t('Oct', 'أكتوبر'), zid: 70, salla: 58 },
-    { name: t('Nov', 'نوفمبر'), zid: 68, salla: 62 },
-    { name: t('Dec', 'ديسمبر'), zid: 75, salla: 65 },
-  ];
+  // #10 New Subscribers Over Time  ← admin_dash_new_subs_monthly
+  const newSubsOverTime = useMemo(() => monthNames.map(([en, ar], i) => ({
+    name: t(en, ar),
+    zid:   data.newSubsMonthly.find(r => r.month === i + 1 && r.platform === 'zid')?.count ?? 0,
+    salla: data.newSubsMonthly.find(r => r.month === i + 1 && r.platform === 'salla')?.count ?? 0,
+  })), [data.newSubsMonthly, language]);
 
   const cardClass = "bg-card rounded-2xl border border-border p-4";
   const textMuted = "text-muted-foreground";
