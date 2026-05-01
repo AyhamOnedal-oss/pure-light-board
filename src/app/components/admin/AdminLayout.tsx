@@ -12,7 +12,7 @@ import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 
 export function AdminLayout() {
-  const { t, theme, setTheme, language, setLanguage, dir, showToast, pushNotification, signOut } = useApp();
+  const { t, theme, setTheme, language, setLanguage, dir, showToast, pushNotification, signOut, user } = useApp();
   const [reportsOpen, setReportsOpen] = useState(false);
   const [invoicesOpen, setInvoicesOpen] = useState(false);
   const [customersOpen, setCustomersOpen] = useState(false);
@@ -204,7 +204,7 @@ export function AdminLayout() {
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-[12px] shrink-0" style={{ fontWeight: 700 }}>SA</div>
           <div className="flex-1 min-w-0 text-start">
             <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>{t('Super Admin', 'المشرف العام')}</p>
-            <p className="text-[11px] text-sidebar-foreground/50 truncate">support@samksa.ai</p>
+            <p className="text-[11px] text-sidebar-foreground/50 truncate">{user?.email ?? ''}</p>
           </div>
           <ChevronUp className={`w-4 h-4 text-sidebar-foreground/40 transition-transform ${userMenuOpen ? '' : 'rotate-180'}`} />
         </button>
