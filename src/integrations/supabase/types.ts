@@ -14,6 +14,315 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_dash_customer_source: {
+        Row: {
+          count: number
+          created_at: string
+          id: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          updated_at: string
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          id?: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          updated_at?: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          id?: string
+          platform?: Database["public"]["Enums"]["platform_kind"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_dash_first_sub_type: {
+        Row: {
+          count: number
+          created_at: string
+          id: string
+          plan: Database["public"]["Enums"]["plan_tier"]
+          updated_at: string
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          id?: string
+          plan: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          id?: string
+          plan?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_dash_kpi_snapshots: {
+        Row: {
+          active_customers: number
+          active_customers_change: number
+          avg_response_seconds: number
+          avg_response_seconds_change: number
+          created_at: string
+          id: string
+          inactive_customers: number
+          inactive_customers_change: number
+          snapshot_date: string
+          total_bubble_clicks: number
+          total_bubble_clicks_change: number
+          total_customers: number
+          total_customers_change: number
+          total_uninstalls: number
+          total_uninstalls_change: number
+          updated_at: string
+        }
+        Insert: {
+          active_customers?: number
+          active_customers_change?: number
+          avg_response_seconds?: number
+          avg_response_seconds_change?: number
+          created_at?: string
+          id?: string
+          inactive_customers?: number
+          inactive_customers_change?: number
+          snapshot_date?: string
+          total_bubble_clicks?: number
+          total_bubble_clicks_change?: number
+          total_customers?: number
+          total_customers_change?: number
+          total_uninstalls?: number
+          total_uninstalls_change?: number
+          updated_at?: string
+        }
+        Update: {
+          active_customers?: number
+          active_customers_change?: number
+          avg_response_seconds?: number
+          avg_response_seconds_change?: number
+          created_at?: string
+          id?: string
+          inactive_customers?: number
+          inactive_customers_change?: number
+          snapshot_date?: string
+          total_bubble_clicks?: number
+          total_bubble_clicks_change?: number
+          total_customers?: number
+          total_customers_change?: number
+          total_uninstalls?: number
+          total_uninstalls_change?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_dash_new_subs_monthly: {
+        Row: {
+          count: number
+          created_at: string
+          id: string
+          month: number
+          platform: Database["public"]["Enums"]["platform_kind"]
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          id?: string
+          month: number
+          platform: Database["public"]["Enums"]["platform_kind"]
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          id?: string
+          month?: number
+          platform?: Database["public"]["Enums"]["platform_kind"]
+          updated_at?: string
+          year?: number
+        }
+        Relationships: []
+      }
+      admin_dash_new_subscribers: {
+        Row: {
+          created_at: string
+          id: string
+          logo_initials: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          store_name: string
+          subscribed_on: string
+          total_tokens: number
+          updated_at: string
+          used_tokens: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          logo_initials: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          store_name: string
+          subscribed_on: string
+          total_tokens?: number
+          updated_at?: string
+          used_tokens?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          logo_initials?: string
+          platform?: Database["public"]["Enums"]["platform_kind"]
+          store_name?: string
+          subscribed_on?: string
+          total_tokens?: number
+          updated_at?: string
+          used_tokens?: number
+        }
+        Relationships: []
+      }
+      admin_dash_plan_distribution: {
+        Row: {
+          created_at: string
+          id: string
+          plan: Database["public"]["Enums"]["plan_tier"]
+          platform: Database["public"]["Enums"]["platform_kind"] | null
+          subscribers: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          plan: Database["public"]["Enums"]["plan_tier"]
+          platform?: Database["public"]["Enums"]["platform_kind"] | null
+          subscribers?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          plan?: Database["public"]["Enums"]["plan_tier"]
+          platform?: Database["public"]["Enums"]["platform_kind"] | null
+          subscribers?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_dash_platform_subs: {
+        Row: {
+          count: number
+          created_at: string
+          id: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          status: Database["public"]["Enums"]["subscription_status"]
+          updated_at: string
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          id?: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          status: Database["public"]["Enums"]["subscription_status"]
+          updated_at?: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          id?: string
+          platform?: Database["public"]["Enums"]["platform_kind"]
+          status?: Database["public"]["Enums"]["subscription_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_dash_servers: {
+        Row: {
+          color: string
+          created_at: string
+          display_order: number
+          id: string
+          name: string
+          status: Database["public"]["Enums"]["server_connection_status"]
+          updated_at: string
+          usage_percent: number
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          name: string
+          status?: Database["public"]["Enums"]["server_connection_status"]
+          updated_at?: string
+          usage_percent?: number
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          name?: string
+          status?: Database["public"]["Enums"]["server_connection_status"]
+          updated_at?: string
+          usage_percent?: number
+        }
+        Relationships: []
+      }
+      admin_dash_uninstalls: {
+        Row: {
+          count: number
+          created_at: string
+          id: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          updated_at: string
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          id?: string
+          platform: Database["public"]["Enums"]["platform_kind"]
+          updated_at?: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          id?: string
+          platform?: Database["public"]["Enums"]["platform_kind"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_dash_words_monthly: {
+        Row: {
+          created_at: string
+          id: string
+          month: number
+          updated_at: string
+          words: number
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          month: number
+          updated_at?: string
+          words?: number
+          year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          month?: number
+          updated_at?: string
+          words?: number
+          year?: number
+        }
+        Relationships: []
+      }
       auth_tenant_members: {
         Row: {
           created_at: string
@@ -912,6 +1221,10 @@ export type Database = {
         | "shipping_request"
       conversation_status: "new" | "open" | "pending" | "resolved" | "closed"
       message_sender: "customer" | "agent" | "ai" | "system"
+      plan_tier: "trial" | "economy" | "basic" | "professional" | "business"
+      platform_kind: "zid" | "salla"
+      server_connection_status: "connected" | "disconnected"
+      subscription_status: "active" | "inactive" | "cancelled"
       team_member_status: "active" | "inactive"
       tenant_platform: "salla" | "zid" | "manual"
       tenant_role: "owner" | "admin" | "agent" | "viewer"
@@ -1080,6 +1393,10 @@ export const Constants = {
       ],
       conversation_status: ["new", "open", "pending", "resolved", "closed"],
       message_sender: ["customer", "agent", "ai", "system"],
+      plan_tier: ["trial", "economy", "basic", "professional", "business"],
+      platform_kind: ["zid", "salla"],
+      server_connection_status: ["connected", "disconnected"],
+      subscription_status: ["active", "inactive", "cancelled"],
       team_member_status: ["active", "inactive"],
       tenant_platform: ["salla", "zid", "manual"],
       tenant_role: ["owner", "admin", "agent", "viewer"],
