@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.salla-token-refresh]
 verify_jwt = false
+
+[functions.zid-oauth-install]
+verify_jwt = false
