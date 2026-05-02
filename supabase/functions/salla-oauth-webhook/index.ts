@@ -165,6 +165,13 @@ Deno.serve(async (req) => {
               tenant_resolved: !!result.tenantId,
             },
           });
+          if (!result.emailSent) {
+            await supabase.from("salla_events").insert({
+              merchant_id: merchantId,
+              event_type: "oauth.email_failed",
+              event_data: { email: storeEmail, error: result.emailError ?? null },
+            });
+          }
           if (result.tenantId) {
             tenantId = result.tenantId;
             await supabase

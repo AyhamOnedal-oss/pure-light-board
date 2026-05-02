@@ -1,55 +1,67 @@
-## Goal
+## What's actually happening
 
-After a merchant installs on Zid or Salla, auto-create their Supabase auth account using the **store email** from the platform, generate a random password, email it via **Resend**, and on first login link the existing connection row to their tenant.
+Looking at `zid_events`, the last install did this:
 
-## Flow (identical for Zid & Salla)
+1. Zid callback succeeded, found store email `dfolxp9bgd@zam-partner.email`.
+2. `provisionMerchantAccount` ran — user already existed, tenant was resolved (`tenant_resolved: true`).
+3. Resend rejected the email: **`403 — The fuqah.net domain is not verified`**, so no credentials were sent.
+4. Because `tenantId` got resolved, the callback redirected to `/dashboard/settings/store?connected=zid` — but the merchant has **no browser session**, so `RequireAuth` bounces them and you land on a blank/"not found" looking page.
 
-```text
-Merchant clicks Install on Zid/Salla
-  → OAuth callback exchanges code, fetches profile (already working)
-  → upsert {store_uuid/store_id, store_email, tokens} into connections table
-  → IF store_email present and tenant not yet linked:
-      a. Look up auth.users by email
-      b. If new: generate 16-char password
-                 admin.createUser({ email, password, email_confirm: true,
-                   user_metadata: { display_name: storeName, source: platform } })
-                 (handle_new_user trigger auto-creates tenant + membership)
-      c. Resolve user's tenant from auth_tenant_members
-      d. Update connection row with tenant_id; update settings_workspace
-         with platform + store_uuid/store_id
-      e. Send Resend email:
-         - new user → "Your {Zid|Salla} store is connected. Login: {email} / Temporary password: {pw}"
-         - existing user → "Your {Zid|Salla} store has been linked to your account."
-  → Redirect to /login?from={zid|salla}&email={store_email}
+So two bugs:
 
-On /login:
-  → Pre-fill email from ?email= param
-  → Show banner: "We've emailed your login details to {email}"
-  → Standard signInWithPassword → /dashboard
+- **A. Wrong redirect target** — after a fresh OAuth install the merchant is never logged in in this browser tab, regardless of whether their account already exists. We must always send them to `/login` with the email prefilled and a clear "we sent you a password" banner. The only thing the merchant should ever see post-install is the sign-in screen.
+- **B. Resend "from" address (`noreply@fuqah.net`) is not a verified domain in your Resend account.** Resend only allows sending from verified domains. That's why no email arrives.
+
+## Fix
+
+### 1. Edge functions — always redirect to /login
+
+In `supabase/functions/zid-oauth-callback/index.ts` and `supabase/functions/salla-oauth-webhook/index.ts`, remove the "if tenantId then go to /dashboard" branch. After provisioning, always:
+
+```
+/login?from=zid&email={storeEmail}&status={new|linked}
 ```
 
-## Changes
+(`status=new` when a fresh password was emailed, `status=linked` when the user already existed and only got a "linked" notice.)
 
-1. **New shared module** `supabase/functions/_shared/provision-merchant.ts`
-   - `provisionMerchantAccount({ email, platform, storeName })` → `{ tenantId, isNewUser, generatedPassword? }`
-   - Uses `auth.admin.listUsers` (filter by email), `auth.admin.createUser`
-   - Reads tenant from `auth_tenant_members` (most recent owned)
+### 2. LoginPage banner
 
-2. **New shared module** `supabase/functions/_shared/send-resend-email.ts`
-   - Thin `fetch` wrapper to `https://api.resend.com/emails`
-   - Two templates baked in: `merchant_welcome_new`, `merchant_store_linked`
-   - Bilingual (EN + AR) body matching the app's brand
+Update `src/app/components/LoginPage.tsx` to read `status` too and show a stronger Arabic-first banner:
 
-3. **`zid-oauth-callback/index.ts`** — after upsert when `tenantId` is null and `storeEmail` is set, call `provisionMerchantAccount`, update the connection's `tenant_id`, update `settings_workspace`, send email, redirect to `/login?from=zid&email=…`.
+- `status=new`: "تم ربط متجرك بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك {email}. يرجى التحقق من البريد الوارد (والمزعج) ثم تسجيل الدخول."
+- `status=linked`: "تم ربط متجرك بحسابك الحالي. سجّل الدخول باستخدام كلمة المرور الخاصة بك."
 
-4. **`salla-oauth-webhook/index.ts`** — same wiring (uses `salla_connections.store_id`).
+Plus a "Resend password" link that calls `sendPasswordReset(email)` so the merchant can recover if the email got lost.
 
-5. **`src/app/components/LoginPage.tsx`** — read `?email=` and `?from=` from query string; pre-fill email field; show a one-line banner above the form when `from=zid|salla`.
+### 3. Resend domain
 
-6. **Secrets** — add `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (e.g. `noreply@yourdomain.com`).
+`RESEND_FROM_EMAIL` is currently `noreply@fuqah.net` (or similar on `fuqah.net`) and that domain is **not verified** in your Resend dashboard. Two options — pick one before we deploy:
 
-## Open question
+```text
+Option A (recommended): verify fuqah.net (or fuqah.ai) in Resend
+   → https://resend.com/domains → Add domain → add the DNS records → wait for "Verified"
+   → keep RESEND_FROM_EMAIL = noreply@fuqah.net
 
-What "from" address should I use for the Resend email? It must be on a domain you've **verified in Resend** (you mentioned you already have your domain set up). Example: `noreply@fuqah.ai` or `hello@yourdomain.com`.
+Option B (quick test only): use the Resend sandbox sender
+   → set RESEND_FROM_EMAIL = onboarding@resend.dev
+   → BUT Resend will only deliver to the email address that owns the Resend account; real merchants will not receive it. Not usable in production.
+```
 
-Once you approve, I'll ask you to add `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as secrets, then implement.
+### 4. Better logging
+
+In both callbacks, when Resend returns non-OK, also write a `oauth.email_failed` event with the merchant email and Resend error so we can see failures from the dashboard without re-checking the function logs.
+
+## Files touched
+
+- `supabase/functions/zid-oauth-callback/index.ts`
+- `supabase/functions/salla-oauth-webhook/index.ts`
+- `supabase/functions/_shared/provision-merchant.ts` (return Resend error so caller can log it)
+- `src/app/components/LoginPage.tsx`
+
+## One question before I implement
+
+Which Resend "from" do you want? Please confirm one of:
+
+1. I'll keep `noreply@fuqah.net` — you'll verify the domain in Resend now.
+2. Use `noreply@<another-domain-you-already-verified>` — tell me the domain.
+3. Temporarily switch to `onboarding@resend.dev` just to test the flow end-to-end (won't work for real merchants).
