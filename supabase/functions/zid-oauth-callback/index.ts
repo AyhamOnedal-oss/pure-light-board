@@ -79,6 +79,10 @@ Deno.serve(async (req) => {
     }
 
     const t = await tokenRes.json();
+    await supabase.from("zid_events").insert({
+      event_type: "oauth.token_response_keys",
+      event_data: { keys: Object.keys(t ?? {}) },
+    });
     // Zid returns inconsistent casing; normalize
     const authorizationToken =
       t.authorization ?? t.authorization_token ?? t.Authorization ?? t.access_token ?? null;
@@ -93,33 +97,94 @@ Deno.serve(async (req) => {
     let storeUrl: string | null = null;
     let storeEmail: string | null = null;
 
+    function findUuid(obj: unknown): string | null {
+      if (!obj || typeof obj !== "object") return null;
+      const o = obj as Record<string, unknown>;
+      // Prefer keys that look like a store uuid
+      for (const k of Object.keys(o)) {
+        const v = o[k];
+        if (
+          (k === "uuid" || k === "store_uuid" || k === "id") &&
+          typeof v === "string" &&
+          /^[0-9a-f-]{16,}$/i.test(v)
+        ) {
+          return v;
+        }
+      }
+      for (const k of Object.keys(o)) {
+        const found = findUuid(o[k]);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    async function tryEndpoint(path: string) {
+      const r = await fetch(`https://api.zid.sa${path}`, {
+        headers: {
+          Authorization: `Bearer ${authorizationToken}`,
+          "X-Manager-Token": managerToken ?? "",
+          Accept: "application/json",
+        },
+      });
+      let body: unknown = null;
+      try {
+        body = await r.json();
+      } catch {
+        body = await r.text().catch(() => null);
+      }
+      await supabase.from("zid_events").insert({
+        event_type: "oauth.profile_response",
+        event_data: {
+          path,
+          status: r.status,
+          body_preview: JSON.stringify(body).slice(0, 4000),
+        },
+      });
+      return { ok: r.ok, body };
+    }
+
     if (authorizationToken && managerToken) {
       try {
-        const profRes = await fetch("https://api.zid.sa/v1/managers/account/profile", {
-          headers: {
-            Authorization: `Bearer ${authorizationToken}`,
-            "X-Manager-Token": managerToken,
-            Accept: "application/json",
-          },
-        });
-        if (profRes.ok) {
-          const prof = await profRes.json();
+        const endpoints = [
+          "/v1/managers/account/profile",
+          "/v1/managers/store/info",
+          "/v1/store",
+          "/v1/store/info",
+        ];
+        for (const ep of endpoints) {
+          const { ok, body } = await tryEndpoint(ep);
+          if (!ok || !body || typeof body !== "object") continue;
+          const b = body as Record<string, any>;
           storeUuid =
-            prof?.user?.store?.uuid ??
-            prof?.data?.store?.uuid ??
-            prof?.store?.uuid ??
-            null;
+            b?.user?.store?.uuid ??
+            b?.data?.user?.store?.uuid ??
+            b?.data?.store?.uuid ??
+            b?.store?.uuid ??
+            b?.data?.uuid ??
+            b?.uuid ??
+            findUuid(b);
           storeName =
-            prof?.user?.store?.name ?? prof?.data?.store?.name ?? prof?.store?.name ?? null;
-          storeUrl =
-            prof?.user?.store?.store_url ??
-            prof?.data?.store?.store_url ??
-            prof?.store?.store_url ??
+            b?.user?.store?.name ??
+            b?.data?.store?.name ??
+            b?.store?.name ??
+            b?.data?.name ??
+            b?.name ??
             null;
-          storeEmail = prof?.user?.email ?? prof?.data?.email ?? null;
+          storeUrl =
+            b?.user?.store?.store_url ??
+            b?.data?.store?.store_url ??
+            b?.store?.store_url ??
+            b?.data?.store_url ??
+            null;
+          storeEmail = b?.user?.email ?? b?.data?.email ?? b?.email ?? null;
+          if (storeUuid) break;
         }
       } catch (e) {
         console.error("zid-callback: profile fetch failed", e);
+        await supabase.from("zid_events").insert({
+          event_type: "oauth.profile_exception",
+          event_data: { error: String(e) },
+        });
       }
     }
 
