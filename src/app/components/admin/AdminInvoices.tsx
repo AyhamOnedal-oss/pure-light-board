@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useParams } from 'react-router';
 import { motion } from 'motion/react';
 import { Plus, Edit, Trash2, Check, X, Download, Search, CalendarDays } from 'lucide-react';
+import {
+  fetchSubscriptionPayments, fetchServerInvoices, fetchOtherInvoices,
+  MOCK_SUBS, MOCK_SERVERS, MOCK_OTHER,
+} from '../../services/adminInvoices';
 
 // ============= SUBSCRIPTION PAYMENTS =============
 function SubscriptionPayments() {
@@ -12,14 +16,15 @@ function SubscriptionPayments() {
   const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState('');
 
-  const [payments, setPayments] = useState([
-    { id: '1', store: 'Elegant Store', storeAr: 'متجر أنيق', date: '2026-04-15', plan: 'Professional', planAr: 'احترافي', amount: 399, status: 'pending', platform: 'Zid', paymentDate: '' },
-    { id: '2', store: 'Fashion Hub', storeAr: 'مركز الموضة', date: '2026-04-14', plan: 'Basic', planAr: 'أساسي', amount: 199, status: 'paid', platform: 'Zid', paymentDate: '2026-04-14' },
-    { id: '3', store: 'Tech Galaxy', storeAr: 'مجرة التقنية', date: '2026-04-13', plan: 'Business', planAr: 'أعمال', amount: 799, status: 'pending', platform: 'Salla', paymentDate: '' },
-    { id: '4', store: 'Home Decor', storeAr: 'ديكور المنزل', date: '2026-04-12', plan: 'Economy', planAr: 'اقتصادي', amount: 99, status: 'paid', platform: 'Salla', paymentDate: '2026-04-12' },
-    { id: '5', store: 'Sweet Treats', storeAr: 'حلويات لذيذة', date: '2026-04-11', plan: 'Professional', planAr: 'احترافي', amount: 399, status: 'pending', platform: 'Zid', paymentDate: '' },
-    { id: '6', store: 'Pet Care', storeAr: 'عناية الحيوانات', date: '2026-04-10', plan: 'Basic', planAr: 'أساسي', amount: 199, status: 'pending', platform: 'Salla', paymentDate: '' },
-  ]);
+  const [payments, setPayments] = useState<typeof MOCK_SUBS>(MOCK_SUBS);
+
+  useEffect(() => {
+    let alive = true;
+    fetchSubscriptionPayments()
+      .then(rows => { if (alive) setPayments(rows); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const handleConfirmReceipt = (id: string) => {
     setConfirmingId(id);
@@ -147,12 +152,15 @@ function ServerInvoices() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ server: '', plan: '', amount: '', taxEnabled: true, start: '', duration: '', renewal: 'auto', status: 'active' });
 
-  const [invoices, setInvoices] = useState([
-    { id: '1', server: 'Supabase', plan: 'Pro', amount: 25, tax: 3.75, amountAfterTax: 28.75, start: '2026-01-01', duration: '12 months', end: '2027-01-01', renewal: 'auto', usage: 72, status: 'active' },
-    { id: '2', server: 'OpenAI', plan: 'Pay-as-you-go', amount: 180, tax: 27, amountAfterTax: 207, start: '2026-04-01', duration: '1 month', end: '2026-05-01', renewal: 'auto', usage: 85, status: 'active' },
-    { id: '3', server: 'Hostinger', plan: 'Business', amount: 45, tax: 6.75, amountAfterTax: 51.75, start: '2026-02-01', duration: '12 months', end: '2027-02-01', renewal: 'manual', usage: 45, status: 'active' },
-    { id: '4', server: 'Resend', plan: 'Pro', amount: 20, tax: 3, amountAfterTax: 23, start: '2026-03-01', duration: '1 month', end: '2026-04-01', renewal: 'auto', usage: 38, status: 'expired' },
-  ]);
+  const [invoices, setInvoices] = useState<typeof MOCK_SERVERS>(MOCK_SERVERS);
+
+  useEffect(() => {
+    let alive = true;
+    fetchServerInvoices()
+      .then(rows => { if (alive) setInvoices(rows); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const openNew = () => { setEditId(null); setForm({ server: '', plan: '', amount: '', taxEnabled: true, start: '', duration: '', renewal: 'auto', status: 'active' }); setShowForm(true); };
   const openEdit = (inv: typeof invoices[0]) => {
@@ -275,11 +283,15 @@ function OtherInvoices() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', vendor: '', details: '', amount: '', taxEnabled: true, date: '', invoiceNumber: '', status: 'unpaid' });
 
-  const [invoices, setInvoices] = useState([
-    { id: '1', name: 'Design Services', vendor: 'Creative Agency', details: 'Dashboard UI/UX design', amount: 5000, tax: 750, amountAfterTax: 5750, date: '2026-04-01', invoiceNumber: 'INV-2026-001', status: 'paid' },
-    { id: '2', name: 'Marketing Campaign', vendor: 'Digital Marketing Co', details: 'Q2 marketing campaign', amount: 3000, tax: 450, amountAfterTax: 3450, date: '2026-04-10', invoiceNumber: 'INV-2026-002', status: 'unpaid' },
-    { id: '3', name: 'Legal Consultation', vendor: 'Law Firm', details: 'Terms & privacy review', amount: 2000, tax: 300, amountAfterTax: 2300, date: '2026-03-15', invoiceNumber: 'INV-2026-003', status: 'paid' },
-  ]);
+  const [invoices, setInvoices] = useState<typeof MOCK_OTHER>(MOCK_OTHER);
+
+  useEffect(() => {
+    let alive = true;
+    fetchOtherInvoices()
+      .then(rows => { if (alive) setInvoices(rows); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const openNew = () => { setEditId(null); setForm({ name: '', vendor: '', details: '', amount: '', taxEnabled: true, date: '', invoiceNumber: '', status: 'unpaid' }); setShowForm(true); };
   const openEdit = (inv: typeof invoices[0]) => {

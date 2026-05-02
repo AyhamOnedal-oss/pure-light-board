@@ -12,6 +12,7 @@ import {
   syncPlatformCampaigns, refreshMetrics, timeAgo,
   fmtNum, fmtMoney,
 } from './adAutomationData';
+import { fetchAdPlatforms, fetchAdCampaigns } from '../../services/adminAdAutomation';
 import { Eye as EyeIcon, EyeOff } from 'lucide-react';
 import { AdAutomationAnalytics } from './AdAutomationAnalytics';
 import { PLATFORM_ICONS, PlatformIcon } from './platformIcons';
@@ -43,6 +44,23 @@ export function AdAutomationPage() {
   const navigate = useNavigate();
   const [platforms, setPlatforms] = useState<Platform[]>(loadPlatforms());
   const [campaigns, setCampaigns] = useState<Campaign[]>(loadCampaigns());
+
+  // Hydrate from Supabase on mount; falls back to localStorage cache when DB
+  // returns no rows (so mock-driven flows keep working).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [dbPlatforms, dbCampaigns] = await Promise.all([
+        fetchAdPlatforms(),
+        fetchAdCampaigns(),
+      ]);
+      if (!alive) return;
+      if (dbPlatforms && dbPlatforms.length > 0) setPlatforms(dbPlatforms);
+      if (dbCampaigns && dbCampaigns.length > 0) setCampaigns(dbCampaigns);
+    })();
+    return () => { alive = false; };
+  }, []);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);

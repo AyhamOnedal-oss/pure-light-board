@@ -5,29 +5,9 @@ import { motion } from 'motion/react';
 import { Search, Filter, ChevronDown, Eye, LogIn, X } from 'lucide-react';
 import { PlatformIcon } from './platformIcons';
 import { loadCustomers, reconcileCustomers, PipelineCustomer } from './pipelineData';
+import { fetchAdminCustomers, MOCK_CUSTOMERS, type AdminCustomerRow } from '../../services/adminCustomers';
 
-interface Customer {
-  id: string;
-  name: string; nameAr: string;
-  email: string; phone: string;
-  platform: 'Zid' | 'Salla';
-  plan: string; planAr: string;
-  usagePercent: number;
-  words: number; totalWords: number;
-  status: 'active' | 'inactive' | 'cancelled';
-  logo: string;
-}
-
-const mockCustomers: Customer[] = [
-  { id: '1', name: 'Elegant Store', nameAr: 'متجر أنيق', email: 'info@elegant.sa', phone: '+966501234567', platform: 'Zid', plan: 'Professional', planAr: 'احترافي', usagePercent: 72, words: 46800, totalWords: 65000, status: 'active', logo: 'ES' },
-  { id: '2', name: 'Fashion Hub', nameAr: 'مركز الموضة', email: 'hello@fashion.sa', phone: '+966507654321', platform: 'Salla', plan: 'Basic', planAr: 'أساسي', usagePercent: 45, words: 14400, totalWords: 32000, status: 'active', logo: 'FH' },
-  { id: '3', name: 'Tech Galaxy', nameAr: 'مجرة التقنية', email: 'support@tech.sa', phone: '+966509876543', platform: 'Zid', plan: 'Business', planAr: 'أعمال', usagePercent: 88, words: 105600, totalWords: 120000, status: 'active', logo: 'TG' },
-  { id: '4', name: 'Home Decor', nameAr: 'ديكور المنزل', email: 'info@homedecor.sa', phone: '+966502345678', platform: 'Salla', plan: 'Economy', planAr: 'اقتصادي', usagePercent: 30, words: 4500, totalWords: 15000, status: 'active', logo: 'HD' },
-  { id: '5', name: 'Sweet Treats', nameAr: 'حلويات لذيذة', email: 'order@sweet.sa', phone: '+966503456789', platform: 'Zid', plan: 'Professional', planAr: 'احترافي', usagePercent: 0, words: 0, totalWords: 65000, status: 'inactive', logo: 'ST' },
-  { id: '6', name: 'Auto Parts', nameAr: 'قطع غيار', email: 'sales@auto.sa', phone: '+966504567890', platform: 'Salla', plan: 'Basic', planAr: 'أساسي', usagePercent: 15, words: 4800, totalWords: 32000, status: 'cancelled', logo: 'AP' },
-  { id: '7', name: 'Book World', nameAr: 'عالم الكتب', email: 'contact@book.sa', phone: '+966505678901', platform: 'Zid', plan: 'Economy', planAr: 'اقتصادي', usagePercent: 92, words: 13800, totalWords: 15000, status: 'active', logo: 'BW' },
-  { id: '8', name: 'Pet Care', nameAr: 'عناية الحيوانات', email: 'info@petcare.sa', phone: '+966506789012', platform: 'Salla', plan: 'Business', planAr: 'أعمال', usagePercent: 55, words: 66000, totalWords: 120000, status: 'active', logo: 'PC' },
-];
+type Customer = AdminCustomerRow;
 
 export function AdminCustomers() {
   const { t, language } = useApp();
@@ -40,6 +20,15 @@ export function AdminCustomers() {
   const [pipelineCustomers, setPipelineCustomers] = useState<PipelineCustomer[]>(
     () => reconcileCustomers(loadCustomers())
   );
+  const [dbCustomers, setDbCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAdminCustomers()
+      .then(rows => { if (alive) setDbCustomers(rows); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Re-sync whenever the window regains focus so that changes made in the
   // Pipeline page (status transitions, new subscribers, cancellations) appear
@@ -94,8 +83,8 @@ export function AdminCustomers() {
           logo: p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'CU',
         };
       });
-    return [...mapped, ...mockCustomers];
-  }, [pipelineCustomers]);
+    return [...mapped, ...dbCustomers];
+  }, [pipelineCustomers, dbCustomers]);
 
   const filtered = combined.filter(c => {
     const q = search.toLowerCase();
