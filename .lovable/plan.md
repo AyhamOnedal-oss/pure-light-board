@@ -1,54 +1,39 @@
-## Root cause
+## Problem
 
-Zid only supports **Authorization Code OAuth** (confirmed from docs.zid.sa/authorization). There is no "easy mode".
+OAuth token exchange now succeeds (we got past the Zid authorize screen and back to our callback with a `code`), but the callback redirects with `zid_error=no_store_uuid`. That means:
 
-Your Zid Partner Dashboard has the **App URL** pointing at the OAuth callback. When a merchant clicks "Subscribe" in the App Market, Zid opens the App URL *with no `?code`* — it's just "launch app", not an OAuth redirect. Our callback then hits its "no code" branch and bounces to `?zid_error=missing_code`. The actual OAuth `/oauth/authorize` step never ran.
+1. The `code → token` POST to `https://oauth.zid.sa/oauth/token` worked.
+2. We then call `GET https://api.zid.sa/v1/managers/account/profile` with the returned tokens.
+3. We can't find `store.uuid` in the response and bail out.
 
-## Fix (two parts)
+The `zid_events` table has no row capturing what the profile endpoint actually returned, so we're guessing at the shape. We need to log it.
 
-### Part A — Code change: add a public install entry point
+## Fix
 
-Create a new edge function `zid-oauth-install` that:
-1. Reads optional `state` from query (tenant_id if present).
-2. Builds the Zid authorize URL:
-   ```
-   https://oauth.zid.sa/oauth/authorize
-     ?client_id=<ZID_CLIENT_ID>
-     &redirect_uri=<SUPABASE_URL>/functions/v1/zid-oauth-callback
-     &response_type=code
-     &state=<state>
-   ```
-3. 302-redirects the browser there.
+Update `supabase/functions/zid-oauth-callback/index.ts`:
 
-This becomes the new **App URL** in the Partner Dashboard. From the merchant's perspective: click Subscribe → Zid opens our install function → instantly bounced to `/oauth/authorize` → approve → back to our callback with `?code` → tokens exchanged → upserted into `zid_connections` → redirect to login/dashboard.
+1. **Always log the profile response** (status + JSON body, truncated) to `zid_events` as `oauth.profile_response` BEFORE deciding to bail. This gives us ground truth about what Zid sends back.
 
-Also: improve the callback's `missing_code` redirect to land on a public, non-auth-gated page that explains the issue (right now `/dashboard/settings/store` 404s/redirects to login because the user isn't signed in yet).
+2. **Also log the token response shape** (keys only, never values) as `oauth.token_response_keys` so we can confirm we picked the right `authorization` / `manager_token` fields.
 
-### Part B — You update the Zid Partner Dashboard
+3. **Broaden `store_uuid` extraction** to walk the response and pick up any of these common Zid shapes:
+   - `user.store.uuid`
+   - `data.user.store.uuid`
+   - `data.store.uuid`
+   - `store.uuid`
+   - `uuid` at root if it looks like a store object
+   - `data.uuid`
 
-After I deploy the install function, change in https://partner.zid.sa → your app:
+4. **Add a fallback endpoint**: if the profile call returns 200 but we still can't find a uuid, call `GET https://api.zid.sa/v1/managers/store/info` (or `/v1/store`, depending on what the logged response suggests) using the same Bearer + `X-Manager-Token` headers, and try the same extraction there.
 
-1. **App URL** → set to:
-   ```
-   https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-install
-   ```
-2. **Redirect URL (callback)** → keep as:
-   ```
-   https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-callback
-   ```
-3. **Scopes** → tick the ones your app needs (orders, products, etc.).
-4. Save & republish the app version.
-5. Uninstall from your dev store, click Subscribe again — this time you'll see the Zid permissions screen, then land in our app connected.
+5. **Soft-fail instead of hard-fail when we have tokens but no uuid yet**: still upsert the connection row keyed on the tokens (without store_uuid) into a temporary record, but for now keep the redirect to the error page so we can see the new event log.
 
-## Files I'll touch
+## After deploy
 
-- **New**: `supabase/functions/zid-oauth-install/index.ts` (~30 lines, just builds URL and 302s).
-- **Edit**: `supabase/functions/zid-oauth-callback/index.ts` — change the `missing_code` redirect to a clearer public error URL, and log the no-code attempt to `zid_events` for debugging.
-- **Edit**: `supabase/config.toml` — register the new function (verify_jwt=false since it's public).
+You click تثبيت التطبيق again. Then I read the new `oauth.profile_response` row from `zid_events`, see the actual JSON Zid returned, and either confirm the broadened extraction worked or pinpoint the exact JSON path / endpoint we need.
 
-## What I'll verify after
+## Files
 
-1. `curl` the install function → confirm it 302s to oauth.zid.sa with correct params.
-2. After you reinstall on your dev store, check `zid-oauth-callback` logs for a real `?code=` hit, and confirm a row appears in `zid_connections` with `connection_status='connected'`.
+- `supabase/functions/zid-oauth-callback/index.ts` — add logging + broaden extraction + fallback endpoint.
 
-Approve and I'll implement.
+No DB schema changes, no client changes.
