@@ -51,8 +51,18 @@ Deno.serve(async (req) => {
       const data = payload.data ?? {};
       const accessToken = data.access_token ?? null;
       const refreshToken = data.refresh_token ?? null;
-      const expiresIn = Number(data.expires ?? data.expires_in ?? 0);
-      const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+      // Salla sends `expires` as an ABSOLUTE Unix timestamp (seconds since epoch),
+      // while standard OAuth `expires_in` is a duration in seconds. Handle both safely.
+      // Heuristic: any value > 10 years (~3.15e8 sec) is treated as an absolute epoch.
+      const rawExpires = Number(data.expires ?? data.expires_in ?? 0);
+      let expiresAt: string | null = null;
+      if (rawExpires > 0) {
+        const TEN_YEARS_SEC = 60 * 60 * 24 * 365 * 10;
+        const ms = rawExpires > TEN_YEARS_SEC
+          ? rawExpires * 1000 // absolute epoch seconds
+          : Date.now() + rawExpires * 1000; // duration in seconds
+        expiresAt = new Date(ms).toISOString();
+      }
 
       let storeName: string | null = null;
       let storeUrl: string | null = null;
