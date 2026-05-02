@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useParams } from 'react-router';
 import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
 import { Download, Calendar, ChevronDown, DollarSign, Users, Clock, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, AreaChart, Area } from 'recharts';
+import { fetchAdminReports, MOCK_REPORTS, type AdminReportsData } from '../../services/adminReports';
 
 const dateFilters = [
   { key: 'current_month', en: 'Current Month', ar: 'الشهر الحالي' },
@@ -13,38 +14,6 @@ const dateFilters = [
   { key: 'last_6', en: 'Last 6 Months', ar: 'آخر 6 أشهر' },
   { key: 'current_year', en: 'Current Year', ar: 'السنة الحالية' },
   { key: 'custom', en: 'Custom Range', ar: 'نطاق مخصص' },
-];
-
-// Mock plan data
-const zidPlans = [
-  { name: 'Trial', nameAr: 'تجريبي', price: 0, subscribers: 120, total: 0 },
-  { name: 'Economy', nameAr: 'اقتصادي', price: 99, subscribers: 185, total: 18315 },
-  { name: 'Basic', nameAr: 'أساسي', price: 199, subscribers: 165, total: 32835 },
-  { name: 'Professional', nameAr: 'احترافي', price: 399, subscribers: 112, total: 44688 },
-  { name: 'Business', nameAr: 'أعمال', price: 799, subscribers: 58, total: 46342 },
-];
-
-const sallaPlans = [
-  { name: 'Trial', nameAr: 'تجريبي', price: 0, subscribers: 95, total: 0 },
-  { name: 'Economy', nameAr: 'اقتصادي', price: 99, subscribers: 127, total: 12573 },
-  { name: 'Basic', nameAr: 'أساسي', price: 199, subscribers: 120, total: 23880 },
-  { name: 'Professional', nameAr: 'احترافي', price: 399, subscribers: 86, total: 34314 },
-  { name: 'Business', nameAr: 'أعمال', price: 799, subscribers: 39, total: 31161 },
-];
-
-const revenueByMonth = [
-  { name: 'Jan', nameAr: 'يناير', zid: 28000, salla: 22000 },
-  { name: 'Feb', nameAr: 'فبراير', zid: 31000, salla: 24000 },
-  { name: 'Mar', nameAr: 'مارس', zid: 35000, salla: 27000 },
-  { name: 'Apr', nameAr: 'أبريل', zid: 38000, salla: 29000 },
-  { name: 'May', nameAr: 'مايو', zid: 42000, salla: 32000 },
-  { name: 'Jun', nameAr: 'يونيو', zid: 45000, salla: 35000 },
-  { name: 'Jul', nameAr: 'يوليو', zid: 48000, salla: 37000 },
-  { name: 'Aug', nameAr: 'أغسطس', zid: 46000, salla: 36000 },
-  { name: 'Sep', nameAr: 'سبتمبر', zid: 50000, salla: 39000 },
-  { name: 'Oct', nameAr: 'أكتوبر', zid: 52000, salla: 41000 },
-  { name: 'Nov', nameAr: 'نوفمبر', zid: 55000, salla: 43000 },
-  { name: 'Dec', nameAr: 'ديسمبر', zid: 58000, salla: 45000 },
 ];
 
 function ReportTooltip({ active, payload, label, theme }: any) {
@@ -76,6 +45,19 @@ export function AdminReports() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [data, setData] = useState<AdminReportsData>(MOCK_REPORTS);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAdminReports()
+      .then(d => { if (alive) setData(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const zidPlans = data.zidPlans;
+  const sallaPlans = data.sallaPlans;
+  const revenueByMonth = data.revenueByMonth;
 
   const cardClass = "bg-card rounded-2xl border border-border p-5 shadow-sm";
   const tooltipStyle = { backgroundColor: theme === 'dark' ? '#1e293b' : '#fff', border: '1px solid var(--color-border)', borderRadius: '12px', fontSize: '12px' };
@@ -84,11 +66,19 @@ export function AdminReports() {
   const isZid = platform === 'zid';
   const isSalla = platform === 'salla';
 
-  const plans = isZid ? zidPlans : isSalla ? sallaPlans : zidPlans.map((z, i) => ({
-    ...z,
-    subscribers: z.subscribers + sallaPlans[i].subscribers,
-    total: z.total + sallaPlans[i].total,
-  }));
+  const plans = useMemo(() => {
+    if (isZid) return zidPlans;
+    if (isSalla) return sallaPlans;
+    // 'all' — combine by index, guarding against length mismatches
+    return zidPlans.map((z, i) => {
+      const s = sallaPlans[i];
+      return {
+        ...z,
+        subscribers: z.subscribers + (s?.subscribers ?? 0),
+        total: z.total + (s?.total ?? 0),
+      };
+    });
+  }, [zidPlans, sallaPlans, isZid, isSalla]);
 
   const totalSubs = plans.reduce((s, p) => s + p.subscribers, 0);
   const totalRevenue = plans.reduce((s, p) => s + p.total, 0);

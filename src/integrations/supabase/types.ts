@@ -14,6 +14,167 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_ad_campaigns: {
+        Row: {
+          clicks: number
+          content: string | null
+          conversions: number
+          created_at: string
+          end_date: string
+          id: string
+          impressions: number
+          last_sync: string | null
+          link: string | null
+          media_url: string | null
+          name: string
+          owner: string
+          platform_row_id: string
+          spend: number
+          start_date: string
+          status: Database["public"]["Enums"]["ad_campaign_status"]
+          type: Database["public"]["Enums"]["ad_campaign_type"]
+          updated_at: string
+        }
+        Insert: {
+          clicks?: number
+          content?: string | null
+          conversions?: number
+          created_at?: string
+          end_date?: string
+          id?: string
+          impressions?: number
+          last_sync?: string | null
+          link?: string | null
+          media_url?: string | null
+          name: string
+          owner?: string
+          platform_row_id: string
+          spend?: number
+          start_date?: string
+          status?: Database["public"]["Enums"]["ad_campaign_status"]
+          type?: Database["public"]["Enums"]["ad_campaign_type"]
+          updated_at?: string
+        }
+        Update: {
+          clicks?: number
+          content?: string | null
+          conversions?: number
+          created_at?: string
+          end_date?: string
+          id?: string
+          impressions?: number
+          last_sync?: string | null
+          link?: string | null
+          media_url?: string | null
+          name?: string
+          owner?: string
+          platform_row_id?: string
+          spend?: number
+          start_date?: string
+          status?: Database["public"]["Enums"]["ad_campaign_status"]
+          type?: Database["public"]["Enums"]["ad_campaign_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_ad_campaigns_platform_row_id_fkey"
+            columns: ["platform_row_id"]
+            isOneToOne: false
+            referencedRelation: "admin_ad_platforms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admin_ad_platforms: {
+        Row: {
+          account_id: string | null
+          account_name: string | null
+          added_at: string
+          connected: boolean
+          created_at: string
+          id: string
+          last_sync: string | null
+          platform_id: Database["public"]["Enums"]["ad_platform_id"]
+          updated_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          account_name?: string | null
+          added_at?: string
+          connected?: boolean
+          created_at?: string
+          id?: string
+          last_sync?: string | null
+          platform_id: Database["public"]["Enums"]["ad_platform_id"]
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          account_name?: string | null
+          added_at?: string
+          connected?: boolean
+          created_at?: string
+          id?: string
+          last_sync?: string | null
+          platform_id?: Database["public"]["Enums"]["ad_platform_id"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_customers_seed: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          logo_initials: string
+          phone: string | null
+          plan: string
+          plan_ar: string
+          platform: string
+          status: string
+          store_name: string
+          store_name_ar: string
+          total_words: number
+          updated_at: string
+          usage_percent: number
+          words: number
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          logo_initials: string
+          phone?: string | null
+          plan: string
+          plan_ar: string
+          platform: string
+          status: string
+          store_name: string
+          store_name_ar: string
+          total_words?: number
+          updated_at?: string
+          usage_percent?: number
+          words?: number
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          logo_initials?: string
+          phone?: string | null
+          plan?: string
+          plan_ar?: string
+          platform?: string
+          status?: string
+          store_name?: string
+          store_name_ar?: string
+          total_words?: number
+          updated_at?: string
+          usage_percent?: number
+          words?: number
+        }
+        Relationships: []
+      }
       admin_dash_customer_source: {
         Row: {
           count: number
@@ -320,6 +481,255 @@ export type Database = {
           updated_at?: string
           words?: number
           year?: number
+        }
+        Relationships: []
+      }
+      admin_invoices_other: {
+        Row: {
+          amount: number
+          amount_after_tax: number
+          created_at: string
+          details: string | null
+          id: string
+          invoice_date: string
+          invoice_number: string
+          name: string
+          status: Database["public"]["Enums"]["admin_invoice_status"]
+          tax: number
+          updated_at: string
+          vendor: string
+        }
+        Insert: {
+          amount?: number
+          amount_after_tax?: number
+          created_at?: string
+          details?: string | null
+          id?: string
+          invoice_date: string
+          invoice_number: string
+          name: string
+          status?: Database["public"]["Enums"]["admin_invoice_status"]
+          tax?: number
+          updated_at?: string
+          vendor: string
+        }
+        Update: {
+          amount?: number
+          amount_after_tax?: number
+          created_at?: string
+          details?: string | null
+          id?: string
+          invoice_date?: string
+          invoice_number?: string
+          name?: string
+          status?: Database["public"]["Enums"]["admin_invoice_status"]
+          tax?: number
+          updated_at?: string
+          vendor?: string
+        }
+        Relationships: []
+      }
+      admin_invoices_servers: {
+        Row: {
+          amount: number
+          amount_after_tax: number
+          created_at: string
+          duration: string | null
+          end_date: string | null
+          id: string
+          plan: string
+          renewal: string
+          server_name: string
+          start_date: string | null
+          status: Database["public"]["Enums"]["admin_invoice_status"]
+          tax: number
+          updated_at: string
+          usage_percent: number
+        }
+        Insert: {
+          amount?: number
+          amount_after_tax?: number
+          created_at?: string
+          duration?: string | null
+          end_date?: string | null
+          id?: string
+          plan: string
+          renewal?: string
+          server_name: string
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["admin_invoice_status"]
+          tax?: number
+          updated_at?: string
+          usage_percent?: number
+        }
+        Update: {
+          amount?: number
+          amount_after_tax?: number
+          created_at?: string
+          duration?: string | null
+          end_date?: string | null
+          id?: string
+          plan?: string
+          renewal?: string
+          server_name?: string
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["admin_invoice_status"]
+          tax?: number
+          updated_at?: string
+          usage_percent?: number
+        }
+        Relationships: []
+      }
+      admin_invoices_subscriptions: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          invoice_date: string
+          payment_date: string | null
+          plan: string
+          plan_ar: string
+          platform: string
+          status: Database["public"]["Enums"]["admin_invoice_status"]
+          store_name: string
+          store_name_ar: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          invoice_date: string
+          payment_date?: string | null
+          plan: string
+          plan_ar: string
+          platform: string
+          status?: Database["public"]["Enums"]["admin_invoice_status"]
+          store_name: string
+          store_name_ar: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          invoice_date?: string
+          payment_date?: string | null
+          plan?: string
+          plan_ar?: string
+          platform?: string
+          status?: Database["public"]["Enums"]["admin_invoice_status"]
+          store_name?: string
+          store_name_ar?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_reports_plans: {
+        Row: {
+          created_at: string
+          display_order: number
+          id: string
+          plan_key: string
+          plan_name: string
+          plan_name_ar: string
+          platform: string
+          price: number
+          subscribers: number
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          plan_key: string
+          plan_name: string
+          plan_name_ar: string
+          platform: string
+          price?: number
+          subscribers?: number
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          plan_key?: string
+          plan_name?: string
+          plan_name_ar?: string
+          platform?: string
+          price?: number
+          subscribers?: number
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_reports_revenue_monthly: {
+        Row: {
+          created_at: string
+          id: string
+          month: number
+          salla: number
+          updated_at: string
+          year: number
+          zid: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          month: number
+          salla?: number
+          updated_at?: string
+          year: number
+          zid?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          month?: number
+          salla?: number
+          updated_at?: string
+          year?: number
+          zid?: number
+        }
+        Relationships: []
+      }
+      admin_team_members: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          name: string
+          name_ar: string
+          permissions: string[]
+          phone: string | null
+          status: Database["public"]["Enums"]["admin_team_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          name: string
+          name_ar: string
+          permissions?: string[]
+          phone?: string | null
+          status?: Database["public"]["Enums"]["admin_team_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          name_ar?: string
+          permissions?: string[]
+          phone?: string | null
+          status?: Database["public"]["Enums"]["admin_team_status"]
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1198,6 +1608,23 @@ export type Database = {
         | "none"
       activity_status: "open" | "pending" | "resolved" | "trending" | "new"
       activity_type: "conversation" | "ticket" | "insight"
+      ad_campaign_status: "active" | "paused" | "done" | "draft"
+      ad_campaign_type: "image" | "video"
+      ad_platform_id:
+        | "tiktok"
+        | "snapchat"
+        | "instagram"
+        | "facebook"
+        | "google"
+      admin_invoice_status:
+        | "active"
+        | "inactive"
+        | "expired"
+        | "cancelled"
+        | "paid"
+        | "unpaid"
+        | "pending"
+      admin_team_status: "active" | "inactive"
       app_role: "super_admin" | "support"
       channel_kind:
         | "whatsapp"
@@ -1368,6 +1795,19 @@ export const Constants = {
       ],
       activity_status: ["open", "pending", "resolved", "trending", "new"],
       activity_type: ["conversation", "ticket", "insight"],
+      ad_campaign_status: ["active", "paused", "done", "draft"],
+      ad_campaign_type: ["image", "video"],
+      ad_platform_id: ["tiktok", "snapchat", "instagram", "facebook", "google"],
+      admin_invoice_status: [
+        "active",
+        "inactive",
+        "expired",
+        "cancelled",
+        "paid",
+        "unpaid",
+        "pending",
+      ],
+      admin_team_status: ["active", "inactive"],
       app_role: ["super_admin", "support"],
       channel_kind: [
         "whatsapp",

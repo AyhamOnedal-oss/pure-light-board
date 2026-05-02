@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
 import { Users, UserCheck, Plus, Edit, Trash2, Send, Ban, CheckCircle, X } from 'lucide-react';
+import { fetchTeamMembers, MOCK_TEAM, type AdminTeamMember } from '../../services/adminTeam';
 
 interface Employee {
   id: string;
@@ -64,16 +65,28 @@ function flattenLabel(key: string, language: 'en' | 'ar'): string {
   return walk(PERMISSION_TREE) || key;
 }
 
-const mockEmployees: Employee[] = [
-  { id: '1', name: 'Ahmed Hassan', nameAr: 'أحمد حسن', email: 'ahmed@samksa.ai', phone: '+966501111111', permissions: [...ALL_PERM_KEYS], status: 'active' },
-  { id: '2', name: 'Sara Mohammed', nameAr: 'سارة محمد', email: 'sara@samksa.ai', phone: '+966502222222', permissions: ['lists_management', 'customer_management', 'pipeline', 'customers', 'reports', 'reports_all'], status: 'active' },
-  { id: '3', name: 'Khalid Ali', nameAr: 'خالد علي', email: 'khalid@samksa.ai', phone: '+966503333333', permissions: ['lists_management', 'customer_management', 'pipeline'], status: 'inactive' },
-  { id: '4', name: 'Nora Ibrahim', nameAr: 'نورة إبراهيم', email: 'nora@samksa.ai', phone: '+966504444444', permissions: ['lists_management', 'reports', 'reports_all', 'billing', 'billing_subscriptions'], status: 'active' },
-];
+function rowToEmployee(r: AdminTeamMember): Employee {
+  return {
+    id: r.id, name: r.name, nameAr: r.name_ar,
+    email: r.email, phone: r.phone || '',
+    permissions: r.permissions, status: r.status,
+  };
+}
+
+const mockEmployees: Employee[] = MOCK_TEAM.map(rowToEmployee);
 
 export function AdminTeam() {
   const { t, language, showToast } = useApp();
   const [employees, setEmployees] = useState(mockEmployees);
+
+  useEffect(() => {
+    let alive = true;
+    fetchTeamMembers()
+      .then(rows => { if (alive) setEmployees(rows.map(rowToEmployee)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', nameAr: '', email: '', phone: '', permissions: [] as string[], status: 'active' as 'active' | 'inactive' });
