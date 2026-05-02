@@ -86,7 +86,12 @@ Deno.serve(async (req) => {
     // Zid returns inconsistent casing; normalize
     const authorizationToken =
       t.authorization ?? t.authorization_token ?? t.Authorization ?? t.access_token ?? null;
-    const managerToken = t.manager_token ?? t.Manager_Token ?? t.X_MANAGER_TOKEN ?? null;
+    const managerToken =
+      t.manager_token ??
+      t.Manager_Token ??
+      t.X_MANAGER_TOKEN ??
+      t.access_token ??
+      null;
     const refreshToken = t.refresh_token ?? null;
     const expiresIn = Number(t.expires_in ?? 0);
     const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
@@ -186,6 +191,14 @@ Deno.serve(async (req) => {
           event_data: { error: String(e) },
         });
       }
+    } else {
+      await supabase.from("zid_events").insert({
+        event_type: "oauth.profile_skipped",
+        event_data: {
+          has_authorization_token: !!authorizationToken,
+          has_manager_token: !!managerToken,
+        },
+      });
     }
 
     if (!storeUuid) {
