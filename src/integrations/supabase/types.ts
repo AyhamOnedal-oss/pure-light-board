@@ -1190,6 +1190,125 @@ export type Database = {
           },
         ]
       }
+      pending_salla_connections: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          status: string
+          tenant_id: string | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          tenant_id?: string | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          tenant_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      salla_connections: {
+        Row: {
+          access_token: string | null
+          connected_at: string | null
+          connection_status: string
+          created_at: string
+          id: string
+          is_active: boolean
+          merchant_id: number
+          metadata: Json
+          refresh_token: string | null
+          store_email: string | null
+          store_id: string | null
+          store_name: string | null
+          store_url: string | null
+          tenant_id: string | null
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token?: string | null
+          connected_at?: string | null
+          connection_status?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          merchant_id: number
+          metadata?: Json
+          refresh_token?: string | null
+          store_email?: string | null
+          store_id?: string | null
+          store_name?: string | null
+          store_url?: string | null
+          tenant_id?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string | null
+          connected_at?: string | null
+          connection_status?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          merchant_id?: number
+          metadata?: Json
+          refresh_token?: string | null
+          store_email?: string | null
+          store_id?: string | null
+          store_name?: string | null
+          store_url?: string | null
+          tenant_id?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salla_connections_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "settings_workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      salla_events: {
+        Row: {
+          created_at: string
+          event_data: Json
+          event_type: string
+          id: string
+          merchant_id: number | null
+          tenant_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_data?: Json
+          event_type: string
+          id?: string
+          merchant_id?: number | null
+          tenant_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_data?: Json
+          event_type?: string
+          id?: string
+          merchant_id?: number | null
+          tenant_id?: string | null
+        }
+        Relationships: []
+      }
       settings_account: {
         Row: {
           avatar_url: string | null
@@ -1225,56 +1344,101 @@ export type Database = {
       }
       settings_chat_design: {
         Row: {
+          allowed_countries: string[]
+          auto_open_delay: number
+          bubble_offset_x: number
+          bubble_offset_y: number
+          bubble_size: number
+          copy_enabled: boolean
           created_at: string
+          export_enabled: boolean
           id: string
           inactivity_close_seconds: number
           inactivity_enabled: boolean
           inactivity_prompt_seconds: number
+          input_placeholder: string
+          media_enabled: boolean
+          message_feedback_enabled: boolean
           position: string
           preview_mode: string
           primary_color: string
           rating_inactivity_seconds: number
+          ratings_enabled: boolean
+          show_branding: boolean
           tenant_id: string
+          theme_mode: string
+          tickets_enabled: boolean
           updated_at: string
           welcome_bubble_enabled: boolean
           welcome_bubble_line1: string
           welcome_bubble_line2: string
+          welcome_message: string
           widget_inner_color: string
           widget_outer_color: string
         }
         Insert: {
+          allowed_countries?: string[]
+          auto_open_delay?: number
+          bubble_offset_x?: number
+          bubble_offset_y?: number
+          bubble_size?: number
+          copy_enabled?: boolean
           created_at?: string
+          export_enabled?: boolean
           id?: string
           inactivity_close_seconds?: number
           inactivity_enabled?: boolean
           inactivity_prompt_seconds?: number
+          input_placeholder?: string
+          media_enabled?: boolean
+          message_feedback_enabled?: boolean
           position?: string
           preview_mode?: string
           primary_color?: string
           rating_inactivity_seconds?: number
+          ratings_enabled?: boolean
+          show_branding?: boolean
           tenant_id: string
+          theme_mode?: string
+          tickets_enabled?: boolean
           updated_at?: string
           welcome_bubble_enabled?: boolean
           welcome_bubble_line1?: string
           welcome_bubble_line2?: string
+          welcome_message?: string
           widget_inner_color?: string
           widget_outer_color?: string
         }
         Update: {
+          allowed_countries?: string[]
+          auto_open_delay?: number
+          bubble_offset_x?: number
+          bubble_offset_y?: number
+          bubble_size?: number
+          copy_enabled?: boolean
           created_at?: string
+          export_enabled?: boolean
           id?: string
           inactivity_close_seconds?: number
           inactivity_enabled?: boolean
           inactivity_prompt_seconds?: number
+          input_placeholder?: string
+          media_enabled?: boolean
+          message_feedback_enabled?: boolean
           position?: string
           preview_mode?: string
           primary_color?: string
           rating_inactivity_seconds?: number
+          ratings_enabled?: boolean
+          show_branding?: boolean
           tenant_id?: string
+          theme_mode?: string
+          tickets_enabled?: boolean
           updated_at?: string
           welcome_bubble_enabled?: boolean
           welcome_bubble_line1?: string
           welcome_bubble_line2?: string
+          welcome_message?: string
           widget_inner_color?: string
           widget_outer_color?: string
         }
@@ -1372,8 +1536,10 @@ export type Database = {
           name: string
           plan: string
           platform: Database["public"]["Enums"]["tenant_platform"]
+          salla_merchant_id: number | null
           status: Database["public"]["Enums"]["tenant_status"]
           updated_at: string
+          zid_store_uuid: string | null
         }
         Insert: {
           created_at?: string
@@ -1386,8 +1552,10 @@ export type Database = {
           name: string
           plan?: string
           platform?: Database["public"]["Enums"]["tenant_platform"]
+          salla_merchant_id?: number | null
           status?: Database["public"]["Enums"]["tenant_status"]
           updated_at?: string
+          zid_store_uuid?: string | null
         }
         Update: {
           created_at?: string
@@ -1400,8 +1568,10 @@ export type Database = {
           name?: string
           plan?: string
           platform?: Database["public"]["Enums"]["tenant_platform"]
+          salla_merchant_id?: number | null
           status?: Database["public"]["Enums"]["tenant_status"]
           updated_at?: string
+          zid_store_uuid?: string | null
         }
         Relationships: []
       }
@@ -1572,6 +1742,98 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      zid_connections: {
+        Row: {
+          authorization_token: string | null
+          connected_at: string | null
+          connection_status: string
+          created_at: string
+          id: string
+          is_active: boolean
+          manager_token: string | null
+          metadata: Json
+          refresh_token: string | null
+          store_email: string | null
+          store_name: string | null
+          store_url: string | null
+          store_uuid: string
+          tenant_id: string | null
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          authorization_token?: string | null
+          connected_at?: string | null
+          connection_status?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          manager_token?: string | null
+          metadata?: Json
+          refresh_token?: string | null
+          store_email?: string | null
+          store_name?: string | null
+          store_url?: string | null
+          store_uuid: string
+          tenant_id?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          authorization_token?: string | null
+          connected_at?: string | null
+          connection_status?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          manager_token?: string | null
+          metadata?: Json
+          refresh_token?: string | null
+          store_email?: string | null
+          store_name?: string | null
+          store_url?: string | null
+          store_uuid?: string
+          tenant_id?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zid_connections_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "settings_workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      zid_events: {
+        Row: {
+          created_at: string
+          event_data: Json
+          event_type: string
+          id: string
+          store_uuid: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_data?: Json
+          event_type: string
+          id?: string
+          store_uuid?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_data?: Json
+          event_type?: string
+          id?: string
+          store_uuid?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: []
       }
     }
     Views: {
