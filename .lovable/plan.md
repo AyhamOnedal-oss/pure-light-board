@@ -1,39 +1,55 @@
-## Problem
+## Goal
 
-OAuth token exchange now succeeds (we got past the Zid authorize screen and back to our callback with a `code`), but the callback redirects with `zid_error=no_store_uuid`. That means:
+After a merchant installs on Zid or Salla, auto-create their Supabase auth account using the **store email** from the platform, generate a random password, email it via **Resend**, and on first login link the existing connection row to their tenant.
 
-1. The `code → token` POST to `https://oauth.zid.sa/oauth/token` worked.
-2. We then call `GET https://api.zid.sa/v1/managers/account/profile` with the returned tokens.
-3. We can't find `store.uuid` in the response and bail out.
+## Flow (identical for Zid & Salla)
 
-The `zid_events` table has no row capturing what the profile endpoint actually returned, so we're guessing at the shape. We need to log it.
+```text
+Merchant clicks Install on Zid/Salla
+  → OAuth callback exchanges code, fetches profile (already working)
+  → upsert {store_uuid/store_id, store_email, tokens} into connections table
+  → IF store_email present and tenant not yet linked:
+      a. Look up auth.users by email
+      b. If new: generate 16-char password
+                 admin.createUser({ email, password, email_confirm: true,
+                   user_metadata: { display_name: storeName, source: platform } })
+                 (handle_new_user trigger auto-creates tenant + membership)
+      c. Resolve user's tenant from auth_tenant_members
+      d. Update connection row with tenant_id; update settings_workspace
+         with platform + store_uuid/store_id
+      e. Send Resend email:
+         - new user → "Your {Zid|Salla} store is connected. Login: {email} / Temporary password: {pw}"
+         - existing user → "Your {Zid|Salla} store has been linked to your account."
+  → Redirect to /login?from={zid|salla}&email={store_email}
 
-## Fix
+On /login:
+  → Pre-fill email from ?email= param
+  → Show banner: "We've emailed your login details to {email}"
+  → Standard signInWithPassword → /dashboard
+```
 
-Update `supabase/functions/zid-oauth-callback/index.ts`:
+## Changes
 
-1. **Always log the profile response** (status + JSON body, truncated) to `zid_events` as `oauth.profile_response` BEFORE deciding to bail. This gives us ground truth about what Zid sends back.
+1. **New shared module** `supabase/functions/_shared/provision-merchant.ts`
+   - `provisionMerchantAccount({ email, platform, storeName })` → `{ tenantId, isNewUser, generatedPassword? }`
+   - Uses `auth.admin.listUsers` (filter by email), `auth.admin.createUser`
+   - Reads tenant from `auth_tenant_members` (most recent owned)
 
-2. **Also log the token response shape** (keys only, never values) as `oauth.token_response_keys` so we can confirm we picked the right `authorization` / `manager_token` fields.
+2. **New shared module** `supabase/functions/_shared/send-resend-email.ts`
+   - Thin `fetch` wrapper to `https://api.resend.com/emails`
+   - Two templates baked in: `merchant_welcome_new`, `merchant_store_linked`
+   - Bilingual (EN + AR) body matching the app's brand
 
-3. **Broaden `store_uuid` extraction** to walk the response and pick up any of these common Zid shapes:
-   - `user.store.uuid`
-   - `data.user.store.uuid`
-   - `data.store.uuid`
-   - `store.uuid`
-   - `uuid` at root if it looks like a store object
-   - `data.uuid`
+3. **`zid-oauth-callback/index.ts`** — after upsert when `tenantId` is null and `storeEmail` is set, call `provisionMerchantAccount`, update the connection's `tenant_id`, update `settings_workspace`, send email, redirect to `/login?from=zid&email=…`.
 
-4. **Add a fallback endpoint**: if the profile call returns 200 but we still can't find a uuid, call `GET https://api.zid.sa/v1/managers/store/info` (or `/v1/store`, depending on what the logged response suggests) using the same Bearer + `X-Manager-Token` headers, and try the same extraction there.
+4. **`salla-oauth-webhook/index.ts`** — same wiring (uses `salla_connections.store_id`).
 
-5. **Soft-fail instead of hard-fail when we have tokens but no uuid yet**: still upsert the connection row keyed on the tokens (without store_uuid) into a temporary record, but for now keep the redirect to the error page so we can see the new event log.
+5. **`src/app/components/LoginPage.tsx`** — read `?email=` and `?from=` from query string; pre-fill email field; show a one-line banner above the form when `from=zid|salla`.
 
-## After deploy
+6. **Secrets** — add `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (e.g. `noreply@yourdomain.com`).
 
-You click تثبيت التطبيق again. Then I read the new `oauth.profile_response` row from `zid_events`, see the actual JSON Zid returned, and either confirm the broadened extraction worked or pinpoint the exact JSON path / endpoint we need.
+## Open question
 
-## Files
+What "from" address should I use for the Resend email? It must be on a domain you've **verified in Resend** (you mentioned you already have your domain set up). Example: `noreply@fuqah.ai` or `hello@yourdomain.com`.
 
-- `supabase/functions/zid-oauth-callback/index.ts` — add logging + broaden extraction + fallback endpoint.
-
-No DB schema changes, no client changes.
+Once you approve, I'll ask you to add `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as secrets, then implement.
