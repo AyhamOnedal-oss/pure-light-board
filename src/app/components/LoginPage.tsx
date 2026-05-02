@@ -9,7 +9,11 @@ export function LoginPage() {
   const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, roleLoading } = useApp();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
-  const [email, setEmail] = useState('');
+  // Pre-fill email when arriving from Zid/Salla install flow.
+  const initialQuery = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const fromPlatform = initialQuery?.get('from') ?? '';
+  const prefillEmail = initialQuery?.get('email') ?? '';
+  const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -137,6 +141,14 @@ export function LoginPage() {
           {/* LOGIN VIEW */}
           {view === 'login' && (
             <form onSubmit={handleLogin} className="space-y-5">
+              {(fromPlatform === 'zid' || fromPlatform === 'salla') && prefillEmail && (
+                <div className="rounded-xl border border-[#043CC8]/30 bg-[#043CC8]/5 p-3 text-[12.5px] text-foreground/80 leading-relaxed">
+                  {t(
+                    `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store is connected. We've emailed your login details to ${prefillEmail}. Check your inbox (and spam folder).`,
+                    `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'}. أرسلنا بيانات الدخول إلى ${prefillEmail}. يرجى مراجعة بريدك الوارد (والبريد المزعج).`
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-[13px] mb-2 text-muted-foreground">
                   {t('Email Address', 'البريد الإلكتروني')}
