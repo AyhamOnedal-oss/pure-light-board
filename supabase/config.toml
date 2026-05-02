@@ -1,1 +1,22 @@
 project_id = "kdrcgusinkqgwaafcgnw"
+
+[functions.salla-oauth-webhook]
+verify_jwt = false
+
+[functions.zid-oauth-callback]
+verify_jwt = false
+
+[functions.zid-oauth-webhook]
+verify_jwt = false
+
+[functions.widget-loader]
+verify_jwt = false
+
+[functions.widget-resolve]
+verify_jwt = false
+
+[functions.widget-config]
+verify_jwt = false
+
+[functions.widget-events]
+verify_jwt = false

@@ -13,6 +13,7 @@ import { TestChat } from './components/settings/TestChat';
 import { AccountSettings } from './components/settings/AccountSettings';
 import { StoreInfo } from './components/settings/StoreInfo';
 import { PlansPage } from './components/settings/PlansPage';
+import { Connections } from './components/settings/Connections';
 import { AdminLayout } from './components/admin/AdminLayout';
 import { AdminLoginPage } from './components/admin/AdminLoginPage';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
       { path: 'settings/account', element: <AccountSettings /> },
       { path: 'settings/store', element: <StoreInfo /> },
       { path: 'settings/plans', element: <PlansPage /> },
+      { path: 'settings/connections', element: <Connections /> },
     ],
   },
   {
