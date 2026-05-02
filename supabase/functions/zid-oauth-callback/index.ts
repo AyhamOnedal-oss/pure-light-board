@@ -16,6 +16,17 @@ function redirect(to: string) {
   return new Response(null, { status: 302, headers: { Location: to, ...corsHeaders } });
 }
 
+function redirectToZidAuthorize(state: string | null) {
+  const clientId = Deno.env.get("ZID_CLIENT_ID") ?? "";
+  const redirectUri = `${Deno.env.get("SUPABASE_URL")}/functions/v1/zid-oauth-callback`;
+  const authorizeUrl = new URL("https://oauth.zid.sa/oauth/authorize");
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("client_id", clientId);
+  authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+  if (state) authorizeUrl.searchParams.set("state", state);
+  return redirect(authorizeUrl.toString());
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -35,12 +46,13 @@ Deno.serve(async (req) => {
     await supabase.from("zid_events").insert({
       event_type: "oauth.callback_no_code",
       event_data: {
+        action: "redirected_to_authorize",
         query: Object.fromEntries(url.searchParams.entries()),
         ua: req.headers.get("user-agent"),
         referer: req.headers.get("referer"),
       },
     });
-    return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=missing_code`);
+    return redirectToZidAuthorize(state);
   }
 
   const clientId = Deno.env.get("ZID_CLIENT_ID") ?? "";

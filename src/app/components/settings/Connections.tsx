@@ -54,16 +54,7 @@ export function Connections() {
   }, [tenantId]);
 
   const handleConnectZid = () => {
-    const clientId = import.meta.env.VITE_ZID_CLIENT_ID as string | undefined;
-    const redirectUri = `${SUPABASE_URL}/functions/v1/zid-oauth-callback`;
-    if (!clientId) {
-      alert(t('Zid Client ID not configured', 'لم يتم تكوين معرف عميل زد'));
-      return;
-    }
-    const url = new URL('https://oauth.zid.sa/oauth/authorize');
-    url.searchParams.set('response_type', 'code');
-    url.searchParams.set('client_id', clientId);
-    url.searchParams.set('redirect_uri', redirectUri);
+    const url = new URL(`${SUPABASE_URL}/functions/v1/zid-oauth-install`);
     if (tenantId) url.searchParams.set('state', tenantId);
     window.location.href = url.toString();
   };
