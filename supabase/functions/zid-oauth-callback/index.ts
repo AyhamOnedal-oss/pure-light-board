@@ -25,9 +25,21 @@ Deno.serve(async (req) => {
   const error = url.searchParams.get("error");
 
   if (error) {
+    await supabase.from("zid_events").insert({
+      event_type: "oauth.callback_error",
+      event_data: { error, query: Object.fromEntries(url.searchParams.entries()) },
+    });
     return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=${encodeURIComponent(error)}`);
   }
   if (!code) {
+    await supabase.from("zid_events").insert({
+      event_type: "oauth.callback_no_code",
+      event_data: {
+        query: Object.fromEntries(url.searchParams.entries()),
+        ua: req.headers.get("user-agent"),
+        referer: req.headers.get("referer"),
+      },
+    });
     return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=missing_code`);
   }
 
