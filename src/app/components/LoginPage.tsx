@@ -13,6 +13,7 @@ export function LoginPage() {
   const initialQuery = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const fromPlatform = initialQuery?.get('from') ?? '';
   const prefillEmail = initialQuery?.get('email') ?? '';
+  const fromStatus = initialQuery?.get('status') ?? '';
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -142,11 +143,31 @@ export function LoginPage() {
           {view === 'login' && (
             <form onSubmit={handleLogin} className="space-y-5">
               {(fromPlatform === 'zid' || fromPlatform === 'salla') && prefillEmail && (
-                <div className="rounded-xl border border-[#043CC8]/30 bg-[#043CC8]/5 p-3 text-[12.5px] text-foreground/80 leading-relaxed">
-                  {t(
-                    `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store is connected. We've emailed your login details to ${prefillEmail}. Check your inbox (and spam folder).`,
-                    `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'}. أرسلنا بيانات الدخول إلى ${prefillEmail}. يرجى مراجعة بريدك الوارد (والبريد المزعج).`
-                  )}
+                <div className="rounded-xl border border-[#043CC8]/30 bg-[#043CC8]/5 p-3 text-[12.5px] text-foreground/80 leading-relaxed space-y-2">
+                  <div>
+                    {fromStatus === 'linked'
+                      ? t(
+                          `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store has been linked to your existing account (${prefillEmail}). Sign in with your existing password.`,
+                          `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بحسابك الحالي (${prefillEmail}). سجّل الدخول بكلمة المرور الخاصة بك.`,
+                        )
+                      : t(
+                          `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store is connected. We've emailed a temporary password to ${prefillEmail}. Check your inbox (and spam folder), then sign in.`,
+                          `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'}. أرسلنا كلمة مرور مؤقتة إلى ${prefillEmail}. يرجى مراجعة بريدك الوارد (والبريد المزعج) ثم تسجيل الدخول.`,
+                        )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setForgotEmail(prefillEmail);
+                      await sendPasswordReset(prefillEmail);
+                      setForgotSuccess(true);
+                      setView('forgot');
+                    }}
+                    className="text-[#043CC8] hover:underline text-[12px]"
+                  >
+                    {t("Didn't receive the email? Send a password reset link",
+                       'لم يصلك البريد؟ أرسل رابط إعادة تعيين كلمة المرور')}
+                  </button>
                 </div>
               )}
               <div>
