@@ -3,6 +3,7 @@
 // We exchange code for tokens, fetch store info, upsert zid_connections, then redirect.
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders } from "../_shared/cors.ts";
+import { provisionMerchantAccount } from "../_shared/provision-merchant.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -241,6 +242,47 @@ Deno.serve(async (req) => {
         .eq("id", tenantId);
     }
 
+    // Auto-provision merchant account if we have an email but no tenant yet.
+    if (!tenantId && storeEmail) {
+      try {
+        const result = await provisionMerchantAccount({
+          email: storeEmail,
+          platform: "zid",
+          storeName: storeName,
+          appBaseUrl: APP_BASE_URL,
+        });
+        await supabase.from("zid_events").insert({
+          store_uuid: storeUuid,
+          event_type: "oauth.provision_merchant",
+          event_data: {
+            email: storeEmail,
+            is_new_user: result.isNewUser,
+            email_sent: result.emailSent,
+            email_error: result.emailError ?? null,
+            tenant_resolved: !!result.tenantId,
+          },
+        });
+        if (result.tenantId) {
+          tenantId = result.tenantId;
+          await supabase
+            .from("zid_connections")
+            .update({ tenant_id: tenantId })
+            .eq("store_uuid", storeUuid);
+          await supabase
+            .from("settings_workspace")
+            .update({ zid_store_uuid: storeUuid, platform: "zid" })
+            .eq("id", tenantId);
+        }
+      } catch (e) {
+        console.error("zid-callback: provision failed", e);
+        await supabase.from("zid_events").insert({
+          store_uuid: storeUuid,
+          event_type: "oauth.provision_error",
+          event_data: { error: String(e) },
+        });
+      }
+    }
+
     await supabase.from("zid_events").insert({
       store_uuid: storeUuid,
       tenant_id: tenantId,
@@ -252,7 +294,7 @@ Deno.serve(async (req) => {
       return redirect(`${APP_BASE_URL}/dashboard/settings/store?connected=zid`);
     }
     return redirect(
-      `${APP_BASE_URL}/login?from=zid&store_uuid=${encodeURIComponent(storeUuid)}`,
+      `${APP_BASE_URL}/login?from=zid&email=${encodeURIComponent(storeEmail ?? "")}&store_uuid=${encodeURIComponent(storeUuid)}`,
     );
   } catch (e) {
     console.error("zid-callback: error", e);
