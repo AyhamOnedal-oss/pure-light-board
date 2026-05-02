@@ -5,7 +5,7 @@ import { ToastContainer } from './ToastContainer';
 import {
   LayoutDashboard, Users, MessageSquare, Ticket, Settings,
   ChevronDown, ChevronRight, Brain, CreditCard, User,
-  Globe, Moon, Sun, Bell, Menu, X, Paintbrush, MessageCircle, Store,
+  Globe, Moon, Sun, Bell, Menu, X, Paintbrush, MessageCircle, Store, Plug,
   LogOut, ChevronUp
 } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
@@ -84,6 +84,7 @@ export function Layout() {
     { to: '/dashboard/settings/plans', icon: CreditCard, label: t('Plans', 'الخطط'), key: 'settings_plans' as PermissionKey },
     { to: '/dashboard/settings/account', icon: User, label: t('Account', 'الحساب'), key: 'settings_account' as PermissionKey },
     { to: '/dashboard/settings/store', icon: Store, label: t('Store Info', 'معلومات المتجر'), key: 'settings_store' as PermissionKey },
+    { to: '/dashboard/settings/connections', icon: Plug, label: t('Connections', 'الاتصالات'), key: 'settings_store' as PermissionKey },
   ];
 
   const canSettings = userPerms === 'all' ? true : !!(userPerms as MemberPermissions).settings;
