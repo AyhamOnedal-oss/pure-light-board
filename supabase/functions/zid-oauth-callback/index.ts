@@ -191,14 +191,15 @@ Deno.serve(async (req) => {
           event_data: { error: String(e) },
         });
       }
+    } else {
+      await supabase.from("zid_events").insert({
+        event_type: "oauth.profile_skipped",
+        event_data: {
+          has_authorization_token: !!authorizationToken,
+          has_manager_token: !!managerToken,
+        },
+      });
     }
-    await supabase.from("zid_events").insert({
-      event_type: "oauth.profile_skipped",
-      event_data: {
-        has_authorization_token: !!authorizationToken,
-        has_manager_token: !!managerToken,
-      },
-    });
 
     if (!storeUuid) {
       console.error("zid-callback: could not resolve store_uuid");
