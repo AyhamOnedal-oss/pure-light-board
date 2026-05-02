@@ -17,12 +17,16 @@ Deno.serve(async (req) => {
   const signature = req.headers.get("x-salla-signature") ?? "";
   const secret = Deno.env.get("SALLA_WEBHOOK_SECRET") ?? "";
 
-  if (secret) {
+  // Only enforce HMAC when Salla actually sends a signature header.
+  // Salla's "None" security strategy sends no header — accept those too.
+  if (secret && signature) {
     const expected = await hmacSha256Hex(secret, rawBody);
-    if (!signature || !timingSafeEqualHex(signature.toLowerCase(), expected.toLowerCase())) {
+    if (!timingSafeEqualHex(signature.toLowerCase(), expected.toLowerCase())) {
       console.error("salla-webhook: invalid signature");
       return jsonResponse({ error: "Invalid signature" }, 401);
     }
+  } else if (!signature) {
+    console.log("salla-webhook: no signature header (None strategy) — accepting");
   }
 
   let payload: any;
