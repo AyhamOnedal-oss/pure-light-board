@@ -3,6 +3,10 @@
 // We verify the HMAC signature, log to salla_events, then upsert salla_connections.
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders, jsonResponse, hmacSha256Hex, timingSafeEqualHex } from "../_shared/cors.ts";
+import { provisionMerchantAccount } from "../_shared/provision-merchant.ts";
+
+const APP_BASE_URL =
+  Deno.env.get("APP_BASE_URL") ?? "https://pure-light-board.lovable.app";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -139,6 +143,49 @@ Deno.serve(async (req) => {
           .from("settings_workspace")
           .update({ salla_merchant_id: merchantId, platform: "salla" })
           .eq("id", tenantId);
+      }
+
+      // Auto-provision merchant account if we couldn't link a tenant via pending claim.
+      if (!tenantId && storeEmail) {
+        try {
+          const result = await provisionMerchantAccount({
+            email: storeEmail,
+            platform: "salla",
+            storeName: storeName,
+            appBaseUrl: APP_BASE_URL,
+          });
+          await supabase.from("salla_events").insert({
+            merchant_id: merchantId,
+            event_type: "oauth.provision_merchant",
+            event_data: {
+              email: storeEmail,
+              is_new_user: result.isNewUser,
+              email_sent: result.emailSent,
+              email_error: result.emailError ?? null,
+              tenant_resolved: !!result.tenantId,
+            },
+          });
+          if (result.tenantId) {
+            tenantId = result.tenantId;
+            await supabase
+              .from("salla_connections")
+              .update({ tenant_id: tenantId })
+              .eq("merchant_id", merchantId);
+            if (merchantId) {
+              await supabase
+                .from("settings_workspace")
+                .update({ salla_merchant_id: merchantId, platform: "salla" })
+                .eq("id", tenantId);
+            }
+          }
+        } catch (e) {
+          console.error("salla-webhook: provision failed", e);
+          await supabase.from("salla_events").insert({
+            merchant_id: merchantId,
+            event_type: "oauth.provision_error",
+            event_data: { error: String(e) },
+          });
+        }
       }
     } else if (eventType === "app.uninstalled") {
       await supabase
