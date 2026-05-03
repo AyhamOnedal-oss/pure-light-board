@@ -30,6 +30,7 @@ import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailP
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/dashboard" replace /> },
   { path: '/login', element: <LoginPage /> },
+  { path: '/check-email', element: <LoginPage /> },
   { path: '/admin/login', element: <AdminLoginPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
   {
