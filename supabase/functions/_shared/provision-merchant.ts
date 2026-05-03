@@ -136,7 +136,9 @@ export async function provisionMerchantAccount(opts: {
   );
 
   const email = opts.email.trim().toLowerCase();
-  const loginUrl = `${opts.appBaseUrl}/login?from=${opts.platform}&email=${encodeURIComponent(email)}`;
+  // Use the root URL (always served by the published host) with an explicit
+  // oauth_result marker so the SPA renders the success/login screen.
+  const loginUrl = `${opts.appBaseUrl}/?oauth_result=install_success&from=${opts.platform}&email=${encodeURIComponent(email)}`;
 
   let userId: string | null = null;
   let isNewUser = false;

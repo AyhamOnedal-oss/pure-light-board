@@ -27,8 +27,23 @@ import { AdAutomationDetailPage } from './components/admin/AdAutomationDetailPag
 import { AdminPipelinePage } from './components/admin/AdminPipelinePage';
 import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailPage';
 
+function RootEntry() {
+  // When the OAuth callback redirects back to the published origin with
+  // ?oauth_result=install_success, the host only reliably serves '/'.
+  // Render the LoginPage (which already handles the "check your email"
+  // success screen via from/email/status query params) instead of bouncing
+  // to /dashboard.
+  if (typeof window !== 'undefined') {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('oauth_result')) {
+      return <LoginPage />;
+    }
+  }
+  return <Navigate to="/dashboard" replace />;
+}
+
 export const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/dashboard" replace /> },
+  { path: '/', element: <RootEntry /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/check-email', element: <LoginPage /> },
   { path: '/admin/login', element: <AdminLoginPage /> },

@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
       event_type: "oauth.callback_error",
       event_data: { error, query: Object.fromEntries(url.searchParams.entries()) },
     });
-    return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=${encodeURIComponent(error)}`);
+    return redirect(`${APP_BASE_URL}/?oauth_result=install_error&from=zid&zid_error=${encodeURIComponent(error)}`);
   }
   if (!code) {
     await supabase.from("zid_events").insert({
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
     if (!tokenRes.ok) {
       const txt = await tokenRes.text();
       console.error("zid-callback: token exchange failed", txt);
-      return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=token_exchange`);
+      return redirect(`${APP_BASE_URL}/?oauth_result=install_error&from=zid&zid_error=token_exchange`);
     }
 
     const t = await tokenRes.json();
@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
 
     if (!storeUuid) {
       console.error("zid-callback: could not resolve store_uuid");
-      return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=no_store_uuid`);
+      return redirect(`${APP_BASE_URL}/?oauth_result=install_error&from=zid&zid_error=no_store_uuid`);
     }
 
     // Validate state as tenant_id
@@ -299,17 +299,20 @@ Deno.serve(async (req) => {
       event_data: { has_state: !!state, claimed: !!tenantId },
     });
 
-    // Always send the merchant to the dedicated check-email page — they don't
-    // have a browser session in this tab regardless of whether their account already existed.
+    // Always send the merchant back to the published origin root with an
+    // explicit oauth_result marker. The SPA renders the "check your email"
+    // screen there. We avoid /login and /check-email because the published
+    // host only reliably serves '/' for unauthenticated deep links.
     const params = new URLSearchParams({
+      oauth_result: "install_success",
       from: "zid",
       store_uuid: storeUuid,
     });
     if (storeEmail) params.set("email", storeEmail);
     if (provisionStatus) params.set("status", provisionStatus);
-    return redirect(`${APP_BASE_URL}/check-email?${params.toString()}`);
+    return redirect(`${APP_BASE_URL}/?${params.toString()}`);
   } catch (e) {
     console.error("zid-callback: error", e);
-    return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=server_error`);
+    return redirect(`${APP_BASE_URL}/?oauth_result=install_error&from=zid&zid_error=server_error`);
   }
 });

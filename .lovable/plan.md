@@ -1,67 +1,77 @@
-## What's actually happening
+## Root cause
 
-Looking at `zid_events`, the last install did this:
+Your published site at `pure-light-board.lovable.app` is served as a plain Vite SPA. I verified this by hitting it directly:
 
-1. Zid callback succeeded, found store email `dfolxp9bgd@zam-partner.email`.
-2. `provisionMerchantAccount` ran — user already existed, tenant was resolved (`tenant_resolved: true`).
-3. Resend rejected the email: **`403 — The fuqah.net domain is not verified`**, so no credentials were sent.
-4. Because `tenantId` got resolved, the callback redirected to `/dashboard/settings/store?connected=zid` — but the merchant has **no browser session**, so `RequireAuth` bounces them and you land on a blank/"not found" looking page.
+- `GET /` → 200 (index.html, SPA boots)
+- `GET /login` → 404 "Not Found"
+- `GET /check-email` → 404 "Not Found"
 
-So two bugs:
+So when Zid bounces the merchant back to `/check-email?...` or `/login?...`, the host returns 404 before React Router ever loads. That is why you see the bare "Not Found" page after approving the scopes — the OAuth itself succeeded; the redirect target just isn’t reachable as a deep link.
 
-- **A. Wrong redirect target** — after a fresh OAuth install the merchant is never logged in in this browser tab, regardless of whether their account already exists. We must always send them to `/login` with the email prefilled and a clear "we sent you a password" banner. The only thing the merchant should ever see post-install is the sign-in screen.
-- **B. Resend "from" address (`noreply@fuqah.net`) is not a verified domain in your Resend account.** Resend only allows sending from verified domains. That's why no email arrives.
+This is a hosting/SPA-fallback issue with the current React Router 7 SPA setup in this project, not a Zid scopes problem and not a code bug in `LoginPage`.
 
-## Fix
+## What to change
 
-### 1. Edge functions — always redirect to /login
+### 1. Zid Partner Dashboard (no change needed)
 
-In `supabase/functions/zid-oauth-callback/index.ts` and `supabase/functions/salla-oauth-webhook/index.ts`, remove the "if tenantId then go to /dashboard" branch. After provisioning, always:
+Keep the Zid app config exactly as it is:
+
+- App URL (install entry): `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-install`
+- Redirect URL (OAuth callback): `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-callback`
+- Webhook URL: `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-webhook`
+
+These point at Supabase functions and are correct. Do NOT change them to `pure-light-board.lovable.app/...` — Zid must call our edge function directly.
+
+### 2. Edge function — redirect to `/` instead of `/check-email`
+
+In `supabase/functions/zid-oauth-callback/index.ts`, change the final success redirect from `/check-email?...` to `/?...` and add an explicit marker so the SPA can recognize it:
 
 ```
-/login?from=zid&email={storeEmail}&status={new|linked}
+${APP_BASE_URL}/?oauth_result=install_success&from=zid&store_uuid=...&email=...&status=new|linked
 ```
 
-(`status=new` when a fresh password was emailed, `status=linked` when the user already existed and only got a "linked" notice.)
+Same change for the error redirects: instead of `/dashboard/settings/store?zid_error=...`, use `/?oauth_result=install_error&zid_error=...`. `/dashboard/...` is also a deep link and will 404 for an un-logged-in browser tab too.
 
-### 2. LoginPage banner
+Then redeploy `zid-oauth-callback`.
 
-Update `src/app/components/LoginPage.tsx` to read `status` too and show a stronger Arabic-first banner:
+### 3. SPA — handle the OAuth params at `/`
 
-- `status=new`: "تم ربط متجرك بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك {email}. يرجى التحقق من البريد الوارد (والمزعج) ثم تسجيل الدخول."
-- `status=linked`: "تم ربط متجرك بحسابك الحالي. سجّل الدخول باستخدام كلمة المرور الخاصة بك."
+In `src/app/components/LoginPage.tsx` (and/or the root route in `src/app/routes.tsx`), add logic so that when the app loads on `/` with `?oauth_result=install_success&from=zid|salla&email=...&status=new|linked`, it:
 
-Plus a "Resend password" link that calls `sendPasswordReset(email)` so the merchant can recover if the email got lost.
+- Renders the existing “check your email” success screen (already implemented in `LoginPage`).
+- Pre-fills the email field.
+- Shows the Arabic banner: «تم ربط متجرك بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك …» for `status=new`, and the “linked” variant for `status=linked`.
+- Does not auto-redirect to `/dashboard` (the merchant has no session in this tab).
 
-### 3. Resend domain
+This avoids the deep-link 404 entirely because `/` is the one path the host always serves.
 
-`RESEND_FROM_EMAIL` is currently `noreply@fuqah.net` (or similar on `fuqah.net`) and that domain is **not verified** in your Resend dashboard. Two options — pick one before we deploy:
+### 4. Email links from `provision-merchant.ts`
 
-```text
-Option A (recommended): verify fuqah.net (or fuqah.ai) in Resend
-   → https://resend.com/domains → Add domain → add the DNS records → wait for "Verified"
-   → keep RESEND_FROM_EMAIL = noreply@fuqah.net
+Welcome / linked emails currently link to `/login?from=zid&email=...`. Change `loginUrl` in `supabase/functions/_shared/provision-merchant.ts` to:
 
-Option B (quick test only): use the Resend sandbox sender
-   → set RESEND_FROM_EMAIL = onboarding@resend.dev
-   → BUT Resend will only deliver to the email address that owns the Resend account; real merchants will not receive it. Not usable in production.
+```
+${appBaseUrl}/?oauth_result=install_success&from=${platform}&email=${encodedEmail}
 ```
 
-### 4. Better logging
+So clicking the email also lands on a working page even after a hard refresh / new device.
 
-In both callbacks, when Resend returns non-OK, also write a `oauth.email_failed` event with the merchant email and Resend error so we can see failures from the dashboard without re-checking the function logs.
+### 5. Salla callback — same pattern
 
-## Files touched
+`salla-oauth-webhook` is a server-to-server webhook so it doesn’t do a browser redirect today, but if/when we add a Salla browser callback, use the same `/?oauth_result=...` shape, not `/check-email` or `/login`.
 
-- `supabase/functions/zid-oauth-callback/index.ts`
-- `supabase/functions/salla-oauth-webhook/index.ts`
-- `supabase/functions/_shared/provision-merchant.ts` (return Resend error so caller can log it)
-- `src/app/components/LoginPage.tsx`
+### 6. Resend sender (already done)
 
-## One question before I implement
+`RESEND_FROM_EMAIL` is set to `onboarding@resend.dev` for now. Note: Resend’s sandbox sender will only deliver to the email address that owns the Resend account — real merchants will not receive anything until you verify a real domain (e.g. `fuqah.net`) in Resend and switch the secret back. This is unrelated to the 404 problem but is still required for production.
 
-Which Resend "from" do you want? Please confirm one of:
+## Verification steps after deploy
 
-1. I'll keep `noreply@fuqah.net` — you'll verify the domain in Resend now.
-2. Use `noreply@<another-domain-you-already-verified>` — tell me the domain.
-3. Temporarily switch to `onboarding@resend.dev` just to test the flow end-to-end (won't work for real merchants).
+1. `curl -I https://pure-light-board.lovable.app/?oauth_result=install_success&from=zid&email=test%40example.com&status=linked` → expect `200`.
+2. Re-run the Zid install. After clicking تفعيل التطبيق, browser should land on `pure-light-board.lovable.app/?oauth_result=install_success&from=zid&...` and render the “check your email” screen with the email pre-filled.
+3. Confirm a `zid_events` row of type `oauth.provision_merchant` exists with `email_sent: true` (only if your Resend account owns the merchant test email; otherwise expect `email_sent: false` — that’s the Resend sandbox limitation, not our bug).
+
+## Files to edit
+
+- `supabase/functions/zid-oauth-callback/index.ts` — redirect to `/?oauth_result=...` instead of `/check-email` / `/dashboard/...`.
+- `supabase/functions/_shared/provision-merchant.ts` — update `loginUrl` to `/?oauth_result=...`.
+- `src/app/components/LoginPage.tsx` (and `src/app/routes.tsx` if needed) — read `oauth_result` from `/` and show the success/check-email screen.
+- Redeploy: `zid-oauth-callback` (and any other function importing the shared helper).
