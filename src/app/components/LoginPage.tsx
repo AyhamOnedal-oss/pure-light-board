@@ -24,6 +24,12 @@ export function LoginPage() {
 
   // Forgot password state
   const [view, setView] = useState<'login' | 'forgot'>('login');
+  // When arriving from a fresh Zid/Salla install, show a dedicated
+  // "check your email" screen instead of the login form. The user can
+  // dismiss it to reveal the sign-in form.
+  const [showInstallSuccess, setShowInstallSuccess] = useState<boolean>(
+    !!((fromPlatform === 'zid' || fromPlatform === 'salla') && prefillEmail && (fromStatus === 'new' || fromStatus === 'linked'))
+  );
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
@@ -132,44 +138,69 @@ export function LoginPage() {
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <img src={logo} alt="Fuqah AI" className="h-10 mb-3 object-contain" />
-            {view === 'login' && (
+            {view === 'login' && !showInstallSuccess && (
               <p className="text-muted-foreground text-[14px]">
                 {t('AI-Powered Customer Service', 'خدمة عملاء مدعومة بالذكاء الاصطناعي')}
               </p>
             )}
           </div>
 
+          {/* INSTALL SUCCESS — "check your email" screen after Zid/Salla install */}
+          {showInstallSuccess && (
+            <div className="flex flex-col items-center text-center py-2">
+              <CheckCircle2 className="w-16 h-16 text-green-500 mb-4" />
+              <h2 className="text-[20px] mb-2" style={{ fontWeight: 700 }}>
+                {fromStatus === 'linked'
+                  ? t('Your store is linked', 'تم ربط متجرك')
+                  : t('Check your email', 'تحقق من بريدك الإلكتروني')}
+              </h2>
+              <p className="text-muted-foreground text-[14px] mb-2 leading-relaxed">
+                {fromStatus === 'linked'
+                  ? t(
+                      `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store has been linked to your existing Fuqah AI account.`,
+                      `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بحسابك الحالي في فقه.`,
+                    )
+                  : t(
+                      `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store is connected. We've sent a temporary password to your inbox.`,
+                      `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك الإلكتروني.`,
+                    )}
+              </p>
+              <p className="text-foreground text-[14px] mb-1" style={{ fontWeight: 600 }}>
+                {prefillEmail}
+              </p>
+              <p className="text-muted-foreground text-[12.5px] mb-6 leading-relaxed">
+                {t(
+                  'Please check your inbox (and spam folder), then sign in below.',
+                  'يرجى مراجعة صندوق الوارد (والبريد المزعج)، ثم سجّل الدخول من هنا.',
+                )}
+              </p>
+              <button
+                onClick={() => setShowInstallSuccess(false)}
+                className="w-full py-3 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[15px] mb-3"
+                style={{ fontWeight: 600 }}
+              >
+                {t('Continue to Sign In', 'المتابعة لتسجيل الدخول')}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setForgotEmail(prefillEmail);
+                  await sendPasswordReset(prefillEmail);
+                  setShowInstallSuccess(false);
+                  setForgotSuccess(true);
+                  setView('forgot');
+                }}
+                className="text-[#043CC8] hover:underline text-[12.5px]"
+              >
+                {t("Didn't receive the email? Resend reset link",
+                   'لم يصلك البريد؟ أعد إرسال رابط إعادة التعيين')}
+              </button>
+            </div>
+          )}
+
           {/* LOGIN VIEW */}
-          {view === 'login' && (
+          {view === 'login' && !showInstallSuccess && (
             <form onSubmit={handleLogin} className="space-y-5">
-              {(fromPlatform === 'zid' || fromPlatform === 'salla') && prefillEmail && (
-                <div className="rounded-xl border border-[#043CC8]/30 bg-[#043CC8]/5 p-3 text-[12.5px] text-foreground/80 leading-relaxed space-y-2">
-                  <div>
-                    {fromStatus === 'linked'
-                      ? t(
-                          `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store has been linked to your existing account (${prefillEmail}). Sign in with your existing password.`,
-                          `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بحسابك الحالي (${prefillEmail}). سجّل الدخول بكلمة المرور الخاصة بك.`,
-                        )
-                      : t(
-                          `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store is connected. We've emailed a temporary password to ${prefillEmail}. Check your inbox (and spam folder), then sign in.`,
-                          `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'}. أرسلنا كلمة مرور مؤقتة إلى ${prefillEmail}. يرجى مراجعة بريدك الوارد (والبريد المزعج) ثم تسجيل الدخول.`,
-                        )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setForgotEmail(prefillEmail);
-                      await sendPasswordReset(prefillEmail);
-                      setForgotSuccess(true);
-                      setView('forgot');
-                    }}
-                    className="text-[#043CC8] hover:underline text-[12px]"
-                  >
-                    {t("Didn't receive the email? Send a password reset link",
-                       'لم يصلك البريد؟ أرسل رابط إعادة تعيين كلمة المرور')}
-                  </button>
-                </div>
-              )}
               <div>
                 <label className="block text-[13px] mb-2 text-muted-foreground">
                   {t('Email Address', 'البريد الإلكتروني')}
