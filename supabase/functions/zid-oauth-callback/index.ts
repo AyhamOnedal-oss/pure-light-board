@@ -299,15 +299,15 @@ Deno.serve(async (req) => {
       event_data: { has_state: !!state, claimed: !!tenantId },
     });
 
-    // Always send the merchant to /login — they don't have a browser session
-    // in this tab regardless of whether their account already existed.
+    // Always send the merchant to the dedicated check-email page — they don't
+    // have a browser session in this tab regardless of whether their account already existed.
     const params = new URLSearchParams({
       from: "zid",
       store_uuid: storeUuid,
     });
     if (storeEmail) params.set("email", storeEmail);
     if (provisionStatus) params.set("status", provisionStatus);
-    return redirect(`${APP_BASE_URL}/login?${params.toString()}`);
+    return redirect(`${APP_BASE_URL}/check-email?${params.toString()}`);
   } catch (e) {
     console.error("zid-callback: error", e);
     return redirect(`${APP_BASE_URL}/dashboard/settings/store?zid_error=server_error`);
