@@ -10,7 +10,7 @@
  * dashboard can ingest them as raw events until dedicated endpoints exist.
  */
 
-import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getTenantId } from "../config/supabase";
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getStoreContext } from "../config/supabase";
 
 function post(route: string, body: unknown): void {
   try {
@@ -40,9 +40,12 @@ export interface EventPayload {
 }
 
 export function trackEvent(type: string, ctx: EventContext, payload?: EventPayload): void {
+  const sc = getStoreContext();
   post("/widget-events", {
     event: type,
-    tenant_id: ctx.storeId || getTenantId(),
+    tenant_id: ctx.storeId || sc.tenant_id,
+    platform: sc.platform,
+    store_id: sc.store_id,
     conversation_id: ctx.conversationId,
     ticket_id: ctx.ticketId,
     payload: payload ?? {},
