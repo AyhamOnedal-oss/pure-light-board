@@ -5,6 +5,57 @@ import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, Ale
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 
+function ResendResetLink({
+  email,
+  t,
+  onResend,
+}: {
+  email: string;
+  t: (en: string, ar: string) => string;
+  onResend: () => Promise<void>;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const id = setInterval(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearInterval(id);
+  }, [secondsLeft]);
+
+  const disabled = secondsLeft > 0 || sending || !email;
+
+  const handleClick = async () => {
+    if (disabled) return;
+    setSending(true);
+    try {
+      await onResend();
+      setSecondsLeft(30);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="text-[12.5px] flex items-center justify-center gap-1.5 flex-wrap">
+      <span className="text-muted-foreground">
+        {t("Didn't receive the email?", 'لم يصلك البريد؟')}
+      </span>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={disabled}
+        className="text-[#043CC8] hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
+      >
+        {t('Resend reset link', 'أعد إرسال رابط إعادة التعيين')}
+      </button>
+      {secondsLeft > 0 && (
+        <span className="text-muted-foreground tabular-nums">({secondsLeft}s)</span>
+      )}
+    </div>
+  );
+}
+
 export function LoginPage() {
   const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, roleLoading } = useApp();
   const navigate = useNavigate();
