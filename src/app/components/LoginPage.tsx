@@ -181,20 +181,11 @@ export function LoginPage() {
               >
                 {t('Continue to Sign In', 'المتابعة لتسجيل الدخول')}
               </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setForgotEmail(prefillEmail);
-                  await sendPasswordReset(prefillEmail);
-                  setShowInstallSuccess(false);
-                  setForgotSuccess(true);
-                  setView('forgot');
-                }}
-                className="text-[#043CC8] hover:underline text-[12.5px]"
-              >
-                {t("Didn't receive the email? Resend reset link",
-                   'لم يصلك البريد؟ أعد إرسال رابط إعادة التعيين')}
-              </button>
+              <ResendResetLink
+                email={prefillEmail}
+                t={t}
+                onResend={async () => { await sendPasswordReset(prefillEmail); }}
+              />
             </div>
           )}
 
