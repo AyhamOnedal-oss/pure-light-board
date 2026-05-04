@@ -1,104 +1,96 @@
 /**
- * useFetchChatSettings — Fetches chat appearance settings from the dashboard's Supabase endpoint.
+ * useFetchChatSettings — fetches widget design + behavior from
+ * the dashboard's `widget-config` edge function and maps it to ThemeSettings.
  *
- * On mount, calls:
- *   GET https://<projectId>.supabase.co/functions/v1/make-server-fc841b6e/chat-settings/store_shrman
- *
- * Maps the response to ThemeSettings and widget position.
- * Falls back to defaults silently on error (console.log only).
+ * Edge function returns the row from `settings_chat_design` plus workspace
+ * branding fields (workspace_name, logo_url, icon_url, locale).
  */
 
-import { useState, useEffect } from 'react';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
-import type { ThemeSettings } from '../types/themeSettings';
+import { useState, useEffect } from "react";
+import type { ThemeSettings } from "../types/themeSettings";
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getTenantId } from "../config/supabase";
 
 export interface FetchedChatSettings {
   themeSettings: ThemeSettings;
-  position: 'bottom-right' | 'bottom-left';
+  position: "bottom-right" | "bottom-left";
   isLoaded: boolean;
 }
 
-/** Fallback defaults — used when fetch fails */
 const FALLBACK_SETTINGS: ThemeSettings = {
-  mode: 'light',
-  mainColor: '#000000',
-  widgetOuterColor: '#000000',
-  widgetInnerColor: '#FFFFFF',
+  mode: "light",
+  mainColor: "#000000",
+  widgetOuterColor: "#000000",
+  widgetInnerColor: "#FFFFFF",
 };
 
-const FALLBACK_POSITION: 'bottom-right' | 'bottom-left' = 'bottom-right';
-
-const ENDPOINT = `https://${projectId}.supabase.co/functions/v1/make-server-fc841b6e/chat-settings/store_shrman`;
+const FALLBACK_POSITION: "bottom-right" | "bottom-left" = "bottom-right";
 
 export function useFetchChatSettings(): FetchedChatSettings {
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(FALLBACK_SETTINGS);
-  const [position, setPosition] = useState<'bottom-right' | 'bottom-left'>(FALLBACK_POSITION);
+  const [position, setPosition] = useState<"bottom-right" | "bottom-left">(FALLBACK_POSITION);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function fetchSettings() {
-      try {
-        const res = await fetch(ENDPOINT, {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-        });
-
-        if (!res.ok) {
-          console.log(`[FuqahChat] Failed to fetch settings: ${res.status} ${res.statusText}`);
-          if (!cancelled) setIsLoaded(true);
-          return;
-        }
-
-        const data = await res.json();
-
-        if (!data?.success || !data?.settings) {
-          console.log('[FuqahChat] Invalid settings response:', data);
-          if (!cancelled) setIsLoaded(true);
-          return;
-        }
-
-        const s = data.settings;
-
-        if (!cancelled) {
-          setThemeSettings({
-            mode: s.previewMode === 'dark' ? 'dark' : 'light',
-            mainColor: s.primaryColor || FALLBACK_SETTINGS.mainColor,
-            widgetOuterColor: s.widgetOuter || FALLBACK_SETTINGS.widgetOuterColor,
-            widgetInnerColor: s.widgetInner || FALLBACK_SETTINGS.widgetInnerColor,
-            welcomeBubbleEnabled:
-              typeof s.welcomeBubbleEnabled === 'boolean' ? s.welcomeBubbleEnabled : true,
-            welcomeBubbleLine1:
-              typeof s.welcomeBubbleLine1 === 'string' && s.welcomeBubbleLine1.trim()
-                ? s.welcomeBubbleLine1 : 'مرحباً 👋',
-            welcomeBubbleLine2:
-              typeof s.welcomeBubbleLine2 === 'string' && s.welcomeBubbleLine2.trim()
-                ? s.welcomeBubbleLine2 : 'كيف يمكنني مساعدتك؟',
-            inactivityEnabled:
-              typeof s.inactivityEnabled === 'boolean' ? s.inactivityEnabled : true,
-            inactivityPromptSeconds:
-              Number.isFinite(s.inactivityPromptSeconds) ? Number(s.inactivityPromptSeconds) : 90,
-            inactivityCloseSeconds:
-              Number.isFinite(s.inactivityCloseSeconds) ? Number(s.inactivityCloseSeconds) : 60,
-            ratingInactivitySeconds:
-              Number.isFinite(s.ratingInactivitySeconds) ? Number(s.ratingInactivitySeconds) : 900,
-          });
-
-          setPosition(s.position === 'left' ? 'bottom-left' : 'bottom-right');
-          setIsLoaded(true);
-
-          console.log('[FuqahChat] Settings loaded from dashboard:', s);
-        }
-      } catch (err) {
-        console.log('[FuqahChat] Error fetching settings:', err);
-        if (!cancelled) setIsLoaded(true);
-      }
+    const tenantId = getTenantId();
+    if (!tenantId) {
+      console.log("[FuqahChat] No tenant_id available, using defaults");
+      setIsLoaded(true);
+      return;
     }
 
-    fetchSettings();
-    return () => { cancelled = true; };
+    (async () => {
+      try {
+        const res = await fetch(
+          `${FUNCTIONS_BASE}/widget-config?tenant_id=${encodeURIComponent(tenantId)}`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          },
+        );
+        if (!res.ok) {
+          console.log(`[FuqahChat] widget-config ${res.status}`);
+          if (!cancelled) setIsLoaded(true);
+          return;
+        }
+        const s = await res.json();
+        if (cancelled) return;
+
+        setThemeSettings({
+          mode: s.theme_mode === "dark" || s.preview_mode === "dark" ? "dark" : "light",
+          mainColor: s.primary_color || FALLBACK_SETTINGS.mainColor,
+          widgetOuterColor: s.widget_outer_color || FALLBACK_SETTINGS.widgetOuterColor,
+          widgetInnerColor: s.widget_inner_color || FALLBACK_SETTINGS.widgetInnerColor,
+          welcomeBubbleEnabled:
+            typeof s.welcome_bubble_enabled === "boolean" ? s.welcome_bubble_enabled : true,
+          welcomeBubbleLine1: s.welcome_bubble_line1 || "مرحباً 👋",
+          welcomeBubbleLine2: s.welcome_bubble_line2 || "كيف يمكنني مساعدتك؟",
+          inactivityEnabled:
+            typeof s.inactivity_enabled === "boolean" ? s.inactivity_enabled : true,
+          inactivityPromptSeconds: Number.isFinite(s.inactivity_prompt_seconds)
+            ? Number(s.inactivity_prompt_seconds)
+            : 90,
+          inactivityCloseSeconds: Number.isFinite(s.inactivity_close_seconds)
+            ? Number(s.inactivity_close_seconds)
+            : 60,
+          ratingInactivitySeconds: Number.isFinite(s.rating_inactivity_seconds)
+            ? Number(s.rating_inactivity_seconds)
+            : 900,
+        });
+
+        setPosition(s.position === "left" ? "bottom-left" : "bottom-right");
+        setIsLoaded(true);
+      } catch (err) {
+        console.log("[FuqahChat] widget-config error:", err);
+        if (!cancelled) setIsLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return { themeSettings, position, isLoaded };
