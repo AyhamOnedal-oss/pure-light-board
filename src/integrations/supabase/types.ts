@@ -1743,6 +1743,24 @@ export type Database = {
           },
         ]
       }
+      widget_rate_limits: {
+        Row: {
+          count: number
+          tenant_id: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          tenant_id: string
+          window_start: string
+        }
+        Update: {
+          count?: number
+          tenant_id?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       zid_connections: {
         Row: {
           authorization_token: string | null

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getTenantId } from "../config/supabase";
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getStoreContext, hasContext, buildContextQuery } from "../config/supabase";
 
 export interface StoreBranding {
   storeName: string;
@@ -21,8 +21,8 @@ export function useFetchStoreBranding(): StoreBranding {
 
   useEffect(() => {
     let cancelled = false;
-    const tenantId = getTenantId();
-    if (!tenantId) {
+    const ctx = getStoreContext();
+    if (!hasContext(ctx)) {
       setIsLoaded(true);
       return;
     }
@@ -30,7 +30,7 @@ export function useFetchStoreBranding(): StoreBranding {
     (async () => {
       try {
         const res = await fetch(
-          `${FUNCTIONS_BASE}/widget-config?tenant_id=${encodeURIComponent(tenantId)}`,
+          `${FUNCTIONS_BASE}/widget-config?${buildContextQuery(ctx)}`,
           {
             headers: {
               apikey: SUPABASE_ANON_KEY,

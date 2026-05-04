@@ -33,7 +33,9 @@ export function Connections() {
   const [zid, setZid] = useState<ZidConnection | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const snippet = `<script src="${SUPABASE_URL}/functions/v1/widget-loader" async></script>`;
+  // Single-line snippet for any storefront (Salla, Zid, Shopify, custom).
+  // The widget auto-detects the platform store id at runtime via widget-loader.
+  const snippet = `<script src="https://widget.fuqah.net/widget.js" async></script>`;
 
   useEffect(() => {
     if (!tenantId) return;

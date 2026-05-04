@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.zid-oauth-install]
 verify_jwt = false
+
+[functions.chat-ai]
+verify_jwt = false

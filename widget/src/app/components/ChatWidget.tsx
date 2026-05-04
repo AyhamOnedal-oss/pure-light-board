@@ -30,6 +30,7 @@ import { TypingIndicator } from './TypingIndicator';
 import { TicketCreatedScreen } from './TicketCreatedScreen';
 import { ChatFooter } from './ChatFooter';
 import { THEMES, ACTIVE_THEME_ID, getThemeById } from '../types/theme';
+import { sendMessage } from '../utils/chatApi';
 
 // ─── Types ───────────────────────────────────────────────��──────────────────
 
@@ -121,7 +122,7 @@ export function ChatWidget() {
 
   // ── Message handlers ────────────────────────────────────────────────────────
 
-  const handleSendMessage = (text: string, attachment?: MessageAttachment) => {
+  const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       text,
@@ -132,21 +133,34 @@ export function ChatWidget() {
     };
     setMessages(prev => [...prev, newMessage]);
 
-    // Simulate store response (replace with real API call)
+    if (attachment && !text) {
+      // Attachment-only — for now, no AI call
+      return;
+    }
+
     setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      const response: Message = {
-        id: (Date.now() + 1).toString(),
-        text: attachment
-          ? 'شكراً لإرسال الملف! سنقوم بمراجعته والرد عليك قريباً.'
-          : 'شكراً لتواصلك معنا! كيف يمكنني مساعدتك اليوم؟',
-        sender: 'store',
-        timestamp: new Date(),
-        conversationId,
-      };
-      setMessages(prev => [...prev, response]);
-    }, 1500);
+    const history = messages.slice(-10).map(m => ({
+      sender: m.sender,
+      text: m.text,
+    }));
+    const { reply, rateLimited, error } = await sendMessage(conversationId, text, history);
+    setIsTyping(false);
+
+    let responseText = reply;
+    if (rateLimited) {
+      responseText = 'لقد تجاوزت الحد المسموح من الرسائل. الرجاء الانتظار دقيقة قبل المحاولة مجدداً.';
+    } else if (error || !reply) {
+      responseText = 'عذراً، حدث خطأ مؤقت. الرجاء المحاولة مجدداً.';
+    }
+
+    const response: Message = {
+      id: (Date.now() + 1).toString(),
+      text: responseText,
+      sender: 'store',
+      timestamp: new Date(),
+      conversationId,
+    };
+    setMessages(prev => [...prev, response]);
   };
 
   // ── Download ────────────────────────────────────────────────────────────────

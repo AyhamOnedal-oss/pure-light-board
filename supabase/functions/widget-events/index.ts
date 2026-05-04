@@ -1,6 +1,7 @@
 // Telemetry endpoint for widget events (bubble shown / clicked).
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { resolveTenant } from "../_shared/resolve-tenant.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -12,7 +13,13 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   try {
-    const { event, tenant_id } = await req.json();
+    const body = await req.json();
+    const { event, platform, store_id } = body;
+    const { tenant_id } = await resolveTenant({
+      tenant_id: body.tenant_id,
+      platform,
+      store_id,
+    });
     if (!event || !tenant_id) return jsonResponse({ error: "missing fields" }, 400);
 
     const today = new Date().toISOString().slice(0, 10);

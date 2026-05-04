@@ -53,7 +53,7 @@ const LOADER_JS = `
     } catch (e) {}
   }
 
-  function mount(tenantId, cfg) {
+  function mount(tenantId, ctx, cfg) {
     var host = document.createElement("div");
     host.id = "fuqah-widget-host";
     host.style.cssText = "all: initial; position: fixed; z-index: 2147483647;";
@@ -106,7 +106,10 @@ const LOADER_JS = `
     iframe.className = "fq-iframe";
     iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
     iframe.setAttribute("title", "Chat");
-    iframe.src = APP_BASE_URL + "/widget/chat?tenant_id=" + encodeURIComponent(tenantId);
+    iframe.src =
+      APP_BASE_URL + "/widget/chat?platform=" + encodeURIComponent(ctx.platform) +
+      "&store_id=" + encodeURIComponent(ctx.external_id) +
+      "&tenant_id=" + encodeURIComponent(tenantId);
     document.body.appendChild(iframe);
 
     var open = false;
@@ -129,11 +132,17 @@ const LOADER_JS = `
     var ctx = detectPlatform();
     if (!ctx) { console.warn("fuqah: no platform context"); return; }
 
+    // Expose store context globally so the bundled widget can read it without a round-trip.
+    try {
+      window.__FUQAH_STORE_CTX = { platform: ctx.platform, store_id: ctx.external_id };
+    } catch (e) {}
+
     api("/widget-resolve?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id))
       .then(function (res) {
         if (!res || !res.tenant_id || !res.is_active) { return; }
+        try { window.__FUQAH_TENANT_ID = res.tenant_id; } catch (e) {}
         return api("/widget-config?tenant_id=" + res.tenant_id).then(function (cfg) {
-          mount(res.tenant_id, cfg || {});
+          mount(res.tenant_id, ctx, cfg || {});
         });
       })
       .catch(function (e) { console.error("fuqah loader error", e); });
