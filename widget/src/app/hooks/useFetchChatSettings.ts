@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from "react";
 import type { ThemeSettings } from "../types/themeSettings";
-import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getTenantId } from "../config/supabase";
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getStoreContext, hasContext, buildContextQuery } from "../config/supabase";
 
 export interface FetchedChatSettings {
   themeSettings: ThemeSettings;
@@ -32,9 +32,9 @@ export function useFetchChatSettings(): FetchedChatSettings {
 
   useEffect(() => {
     let cancelled = false;
-    const tenantId = getTenantId();
-    if (!tenantId) {
-      console.log("[FuqahChat] No tenant_id available, using defaults");
+    const ctx = getStoreContext();
+    if (!hasContext(ctx)) {
+      console.log("[FuqahChat] No store context available, using defaults");
       setIsLoaded(true);
       return;
     }
@@ -42,7 +42,7 @@ export function useFetchChatSettings(): FetchedChatSettings {
     (async () => {
       try {
         const res = await fetch(
-          `${FUNCTIONS_BASE}/widget-config?tenant_id=${encodeURIComponent(tenantId)}`,
+          `${FUNCTIONS_BASE}/widget-config?${buildContextQuery(ctx)}`,
           {
             headers: {
               apikey: SUPABASE_ANON_KEY,
