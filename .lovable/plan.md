@@ -1,77 +1,100 @@
-## Root cause
+## Goal
 
-Your published site at `pure-light-board.lovable.app` is served as a plain Vite SPA. I verified this by hitting it directly:
+Get the widget on Hostinger (`widget.fuqah.net`) talking to Supabase, which proxies to n8n, with proper tenant identification from Salla/Zid `store.id` and a simple rate-limit counter.
 
-- `GET /` → 200 (index.html, SPA boots)
-- `GET /login` → 404 "Not Found"
-- `GET /check-email` → 404 "Not Found"
+## Decisions locked in
 
-So when Zid bounces the merchant back to `/check-email?...` or `/login?...`, the host returns 404 before React Router ever loads. That is why you see the bare "Not Found" page after approving the scopes — the OAuth itself succeeded; the redirect target just isn’t reachable as a deep link.
+- **Hosting**: Hostinger VPS (static files for `widget.js` + assets). No CDN setup needed from our side.
+- **n8n integration**: **Option B** — browser → Supabase edge function (`chat-ai`) → n8n. Hides the n8n URL, lets us rate-limit, and lets n8n call back to enrich with tenant context.
+- **Tenant ID**: the widget will NOT use `tenant_id` directly anymore. It will send `platform` + `store.id` and let Supabase resolve to `tenant_id` server-side.
+- **Rate limit**: simple Supabase counter table per tenant per minute.
 
-This is a hosting/SPA-fallback issue with the current React Router 7 SPA setup in this project, not a Zid scopes problem and not a code bug in `LoginPage`.
+## Changes
 
-## What to change
+### 1. Tenant resolution from `store.id` (the real fix)
 
-### 1. Zid Partner Dashboard (no change needed)
+Currently `widget.js` and `widget-config` expect `tenant_id`. Salla and Zid both expose `store.id`, not our internal UUID. Fix:
 
-Keep the Zid app config exactly as it is:
+- **`widget-loader/index.ts`**: keep auto-detecting `platform` + `external_id` (already does), but **stop trying to expose `tenant_id` to the page**. Instead pass `platform` + `store_id` into the bundle via `window.__FUQAH_STORE_CTX = { platform, store_id }`.
+- **`widget/src/app/config/supabase.ts`**: replace `getTenantId()` with `getStoreContext()` returning `{ platform, store_id }`. Read from `window.__FUQAH_STORE_CTX` first, then URL params (`?platform=salla&store_id=123`) for dashboard preview.
+- **`widget-config` edge function**: accept `?platform=salla&store_id=123` (in addition to current `tenant_id` for dashboard preview), call existing `widget-resolve` logic internally, return config.
+- **`widget-events`**: same — accept `platform`+`store_id` OR `tenant_id`, resolve server-side.
+- All widget hooks (`useFetchChatSettings`, `useFetchStoreBranding`, `analytics.ts`) updated to send `platform`+`store_id` instead of `tenant_id`.
 
-- App URL (install entry): `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-install`
-- Redirect URL (OAuth callback): `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-callback`
-- Webhook URL: `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/zid-oauth-webhook`
+This means the storefront snippet stays one line with **zero config** — Salla/Zid already inject `store.id` automatically.
 
-These point at Supabase functions and are correct. Do NOT change them to `pure-light-board.lovable.app/...` — Zid must call our edge function directly.
+### 2. New `chat-ai` edge function (proxy to n8n)
 
-### 2. Edge function — redirect to `/` instead of `/check-email`
+`POST /functions/v1/chat-ai`
 
-In `supabase/functions/zid-oauth-callback/index.ts`, change the final success redirect from `/check-email?...` to `/?...` and add an explicit marker so the SPA can recognize it:
+Body: `{ platform, store_id, conversation_id, message, history? }`
 
+Flow:
+1. Resolve `tenant_id` from `platform`+`store_id` (reuse `widget-resolve` logic in shared helper).
+2. Check rate limit (see step 3). If exceeded → `429`.
+3. Load merchant context from `settings_workspace` + `settings_train_ai` (store name, language, products link, AI persona).
+4. POST to `N8N_WEBHOOK_URL` (new secret) with `{ tenant_id, store_context, message, history }`.
+5. Return n8n's reply to the browser.
+6. Insert message + reply into `conversations_messages` (real persistence, replaces event-only).
+
+New secret needed: **`N8N_WEBHOOK_URL`** (will ask the user to add it).
+
+### 3. Rate limit counter (simple)
+
+New table `widget_rate_limits`:
 ```
-${APP_BASE_URL}/?oauth_result=install_success&from=zid&store_uuid=...&email=...&status=new|linked
+tenant_id uuid, window_start timestamptz, count int, primary key (tenant_id, window_start)
 ```
+- Window = 1 minute. Default cap = 30 messages/min/tenant (configurable later).
+- `chat-ai` does an upsert+increment; if `count > 30` → 429.
+- Cleanup: delete rows older than 1 hour via cron later (not blocking).
 
-Same change for the error redirects: instead of `/dashboard/settings/store?zid_error=...`, use `/?oauth_result=install_error&zid_error=...`. `/dashboard/...` is also a deep link and will 404 for an un-logged-in browser tab too.
+### 4. Dashboard "Install" tab
 
-Then redeploy `zid-oauth-callback`.
-
-### 3. SPA — handle the OAuth params at `/`
-
-In `src/app/components/LoginPage.tsx` (and/or the root route in `src/app/routes.tsx`), add logic so that when the app loads on `/` with `?oauth_result=install_success&from=zid|salla&email=...&status=new|linked`, it:
-
-- Renders the existing “check your email” success screen (already implemented in `LoginPage`).
-- Pre-fills the email field.
-- Shows the Arabic banner: «تم ربط متجرك بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك …» for `status=new`, and the “linked” variant for `status=linked`.
-- Does not auto-redirect to `/dashboard` (the merchant has no session in this tab).
-
-This avoids the deep-link 404 entirely because `/` is the one path the host always serves.
-
-### 4. Email links from `provision-merchant.ts`
-
-Welcome / linked emails currently link to `/login?from=zid&email=...`. Change `loginUrl` in `supabase/functions/_shared/provision-merchant.ts` to:
-
+Add a new tab in `src/app/components/settings/Connections.tsx` (or new `WidgetInstall.tsx`) showing:
+```html
+<script src="https://widget.fuqah.net/widget.js" async></script>
 ```
-${appBaseUrl}/?oauth_result=install_success&from=${platform}&email=${encodedEmail}
-```
+Plus copy-to-clipboard button and short instructions for Salla/Zid app injection (already automatic via OAuth, this is mainly for manual/Shopify/custom sites).
 
-So clicking the email also lands on a working page even after a hard refresh / new device.
+### 5. Build & deploy widget to Hostinger
 
-### 5. Salla callback — same pattern
+- Add `bun run build:widget` script in root `package.json` that runs `cd widget && vite build`.
+- Output: `widget/dist/widget.js` (single IIFE file, already configured).
+- User uploads `widget/dist/widget.js` + assets to Hostinger via SFTP/file manager. We'll provide one shell command they can run on the VPS to pull the latest build (optional follow-up).
 
-`salla-oauth-webhook` is a server-to-server webhook so it doesn’t do a browser redirect today, but if/when we add a Salla browser callback, use the same `/?oauth_result=...` shape, not `/check-email` or `/login`.
+## Files touched
 
-### 6. Resend sender (already done)
+- `supabase/functions/_shared/resolve-tenant.ts` — NEW shared helper
+- `supabase/functions/widget-loader/index.ts` — set `__FUQAH_STORE_CTX`
+- `supabase/functions/widget-config/index.ts` — accept platform+store_id
+- `supabase/functions/widget-events/index.ts` — accept platform+store_id
+- `supabase/functions/chat-ai/index.ts` — NEW proxy to n8n
+- `supabase/config.toml` — register `chat-ai` with `verify_jwt = false`
+- `widget/src/app/config/supabase.ts` — `getStoreContext()`
+- `widget/src/app/hooks/useFetchChatSettings.ts` — use store context
+- `widget/src/app/hooks/useFetchStoreBranding.ts` — use store context
+- `widget/src/app/utils/analytics.ts` — use store context
+- `widget/src/app/utils/chatApi.ts` — NEW, calls `chat-ai`
+- `widget/src/app/components/ChatWidget.tsx` — wire AI replies through `chatApi`
+- `src/app/components/settings/WidgetInstall.tsx` — NEW install tab
+- DB migration: `widget_rate_limits` table
 
-`RESEND_FROM_EMAIL` is set to `onboarding@resend.dev` for now. Note: Resend’s sandbox sender will only deliver to the email address that owns the Resend account — real merchants will not receive anything until you verify a real domain (e.g. `fuqah.net`) in Resend and switch the secret back. This is unrelated to the 404 problem but is still required for production.
+## Secrets required
 
-## Verification steps after deploy
+- `N8N_WEBHOOK_URL` (will ask after plan approval)
 
-1. `curl -I https://pure-light-board.lovable.app/?oauth_result=install_success&from=zid&email=test%40example.com&status=linked` → expect `200`.
-2. Re-run the Zid install. After clicking تفعيل التطبيق, browser should land on `pure-light-board.lovable.app/?oauth_result=install_success&from=zid&...` and render the “check your email” screen with the email pre-filled.
-3. Confirm a `zid_events` row of type `oauth.provision_merchant` exists with `email_sent: true` (only if your Resend account owns the merchant test email; otherwise expect `email_sent: false` — that’s the Resend sandbox limitation, not our bug).
+## What I will NOT touch
 
-## Files to edit
+- `widget-resolve` (already correct, will be reused internally)
+- OAuth flows (already working per your message)
+- Auth / RLS for dashboard (already correct)
 
-- `supabase/functions/zid-oauth-callback/index.ts` — redirect to `/?oauth_result=...` instead of `/check-email` / `/dashboard/...`.
-- `supabase/functions/_shared/provision-merchant.ts` — update `loginUrl` to `/?oauth_result=...`.
-- `src/app/components/LoginPage.tsx` (and `src/app/routes.tsx` if needed) — read `oauth_result` from `/` and show the success/check-email screen.
-- Redeploy: `zid-oauth-callback` (and any other function importing the shared helper).
+## Open clarification (point 3 in your message)
+
+You said "need more identification" for conversation persistence — does that mean:
+- (a) you want anonymous visitors tracked by a cookie/localStorage `visitor_id`, OR
+- (b) you want to require email/phone before the chat starts, OR
+- (c) something else?
+
+Default if you don't answer: **(a)** — generate a `visitor_id` in localStorage, pass it with every message. Easy, no UX friction, dashboard can group by visitor.
