@@ -158,11 +158,11 @@ export function LoginPage() {
                 {fromStatus === 'linked'
                   ? t(
                       `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store has been linked to your existing Fuqah AI account.`,
-                      `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بحسابك الحالي في فقه.`,
+                      `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بحسابك الحالي في فقاعة.`,
                     )
                   : t(
                       `Your ${fromPlatform === 'zid' ? 'Zid' : 'Salla'} store is connected. We've sent a temporary password to your inbox.`,
-                      `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك الإلكتروني.`,
+                      `تم ربط متجرك على ${fromPlatform === 'zid' ? 'زد' : 'سلة'} بنجاح. أرسلنا كلمة مرور مؤقتة إلى بريدك في فقاعة.`,
                     )}
               </p>
               <p className="text-foreground text-[14px] mb-1" style={{ fontWeight: 600 }}>
