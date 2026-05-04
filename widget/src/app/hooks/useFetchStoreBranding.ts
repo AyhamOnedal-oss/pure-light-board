@@ -1,9 +1,10 @@
 /**
- * useFetchStoreBranding — Fetches store branding (name, logo, icon) from the dashboard API.
+ * useFetchStoreBranding — workspace name + logo + icon, derived from
+ * the same `widget-config` edge function (it returns workspace_name / logo_url / icon_url).
  */
 
-import { useState, useEffect } from 'react';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { useState, useEffect } from "react";
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getTenantId } from "../config/supabase";
 
 export interface StoreBranding {
   storeName: string;
@@ -12,53 +13,50 @@ export interface StoreBranding {
   isLoaded: boolean;
 }
 
-const ENDPOINT = `https://${projectId}.supabase.co/functions/v1/make-server-fc841b6e/store-branding/store_shrman`;
-
 export function useFetchStoreBranding(): StoreBranding {
-  const [storeName, setStoreName] = useState('Fuqah AI');
-  const [storeLogo, setStoreLogo] = useState<string | undefined>(undefined);
-  const [storeIcon, setStoreIcon] = useState<string | undefined>(undefined);
+  const [storeName, setStoreName] = useState("Fuqah AI");
+  const [storeLogo, setStoreLogo] = useState<string | undefined>();
+  const [storeIcon, setStoreIcon] = useState<string | undefined>();
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function fetchBranding() {
-      try {
-        const res = await fetch(ENDPOINT, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
-        });
-
-        if (!res.ok) {
-          console.log(`[FuqahChat] Failed to fetch branding: ${res.status}`);
-          if (!cancelled) setIsLoaded(true);
-          return;
-        }
-
-        const data = await res.json();
-
-        if (!data?.success || !data?.branding) {
-          console.log('[FuqahChat] Invalid branding response:', data);
-          if (!cancelled) setIsLoaded(true);
-          return;
-        }
-
-        const b = data.branding;
-        if (!cancelled) {
-          if (b.storeName) setStoreName(b.storeName);
-          if (b.logo) setStoreLogo(b.logo);
-          if (b.icon) setStoreIcon(b.icon);
-          setIsLoaded(true);
-          console.log('[FuqahChat] Branding loaded:', b.storeName);
-        }
-      } catch (err) {
-        console.log('[FuqahChat] Error fetching branding:', err);
-        if (!cancelled) setIsLoaded(true);
-      }
+    const tenantId = getTenantId();
+    if (!tenantId) {
+      setIsLoaded(true);
+      return;
     }
 
-    fetchBranding();
-    return () => { cancelled = true; };
+    (async () => {
+      try {
+        const res = await fetch(
+          `${FUNCTIONS_BASE}/widget-config?tenant_id=${encodeURIComponent(tenantId)}`,
+          {
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+          },
+        );
+        if (!res.ok) {
+          if (!cancelled) setIsLoaded(true);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.workspace_name) setStoreName(data.workspace_name);
+        if (data.logo_url) setStoreLogo(data.logo_url);
+        if (data.icon_url) setStoreIcon(data.icon_url);
+        setIsLoaded(true);
+      } catch (err) {
+        console.log("[FuqahChat] branding error:", err);
+        if (!cancelled) setIsLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return { storeName, storeLogo, storeIcon, isLoaded };
