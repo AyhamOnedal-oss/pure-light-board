@@ -14,20 +14,50 @@ export const SUPABASE_ANON_KEY =
 
 export const FUNCTIONS_BASE = `${SUPABASE_URL}/functions/v1`;
 
+export interface StoreContext {
+  platform?: string;
+  store_id?: string;
+  tenant_id?: string;
+}
+
 /**
- * Resolves the active tenant_id for this widget instance.
- *
+ * Resolves how this widget instance identifies itself to Supabase.
  * Priority:
- *   1. window.__FUQAH_TENANT_ID  (set by the loader after widget-resolve)
- *   2. URL ?tenant_id=...        (used by dashboard iframe preview)
+ *   1. window.__FUQAH_STORE_CTX  (set by widget-loader from Salla/Zid context)
+ *   2. window.__FUQAH_TENANT_ID  (set by widget-loader after widget-resolve)
+ *   3. URL ?platform=&store_id=  or  ?tenant_id=  (dashboard preview)
  */
-export function getTenantId(): string | null {
+export function getStoreContext(): StoreContext {
+  const ctx: StoreContext = {};
   try {
     const w = window as any;
-    if (w.__FUQAH_TENANT_ID) return String(w.__FUQAH_TENANT_ID);
+    if (w.__FUQAH_STORE_CTX?.platform) ctx.platform = String(w.__FUQAH_STORE_CTX.platform);
+    if (w.__FUQAH_STORE_CTX?.store_id) ctx.store_id = String(w.__FUQAH_STORE_CTX.store_id);
+    if (w.__FUQAH_TENANT_ID) ctx.tenant_id = String(w.__FUQAH_TENANT_ID);
+
     const sp = new URLSearchParams(window.location.search);
-    const fromUrl = sp.get("tenant_id");
-    if (fromUrl) return fromUrl;
+    if (!ctx.platform) ctx.platform = sp.get("platform") ?? undefined;
+    if (!ctx.store_id) ctx.store_id = sp.get("store_id") ?? undefined;
+    if (!ctx.tenant_id) ctx.tenant_id = sp.get("tenant_id") ?? undefined;
   } catch {}
-  return null;
+  return ctx;
+}
+
+export function buildContextQuery(ctx: StoreContext): string {
+  const p = new URLSearchParams();
+  if (ctx.tenant_id) p.set("tenant_id", ctx.tenant_id);
+  if (ctx.platform) p.set("platform", ctx.platform);
+  if (ctx.store_id) p.set("store_id", ctx.store_id);
+  return p.toString();
+}
+
+export function hasContext(ctx: StoreContext): boolean {
+  return !!(ctx.tenant_id || (ctx.platform && ctx.store_id));
+}
+
+/**
+ * @deprecated use getStoreContext() — kept for backwards compatibility.
+ */
+export function getTenantId(): string | null {
+  return getStoreContext().tenant_id ?? null;
 }
