@@ -1,47 +1,36 @@
 /**
- * Analytics — Fire-and-forget event client for the Fuqah dashboard backend.
+ * Analytics — fire-and-forget event client.
  *
- * All events POST to:
- *   https://<projectId>.supabase.co/functions/v1/make-server-fc841b6e/<route>
+ * All events POST to the `widget-events` edge function. Failures are logged
+ * but never thrown — the widget must keep working if the dashboard is unreachable.
  *
- * Failures are logged (console.log) but never thrown — the widget must keep
- * working even if the dashboard is unreachable.
- *
- * Event catalogue (see schema with the dashboard team):
- *   widget.opened / widget.closed
- *   welcome_bubble.shown / welcome_bubble.clicked
- *   message.sent / message.received
- *   attachment.uploaded
- *   message.feedback
- *   ticket.form_shown / ticket.form_submitted / ticket.created
- *   rating.submitted / rating.skipped
- *   inactivity.prompt_shown / inactivity.continued / inactivity.ended
- *   conversation.closed   (reason: manual | ai | inactivity | rating_skip)
- *   chat.exported
+ * Conversation/message/ticket endpoints are wired here as helpers but the
+ * real conversation lifecycle endpoints are still TODO; this file currently
+ * routes them through `widget-events` with a `type` discriminator so the
+ * dashboard can ingest them as raw events until dedicated endpoints exist.
  */
 
-import { projectId, publicAnonKey } from '/utils/supabase/info';
-
-const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-fc841b6e`;
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getTenantId } from "../config/supabase";
 
 function post(route: string, body: unknown): void {
   try {
-    fetch(`${BASE}${route}`, {
-      method: 'POST',
+    fetch(`${FUNCTIONS_BASE}${route}`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${publicAnonKey}`,
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
       body: JSON.stringify(body),
       keepalive: true,
-    }).catch(err => console.log(`[FuqahChat] analytics POST ${route} failed:`, err));
+    }).catch((err) => console.log(`[FuqahChat] POST ${route} failed:`, err));
   } catch (err) {
-    console.log(`[FuqahChat] analytics POST ${route} threw:`, err);
+    console.log(`[FuqahChat] POST ${route} threw:`, err);
   }
 }
 
 export interface EventContext {
-  storeId: string;
+  storeId: string; // tenant_id
   conversationId: string;
   ticketId?: string;
 }
@@ -50,84 +39,63 @@ export interface EventPayload {
   [key: string]: unknown;
 }
 
-/** Generic event — routed to /events by the dashboard backend. */
 export function trackEvent(type: string, ctx: EventContext, payload?: EventPayload): void {
-  post('/events', {
-    type,
-    storeId: ctx.storeId,
-    conversationId: ctx.conversationId,
-    ticketId: ctx.ticketId,
+  post("/widget-events", {
+    event: type,
+    tenant_id: ctx.storeId || getTenantId(),
+    conversation_id: ctx.conversationId,
+    ticket_id: ctx.ticketId,
     payload: payload ?? {},
     ts: new Date().toISOString(),
-    // Low-risk diagnostic context (no PII)
-    ua: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
-    tz: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
+    ua: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+    tz:
+      typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : undefined,
   });
 }
 
-/* ─── High-level helpers (mirror dashboard routes) ──────────────────────── */
-
 export function startConversation(ctx: EventContext): void {
-  post('/conversations/start', {
-    storeId: ctx.storeId,
-    conversationId: ctx.conversationId,
-    startedAt: new Date().toISOString(),
-  });
+  trackEvent("conversation.start", ctx, { startedAt: new Date().toISOString() });
 }
 
 export interface PostMessageBody {
   messageId: string;
-  sender: 'customer' | 'store';
+  sender: "customer" | "store";
   text?: string;
-  attachment?: { type: 'image' | 'file'; name: string; url: string; size?: number };
+  attachment?: { type: "image" | "file"; name: string; url: string; size?: number };
   timestamp: string;
 }
 
 export function postMessage(ctx: EventContext, body: PostMessageBody): void {
-  post(`/conversations/${encodeURIComponent(ctx.conversationId)}/messages`, {
-    storeId: ctx.storeId,
-    ...body,
-  });
+  trackEvent("message", ctx, body as unknown as EventPayload);
 }
 
-export function postFeedback(ctx: EventContext, messageId: string, feedback: 'up' | 'down' | null): void {
-  post(`/messages/${encodeURIComponent(messageId)}/feedback`, {
-    storeId: ctx.storeId,
-    conversationId: ctx.conversationId,
-    feedback,
-  });
-}
-
-export function postTicket(ctx: EventContext, body: {
-  phone: string; dialCode: string; source: 'inline' | 'form';
-}): void {
-  post('/tickets', {
-    storeId: ctx.storeId,
-    conversationId: ctx.conversationId,
-    ticketId: ctx.ticketId,
-    ...body,
-    createdAt: new Date().toISOString(),
-  });
-}
-
-export function postRating(ctx: EventContext, body: {
-  stars: number; feedback?: string; skipped?: boolean;
-}): void {
-  post('/ratings', {
-    storeId: ctx.storeId,
-    conversationId: ctx.conversationId,
-    ...body,
-    submittedAt: new Date().toISOString(),
-  });
+export function postFeedback(
+  ctx: EventContext,
+  messageId: string,
+  feedback: "up" | "down" | null,
+): void {
+  trackEvent("message.feedback", ctx, { messageId, feedback });
 }
 
 export function closeConversation(
   ctx: EventContext,
-  reason: 'manual' | 'ai' | 'inactivity' | 'rating_skip' | 'rating_submit',
+  reason: "manual" | "ai" | "inactivity" | "rating_skip",
 ): void {
-  post(`/conversations/${encodeURIComponent(ctx.conversationId)}/close`, {
-    storeId: ctx.storeId,
-    reason,
-    closedAt: new Date().toISOString(),
-  });
+  trackEvent("conversation.closed", ctx, { reason });
+}
+
+export function postRating(
+  ctx: EventContext,
+  rating: { stars: number; comment?: string },
+): void {
+  trackEvent("rating.submitted", ctx, rating);
+}
+
+export function postTicket(
+  ctx: EventContext,
+  ticket: { subject: string; phone?: string; message?: string },
+): void {
+  trackEvent("ticket.created", ctx, ticket);
 }
