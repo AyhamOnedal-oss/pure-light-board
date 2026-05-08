@@ -1,0 +1,1 @@
+UPDATE public.salla_connections SET tenant_id = '485d1819-77c7-4275-a445-9e4326a084ae' WHERE merchant_id = 925424347 AND tenant_id IS NULL;
