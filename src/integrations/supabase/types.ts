@@ -1773,6 +1773,7 @@ export type Database = {
           metadata: Json
           refresh_token: string | null
           store_email: string | null
+          store_id: string | null
           store_name: string | null
           store_url: string | null
           store_uuid: string
@@ -1791,6 +1792,7 @@ export type Database = {
           metadata?: Json
           refresh_token?: string | null
           store_email?: string | null
+          store_id?: string | null
           store_name?: string | null
           store_url?: string | null
           store_uuid: string
@@ -1809,6 +1811,7 @@ export type Database = {
           metadata?: Json
           refresh_token?: string | null
           store_email?: string | null
+          store_id?: string | null
           store_name?: string | null
           store_url?: string | null
           store_uuid?: string
