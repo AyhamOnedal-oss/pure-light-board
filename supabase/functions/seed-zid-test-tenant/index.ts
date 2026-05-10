@@ -15,11 +15,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "method_not_allowed" }, 405);
 
-  const token = req.headers.get("x-admin-token") ?? "";
-  const expected = Deno.env.get("ZID_WEBHOOK_SECRET") ?? "";
-  if (!expected || token !== expected) {
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
+  // NOTE: temporary seed endpoint, removed after Zid testing is complete.
 
   let body: any;
   try {
