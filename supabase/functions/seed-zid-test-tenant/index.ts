@@ -27,6 +27,7 @@ Deno.serve(async (req) => {
   const storeUuid: string | undefined = body.store_uuid;
   const storeName: string | null = body.store_name ?? null;
   const storeUrl: string | null = body.store_url ?? null;
+  const resetPassword: boolean = !!body.reset_password;
   if (!email) return jsonResponse({ error: "email_required" }, 400);
 
   const admin = createClient(
@@ -35,6 +36,58 @@ Deno.serve(async (req) => {
   );
 
   try {
+    if (resetPassword) {
+      // Find existing user, set a new password, return it.
+      let userId: string | null = null;
+      for (let page = 1; page <= 5; page++) {
+        const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error) throw error;
+        const u = data.users.find((x) => (x.email ?? "").toLowerCase() === email.toLowerCase());
+        if (u) { userId = u.id; break; }
+        if (data.users.length < 1000) break;
+      }
+      if (!userId) return jsonResponse({ error: "user_not_found" }, 404);
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+      let password = "";
+      for (let i = 0; i < 16; i++) password += alphabet[bytes[i] % alphabet.length];
+      const { error: upErr } = await admin.auth.admin.updateUserById(userId, { password });
+      if (upErr) throw upErr;
+      // Resolve tenant
+      const { data: m } = await admin
+        .from("auth_tenant_members")
+        .select("tenant_id")
+        .eq("user_id", userId)
+        .eq("role", "owner")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let tenantId = m?.tenant_id ?? null;
+      let zidLinked = false;
+      if (storeUuid && tenantId) {
+        await admin.from("zid_connections").upsert(
+          {
+            store_uuid: storeUuid,
+            store_email: email,
+            store_name: storeName,
+            store_url: storeUrl,
+            tenant_id: tenantId,
+            is_active: true,
+            connection_status: "connected",
+            connected_at: new Date().toISOString(),
+          },
+          { onConflict: "store_uuid" },
+        );
+        await admin
+          .from("settings_workspace")
+          .update({ zid_store_uuid: storeUuid, platform: "zid" })
+          .eq("id", tenantId);
+        zidLinked = true;
+      }
+      return jsonResponse({ ok: true, user_id: userId, tenant_id: tenantId, password, zid_linked: zidLinked });
+    }
+
     const result = await provisionMerchantAccount({
       email,
       platform: "zid",
