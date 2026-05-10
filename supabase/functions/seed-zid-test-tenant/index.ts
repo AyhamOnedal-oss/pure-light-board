@@ -25,6 +25,7 @@ Deno.serve(async (req) => {
   }
   const email: string = body.email;
   const storeUuid: string | undefined = body.store_uuid;
+  const storeIdNumeric: string | undefined = body.store_id ? String(body.store_id) : undefined;
   const storeName: string | null = body.store_name ?? null;
   const storeUrl: string | null = body.store_url ?? null;
   const resetPassword: boolean = !!body.reset_password;
@@ -65,10 +66,12 @@ Deno.serve(async (req) => {
         .maybeSingle();
       let tenantId = m?.tenant_id ?? null;
       let zidLinked = false;
-      if (storeUuid && tenantId) {
+      if ((storeUuid || storeIdNumeric) && tenantId) {
+        const uuid = storeUuid ?? `zid-${storeIdNumeric}`; // synthetic uuid for test rows
         await admin.from("zid_connections").upsert(
           {
-            store_uuid: storeUuid,
+            store_uuid: uuid,
+            store_id: storeIdNumeric ?? null,
             store_email: email,
             store_name: storeName,
             store_url: storeUrl,
@@ -81,7 +84,7 @@ Deno.serve(async (req) => {
         );
         await admin
           .from("settings_workspace")
-          .update({ zid_store_uuid: storeUuid, platform: "zid" })
+          .update({ zid_store_uuid: uuid, platform: "zid" })
           .eq("id", tenantId);
         zidLinked = true;
       }

@@ -50,10 +50,13 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
   }
 
   if (input.platform === "zid") {
+    const sid = String(input.store_id);
+    // Zid storefronts can pass either the store UUID or the numeric store_id
+    // (the only identifier exposed via {{store.id}} in Zid theme templates).
     const { data } = await client()
       .from("zid_connections")
       .select("tenant_id, is_active")
-      .eq("store_uuid", String(input.store_id))
+      .or(`store_uuid.eq.${sid},store_id.eq.${sid}`)
       .maybeSingle();
     return { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active };
   }

@@ -1,0 +1,2 @@
+ALTER TABLE public.zid_connections ADD COLUMN IF NOT EXISTS store_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS zid_connections_store_id_key ON public.zid_connections (store_id) WHERE store_id IS NOT NULL;
