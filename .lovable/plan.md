@@ -1,37 +1,81 @@
-## What I have now
-- `widget_8.js` (2001 lines) — Figma-correct JS, but still calls `loadCSS()` which `<link>`s `widget.css` from Hostinger.
-- `widget_2.css` (899 lines) — the matching v3.0.0 stylesheet.
-- `style.css` (small snippet) — extra rules for `.chat-widget-messages-wrapper` / `.chat-widget-messages` (always-white messages area, hidden scrollbar).
+# Simplify: chat via webhook, everything else via Supabase REST
 
-## Why we need this fix
-As long as `widget.js` injects `<link href=".../widget.css">`, uploading only `widget.js` to Hostinger leaves the storefront serving the **old** cached `widget.css` — which is exactly why your country-flag fix shows in Figma but not in Zid.
+## New architecture
 
-## Plan
+```
+Storefront widget
+   │
+   ├──► chat-ai (edge fn) ──► n8n webhook ──► AI reply
+   │       └─ persists customer + AI messages to conversations_messages
+   │
+   ├──► Supabase REST (anon key) ──► tickets_main           [insert ticket]
+   ├──► Supabase REST (anon key) ──► conversations_main     [update rating]
+   └──► Supabase REST (anon key) ──► conversations_messages [load history]
 
-1. **Build a single `widget.js`** at `/mnt/documents/widget.js` containing:
-   - Header bumped to `Version: 3.2.0 (single-file, CSS inlined)` so you can confirm in DevTools which build is live.
-   - A top-level constant `FQ_INLINE_CSS` holding the full contents of `widget_2.css` **plus** the `style.css` snippet appended at the end (so the messages-area override wins).
-   - `loadCSS()` rewritten to:
-     ```js
-     var s = document.createElement('style');
-     s.setAttribute('data-fuqah','inline');
-     s.textContent = FQ_INLINE_CSS;
-     document.head.appendChild(s);
-     console.log('[Fuqah] Inline CSS injected (' + FQ_INLINE_CSS.length + ' chars)');
-     ```
-   - No other JS logic touched. Country-flag layout, dropdown, dark-mode etc. stay exactly as you authored them in `widget_8.js`.
+Dashboard: reads everything from the same tables (already works).
+```
 
-2. **Escape safely.** I'll embed the CSS as a single JS string using a safe encoder (escape `\`, backticks, `</script>` sequences). Verified by re-extracting and diffing against the source CSS before delivering.
+No new edge functions. No "tickets-create" function. The widget POSTs directly to PostgREST using the public anon key, gated by RLS policies.
 
-3. **Deliver one file.** You upload only `/mnt/documents/widget.js` to Hostinger — overwrite the existing `widget.js`. Optionally delete the old `widget.css` from Hostinger so any stale cached `<link>` 404s loudly instead of silently serving old styles.
+## What needs to change
 
-4. **Verify after upload.** Hard refresh the Zid storefront. Console should show:
-   - `[Fuqah] Inline CSS injected (~NNNNN chars)`
-   - **No** network request to `/widget.css`.
-   - Country flag matches Figma.
+### 1. Add anon-friendly RLS policies
+
+Today every write to `tickets_main`, `conversations_main`, `conversations_customers`, and `conversations_messages` requires `tenant_role_at_least(..., 'agent')` — meaning a logged-in dashboard user. Anonymous storefront visitors cannot insert.
+
+Add narrow public policies (anon role) so the widget can:
+
+- **`tickets_main`** — `INSERT` allowed for anon when `tenant_id` exists in `settings_workspace` and `status='open'` (no privilege escalation, no assignee, no SLA tampering). Only fields the widget controls: `tenant_id`, `conversation_id`, `subject`, `description`, `category`, `customer_name`, `customer_phone`, `customer_id`. Reads stay locked.
+- **`conversations_main`** — `UPDATE` allowed for anon **only** to set `csat_rating`, `rating_comment`, `status='closed'`, `close_reason` for an existing conversation that belongs to the same tenant. No other columns mutable.
+- **`conversations_messages`** — `SELECT` allowed for anon when filtered by `conversation_id` that belongs to a known tenant (so widget can reload history). Inserts stay restricted (those still happen server-side via `chat-ai`).
+- **`conversations_customers`** — `SELECT` allowed for anon by `external_id` so the widget can find an existing customer/conversation on reopen.
+
+All policies scoped to specific columns / specific values to avoid leaks.
+
+### 2. Widget calls (no code today, planned for next build)
+
+```js
+// Create ticket — direct REST
+fetch(`${SUPABASE_URL}/rest/v1/tickets_main`, {
+  method: 'POST',
+  headers: { apikey, Authorization: `Bearer ${apikey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+  body: JSON.stringify({ tenant_id, conversation_id, subject, customer_name, customer_phone, status: 'open' })
+})
+
+// Submit rating — direct REST
+fetch(`${SUPABASE_URL}/rest/v1/conversations_main?id=eq.${conversation_id}`, {
+  method: 'PATCH',
+  headers: { ...auth },
+  body: JSON.stringify({ csat_rating, rating_comment, status: 'closed', close_reason: 'customer_manual' })
+})
+
+// Load past messages on reopen — direct REST
+fetch(`${SUPABASE_URL}/rest/v1/conversations_messages?conversation_id=eq.${id}&order=created_at.asc`)
+```
+
+Chat itself keeps going through `chat-ai` → n8n.
+
+### 3. chat-ai unchanged
+Still the only place that:
+- resolves tenant
+- rate-limits
+- talks to n8n
+- inserts into `conversations_messages` (customer + AI reply)
+
+### 4. Dashboard unchanged
+Tickets page already queries `tickets_main`. The moment the widget inserts a row, it appears.
+
+## What I'll do next (after you approve)
+
+1. Run the migration above (4 RLS policies, no schema changes).
+2. Update `widget.js` to:
+   - Call REST for ticket creation from the inline ticket form / "End conversation → Create ticket" flow
+   - Call REST to PATCH rating on rating screen submit
+   - Call REST to GET prior messages on widget open (using stored `conversation_id` from localStorage)
+   - Bump version to `v3.4.0`
+3. Re-export `widget.js` to `/mnt/documents/` for upload to Hostinger.
 
 ## Out of scope
-No edits to widget UI/JS behavior, Supabase loader, dashboard, auth, or DB. Pure packaging change.
-
-## Confirm to proceed
-Reply "go" and I'll generate the single `widget.js` for download.
+- No new edge functions.
+- No realtime (polling/refresh stays manual in dashboard for now).
+- No file attachments from the widget (text-only tickets/messages).
