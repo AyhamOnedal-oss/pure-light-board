@@ -34,10 +34,15 @@ Deno.serve(async (req) => {
       );
     }
     if (platform === "zid") {
+      // Zid storefronts may pass either the store UUID or the numeric store_id
+      // (the only id exposed via {{store.id}} in Zid theme templates).
+      // Prefer the active row so seed/test rows don't shadow real OAuth connections.
       const { data } = await supabase
         .from("zid_connections")
         .select("tenant_id, is_active")
-        .eq("store_uuid", externalId)
+        .or(`store_uuid.eq.${externalId},store_id.eq.${externalId}`)
+        .order("is_active", { ascending: false })
+        .limit(1)
         .maybeSingle();
       return jsonResponse(
         { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active },

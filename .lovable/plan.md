@@ -1,81 +1,30 @@
-# Simplify: chat via webhook, everything else via Supabase REST
+## Problem
 
-## New architecture
+The Zid storefront for store `3128909` (OAuth-connected, email `dfolxp9bgd@…`, tenant `95663988-…`) does not show the Fuqah bubble.
 
-```
-Storefront widget
-   │
-   ├──► chat-ai (edge fn) ──► n8n webhook ──► AI reply
-   │       └─ persists customer + AI messages to conversations_messages
-   │
-   ├──► Supabase REST (anon key) ──► tickets_main           [insert ticket]
-   ├──► Supabase REST (anon key) ──► conversations_main     [update rating]
-   └──► Supabase REST (anon key) ──► conversations_messages [load history]
+Root cause is in `supabase/functions/widget-resolve/index.ts`. For Zid it does:
 
-Dashboard: reads everything from the same tables (already works).
+```ts
+.from("zid_connections").select(...).eq("store_uuid", externalId)
 ```
 
-No new edge functions. No "tickets-create" function. The widget POSTs directly to PostgREST using the public anon key, gated by RLS policies.
+But the loader (`widget-loader/index.ts`) reads the storefront's identifier from `<meta name="zid-store-id">` / `window.zid.store_uuid`, and Zid themes expose the **numeric** `{{store.id}}` (`3128909`), not the long UUID. So the lookup never matches → `tenant_id: null` → loader bails silently → no widget.
 
-## What needs to change
+The shared helper `_shared/resolve-tenant.ts` (used by `chat-ai`) already handles both columns via `.or("store_uuid.eq.X,store_id.eq.X")`. `widget-resolve` was never updated to match.
 
-### 1. Add anon-friendly RLS policies
+There is also a stale seed row (`store_uuid='zid-3128909'`, `is_active=false`, same tenant) that should be deleted to avoid future ambiguity.
 
-Today every write to `tickets_main`, `conversations_main`, `conversations_customers`, and `conversations_messages` requires `tenant_role_at_least(..., 'agent')` — meaning a logged-in dashboard user. Anonymous storefront visitors cannot insert.
+## Plan
 
-Add narrow public policies (anon role) so the widget can:
+1. **Patch `supabase/functions/widget-resolve/index.ts`** — for the `zid` branch, replace the single `.eq("store_uuid", externalId)` with `.or("store_uuid.eq.<id>,store_id.eq.<id>")` and prefer `is_active=true` rows. Mirrors `resolve-tenant.ts`.
 
-- **`tickets_main`** — `INSERT` allowed for anon when `tenant_id` exists in `settings_workspace` and `status='open'` (no privilege escalation, no assignee, no SLA tampering). Only fields the widget controls: `tenant_id`, `conversation_id`, `subject`, `description`, `category`, `customer_name`, `customer_phone`, `customer_id`. Reads stay locked.
-- **`conversations_main`** — `UPDATE` allowed for anon **only** to set `csat_rating`, `rating_comment`, `status='closed'`, `close_reason` for an existing conversation that belongs to the same tenant. No other columns mutable.
-- **`conversations_messages`** — `SELECT` allowed for anon when filtered by `conversation_id` that belongs to a known tenant (so widget can reload history). Inserts stay restricted (those still happen server-side via `chat-ai`).
-- **`conversations_customers`** — `SELECT` allowed for anon by `external_id` so the widget can find an existing customer/conversation on reopen.
+2. **Delete the stale seed row** in `zid_connections` (the one with `store_uuid='zid-3128909'`, `is_active=false`) so only the real OAuth row remains for tenant `95663988-…`. Done via a one-off SQL migration.
 
-All policies scoped to specific columns / specific values to avoid leaks.
-
-### 2. Widget calls (no code today, planned for next build)
-
-```js
-// Create ticket — direct REST
-fetch(`${SUPABASE_URL}/rest/v1/tickets_main`, {
-  method: 'POST',
-  headers: { apikey, Authorization: `Bearer ${apikey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
-  body: JSON.stringify({ tenant_id, conversation_id, subject, customer_name, customer_phone, status: 'open' })
-})
-
-// Submit rating — direct REST
-fetch(`${SUPABASE_URL}/rest/v1/conversations_main?id=eq.${conversation_id}`, {
-  method: 'PATCH',
-  headers: { ...auth },
-  body: JSON.stringify({ csat_rating, rating_comment, status: 'closed', close_reason: 'customer_manual' })
-})
-
-// Load past messages on reopen — direct REST
-fetch(`${SUPABASE_URL}/rest/v1/conversations_messages?conversation_id=eq.${id}&order=created_at.asc`)
-```
-
-Chat itself keeps going through `chat-ai` → n8n.
-
-### 3. chat-ai unchanged
-Still the only place that:
-- resolves tenant
-- rate-limits
-- talks to n8n
-- inserts into `conversations_messages` (customer + AI reply)
-
-### 4. Dashboard unchanged
-Tickets page already queries `tickets_main`. The moment the widget inserts a row, it appears.
-
-## What I'll do next (after you approve)
-
-1. Run the migration above (4 RLS policies, no schema changes).
-2. Update `widget.js` to:
-   - Call REST for ticket creation from the inline ticket form / "End conversation → Create ticket" flow
-   - Call REST to PATCH rating on rating screen submit
-   - Call REST to GET prior messages on widget open (using stored `conversation_id` from localStorage)
-   - Bump version to `v3.4.0`
-3. Re-export `widget.js` to `/mnt/documents/` for upload to Hostinger.
+3. **Verify** — after deploy, hitting
+   `…/functions/v1/widget-resolve?platform=zid&external_id=3128909`
+   should return `{ tenant_id: "95663988-…", is_active: true }`. Then a hard refresh of the storefront should mount the bubble.
 
 ## Out of scope
-- No new edge functions.
-- No realtime (polling/refresh stays manual in dashboard for now).
-- No file attachments from the widget (text-only tickets/messages).
+
+- No changes to `widget.js`, `chat-ai`, RLS, or the dashboard.
+- No change to how the Zid loader detects context — numeric id stays the source of truth.
