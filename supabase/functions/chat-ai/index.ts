@@ -41,7 +41,8 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { platform, store_id, conversation_id, visitor_id, message, history } = body;
+    const { platform, store_id, visitor_id, message, history } = body;
+    let conversation_id: string | null = body.conversation_id ?? null;
 
     if (!message || typeof message !== "string") {
       return jsonResponse({ error: "missing_message" }, 400);
@@ -58,6 +59,71 @@ Deno.serve(async (req) => {
 
     if (!(await checkRateLimit(tenant_id))) {
       return jsonResponse({ error: "rate_limited" }, 429);
+    }
+
+    // Conversation persistence: ensure a UUID conversation_id and a
+    // conversations_main row so the dashboard can list it.
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUuid = !!conversation_id && UUID_RE.test(conversation_id);
+    if (!isUuid) conversation_id = crypto.randomUUID();
+
+    // Upsert customer (best-effort) keyed by visitor_id as external_id
+    let customer_id: string | null = null;
+    if (visitor_id) {
+      try {
+        const { data: existingCust } = await supabase
+          .from("conversations_customers")
+          .select("id")
+          .eq("tenant_id", tenant_id)
+          .eq("external_id", visitor_id)
+          .maybeSingle();
+        if (existingCust?.id) {
+          customer_id = existingCust.id;
+        } else {
+          const { data: newCust } = await supabase
+            .from("conversations_customers")
+            .insert({
+              tenant_id,
+              external_id: visitor_id,
+              display_name: "Storefront visitor",
+              locale: "ar",
+            })
+            .select("id")
+            .single();
+          customer_id = newCust?.id ?? null;
+        }
+      } catch (e) {
+        console.log("customer upsert failed (non-fatal):", e);
+      }
+    }
+
+    // Upsert conversations_main row
+    try {
+      const { data: existingConv } = await supabase
+        .from("conversations_main")
+        .select("id")
+        .eq("id", conversation_id)
+        .maybeSingle();
+      if (!existingConv) {
+        await supabase.from("conversations_main").insert({
+          id: conversation_id,
+          tenant_id,
+          customer_id,
+          channel_kind: "web",
+          status: "new",
+          language: "ar",
+          ai_handled: true,
+          last_message_at: new Date().toISOString(),
+        });
+      } else {
+        await supabase
+          .from("conversations_main")
+          .update({ last_message_at: new Date().toISOString() })
+          .eq("id", conversation_id);
+      }
+    } catch (e) {
+      console.log("conversation upsert failed (non-fatal):", e);
     }
 
     // Load merchant context for n8n
@@ -137,7 +203,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return jsonResponse({ reply, tenant_id });
+    return jsonResponse({ reply, tenant_id, conversation_id });
   } catch (e) {
     console.error("chat-ai error", e);
     return jsonResponse({ error: "server_error" }, 500);
