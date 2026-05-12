@@ -1872,6 +1872,7 @@ export type Database = {
         Args: { _tenant_id: string; _user_id: string }
         Returns: boolean
       }
+      tenant_exists: { Args: { _tenant_id: string }; Returns: boolean }
       tenant_role_at_least: {
         Args: {
           _min: Database["public"]["Enums"]["tenant_role"]
