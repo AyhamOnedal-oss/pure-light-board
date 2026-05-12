@@ -1,0 +1,1 @@
+DELETE FROM public.zid_connections WHERE store_uuid = 'zid-3128909' AND is_active = false;
