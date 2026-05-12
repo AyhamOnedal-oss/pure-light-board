@@ -1,43 +1,35 @@
 ## Goal
+Make the widget build a single self-contained `widget.js` so deploying to Hostinger only ever requires uploading one file.
 
-Set up a separate test workspace for Zid (independent of abc's Workspace which is linked to Salla) so you can test the Zid widget — colors, design, etc. — without conflicts.
+## Why
+Today `bun run build` in `/widget` outputs two files:
+- `widget/dist/widget.js`
+- `widget/dist/widget.css`
 
-## What I need from you
+The bundle injects `<link href=".../widget.css">` at runtime (visible in your console: `[Fuqah] CSS link injected: https://widget.fuqah.net/widget.css`). When you upload only `widget.js`, the storefront keeps loading the **old** `widget.css`, so visual fixes (like the country-flag alignment) never appear in Zid even though they look right in Figma/preview.
 
-- **Zid `store_uuid`** for the test store (you said you'd share next).
-- Optional: store name and store URL.
+## Changes
 
-## Steps
+### 1. `widget/vite.config.ts`
+Switch the library build so CSS is inlined into the JS bundle instead of emitted as a sibling file:
+- Set `build.cssCodeSplit: false` (already set) **and** add a small Vite plugin (or use `build.rollupOptions.output.assetFileNames` + a post-build inline step) so the generated CSS is injected as a `<style>` tag by `widget.js` at runtime.
+- Cleanest approach: install `vite-plugin-css-injected-by-js` and add it to `plugins`. It rewrites the build so all CSS becomes a `style.textContent = "..."` call inside `widget.js`. No more `widget.css` emitted.
 
-1. **You provide the Zid `store_uuid`.**
+### 2. Remove the manual CSS `<link>` injection
+The current widget code injects `https://widget.fuqah.net/widget.css` at boot. With CSS inlined, this is no longer needed and would 404 after we stop uploading the file.
+- Locate the line that injects the CSS link (the one producing the `[Fuqah] CSS link injected` log) inside the widget bundle source and delete it. Likely lives in `widget/src/main.tsx` or a bootstrap helper.
 
-2. **Provision a new auth user + workspace** for `1dcxpbvhzd@zam-partner.email`:
-   - Create Supabase auth user with that email + a generated password.
-   - The existing `handle_new_user` trigger automatically creates:
-     - a `settings_workspace` row (the new tenant)
-     - an `auth_tenant_members` row (owner)
-     - a `settings_plans` row
-     - a `settings_chat_design` + `settings_train_ai` row (via `create_tenant_default_settings`)
-   - Capture the new `tenant_id`.
-   - Send the credentials via Resend (same email template used by `provision-merchant`) so you can log in and tweak colors/design.
+### 3. Verify
+- Run `bun run build` in `/widget`.
+- Confirm `widget/dist/` now contains only `widget.js` (plus maybe a sourcemap) — no `widget.css`.
+- Open the built file and grep for the country-selector styles to confirm the CSS is inlined.
 
-3. **Insert a `zid_connections` row** linked to the new tenant:
-   - `store_uuid` = (your value)
-   - `store_email` = `1dcxpbvhzd@zam-partner.email`
-   - `tenant_id` = (new tenant)
-   - `is_active` = true, `connection_status` = `connected`, `connected_at` = now
-   - tokens left null (test seed; widget-resolve / widget-config / widget-events will work since they only need `tenant_id`)
+### 4. Deploy instructions (for you, after I implement)
+1. Upload the new single `widget/dist/widget.js` to Hostinger, overwriting the old one.
+2. (Optional cleanup) Delete the old `widget.css` from Hostinger so any cached reference 404s loudly instead of silently serving stale styles.
+3. Hard refresh the Zid storefront. Country flag should now match Figma.
 
-4. **Update the new `settings_workspace`** row:
-   - `zid_store_uuid` = (your value)
-   - `platform` = `zid`
-   - `name` = something like "Zid Test Workspace" (optional)
-
-5. **Verify**: call `widget-resolve` / `widget-config` with the new `store_uuid` → should return the new tenant. Log into the dashboard with the emailed credentials and confirm Chat Customization is editable.
-
-## Notes
-
-- Fully isolated from abc's Workspace (Salla). Two separate tenants, two separate widget configs.
-- Easy to clean up later by deleting the `zid_connections` row + the workspace + the auth user.
-- No app code changes — database + one auth-admin call (handled inside the migration step / a small script).
-- Reply with the Zid `store_uuid` and I'll prepare the migration.
+## Out of scope
+- No changes to widget UI / layout code.
+- No changes to the Supabase loader (`widget-loader/index.ts`) — it already only references `widget.js`.
+- Dashboard, auth, and database untouched.
