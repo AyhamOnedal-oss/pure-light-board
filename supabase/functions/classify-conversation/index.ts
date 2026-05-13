@@ -27,7 +27,7 @@ async function loadSecret(): Promise<string | null> {
   return data?.value ?? null;
 }
 
-const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "unknown"] as const;
+const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "other"] as const;
 type Category = typeof ALLOWED_CATEGORIES[number];
 
 function json(body: unknown, status = 200) {
@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
   const systemPrompt = [
     "You classify customer-support chat transcripts.",
     "Reply ONLY in JSON with this exact shape:",
-    `{ "category": "complaint" | "inquiry" | "request" | "suggestion" | "unknown",`,
+    `{ "category": "complaint" | "inquiry" | "request" | "suggestion" | "other",`,
     `  "subject": string,  // <= 80 chars, in the conversation's language`,
     `  "close_reason": string  // <= 120 chars, why the conversation ended`,
     "}",
@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
 
   const category = (ALLOWED_CATEGORIES as readonly string[]).includes(parsed.category ?? "")
     ? (parsed.category as Category)
-    : "unknown";
+    : "other";
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
   const close_reason = (parsed.close_reason ?? "").toString().slice(0, 500) || null;
 
