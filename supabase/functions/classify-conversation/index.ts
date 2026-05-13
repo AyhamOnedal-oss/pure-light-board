@@ -15,16 +15,19 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
 );
 
-async function loadSecret(): Promise<string | null> {
-  // Prefer the env var; fall back to the row written by the migration.
+async function loadAcceptedSecrets(): Promise<string[]> {
+  // Accept either the env-var secret or the row written by the migration.
+  // The trigger uses the table value; the env var is a manual override path.
+  const out: string[] = [];
   const env = Deno.env.get("CLASSIFY_WEBHOOK_SECRET");
-  if (env && env.length > 0) return env;
+  if (env && env.length > 0) out.push(env);
   const { data } = await supabase
     .from("_app_secrets")
     .select("value")
     .eq("key", "classify_webhook_secret")
     .maybeSingle();
-  return data?.value ?? null;
+  if (data?.value) out.push(data.value);
+  return out;
 }
 
 const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "other"] as const;
@@ -43,8 +46,8 @@ Deno.serve(async (req) => {
 
   // Verify shared secret from the trigger
   const provided = req.headers.get("x-classify-secret") ?? "";
-  const expected = await loadSecret();
-  if (!expected || provided !== expected) {
+  const accepted = await loadAcceptedSecrets();
+  if (accepted.length === 0 || !accepted.includes(provided)) {
     return json({ error: "unauthorized" }, 401);
   }
 
