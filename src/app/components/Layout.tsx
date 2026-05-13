@@ -110,7 +110,6 @@ export function Layout() {
     { to: '/dashboard/settings/plans', icon: CreditCard, label: t('Plans', 'الخطط'), key: 'settings_plans' as PermissionKey },
     { to: '/dashboard/settings/account', icon: User, label: t('Account', 'الحساب'), key: 'settings_account' as PermissionKey },
     { to: '/dashboard/settings/store', icon: Store, label: t('Store Info', 'معلومات المتجر'), key: 'settings_store' as PermissionKey },
-    { to: '/dashboard/settings/connections', icon: Plug, label: t('Connections', 'الاتصالات'), key: 'settings_store' as PermissionKey },
   ];
 
   const canSettings = userPerms === 'all' ? true : !!(userPerms as MemberPermissions).settings;
@@ -250,11 +249,11 @@ export function Layout() {
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-sidebar-accent transition-colors"
         >
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#043CC8] to-[#00FFF4] flex items-center justify-center text-white text-[12px] shrink-0" style={{ fontWeight: 700 }}>
-            AH
+            {initials}
           </div>
           <div className="flex-1 min-w-0 text-start">
-            <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>{t('Ahmed Hassan', 'أحمد حسن')}</p>
-            <p className="text-[11px] text-sidebar-foreground/50 truncate">admin@store.com</p>
+            <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>{displayName || t('Account', 'الحساب')}</p>
+            <p className="text-[11px] text-sidebar-foreground/50 truncate">{displayEmail || '—'}</p>
           </div>
           <ChevronUp className={`w-4 h-4 text-sidebar-foreground/40 transition-transform ${userMenuOpen ? '' : 'rotate-180'}`} />
         </button>
