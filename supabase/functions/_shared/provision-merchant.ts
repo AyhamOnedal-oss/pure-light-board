@@ -46,7 +46,10 @@ async function sendResendEmail(opts: {
   html: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
-  const from = Deno.env.get("RESEND_FROM_EMAIL") ?? "onboarding@resend.dev";
+  // Always send from the verified Fuqah domain. The onboarding@resend.dev
+  // sandbox sender 400s for arbitrary recipients, so we hardcode the
+  // verified support address here and ignore RESEND_FROM_EMAIL.
+  const from = "Fuqah AI <support@fuqah.net>";
   if (!apiKey) return { ok: false, error: "RESEND_API_KEY missing" };
   try {
     const r = await fetch("https://api.resend.com/emails", {
