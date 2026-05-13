@@ -230,9 +230,9 @@ export function DashboardPage() {
                 className="text-[22px] text-foreground"
                 style={{ fontWeight: 700 }}
               />
-              <span className={`text-[11px] flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-400'}`} style={{ fontWeight: 600 }}>
-                {kpi.change}
-                {kpi.up ? <TrendingUp className="w-3 h-3" /> : <TrendingUp className="w-3 h-3 rotate-180" />}
+              <span className="text-[11px] flex items-center gap-1 text-green-500" style={{ fontWeight: 600 }}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                {t('Live', 'مباشر')}
               </span>
             </div>
           </motion.div>
