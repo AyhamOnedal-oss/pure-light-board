@@ -259,11 +259,23 @@ Deno.serve(async (req) => {
 
     await supabase.from("zid_connections").upsert(upsertRow, { onConflict: "store_uuid" });
 
+    // Derive a clean domain from storeUrl ("https://foo.zid.store/path" → "foo.zid.store").
+    function deriveDomain(u: string | null): string | null {
+      if (!u) return null;
+      try {
+        const url = u.startsWith("http") ? new URL(u) : new URL("https://" + u);
+        return url.hostname || null;
+      } catch {
+        return u.replace(/^https?:\/\//, "").split("/")[0] || null;
+      }
+    }
+    const storeDomain = deriveDomain(storeUrl);
+
     if (tenantId && storeUuid) {
-      await supabase
-        .from("settings_workspace")
-        .update({ zid_store_uuid: storeUuid, platform: "zid" })
-        .eq("id", tenantId);
+      const wsUpdate: Record<string, unknown> = { zid_store_uuid: storeUuid, platform: "zid" };
+      if (storeName) wsUpdate.name = storeName;
+      if (storeDomain) wsUpdate.domain = storeDomain;
+      await supabase.from("settings_workspace").update(wsUpdate).eq("id", tenantId);
     }
 
     // Auto-provision merchant account if we have an email but no tenant yet.
@@ -301,10 +313,10 @@ Deno.serve(async (req) => {
             .from("zid_connections")
             .update({ tenant_id: tenantId })
             .eq("store_uuid", storeUuid);
-          await supabase
-            .from("settings_workspace")
-            .update({ zid_store_uuid: storeUuid, platform: "zid" })
-            .eq("id", tenantId);
+          const wsUpdate2: Record<string, unknown> = { zid_store_uuid: storeUuid, platform: "zid" };
+          if (storeName) wsUpdate2.name = storeName;
+          if (storeDomain) wsUpdate2.domain = storeDomain;
+          await supabase.from("settings_workspace").update(wsUpdate2).eq("id", tenantId);
         }
       } catch (e) {
         console.error("zid-callback: provision failed", e);
