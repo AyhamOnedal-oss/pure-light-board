@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      _app_secrets: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       admin_ad_campaigns: {
         Row: {
           clicks: number
@@ -1742,6 +1760,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      widget_events: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          metadata: Json
+          tenant_id: string
+          type: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          tenant_id: string
+          type: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          tenant_id?: string
+          type?: string
+        }
+        Relationships: []
       }
       widget_rate_limits: {
         Row: {
