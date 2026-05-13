@@ -13,6 +13,22 @@ import {
   TooltipProps
 } from 'recharts';
 import { RecentActivityTable } from './dashboard/RecentActivityTable';
+import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
+  if (n >= 10_000) return (n / 1_000).toFixed(0) + 'K';
+  if (n >= 1_000) return n.toLocaleString();
+  return String(n);
+}
+
+function formatSeconds(s: number): string {
+  if (!s || s < 0) return '0s';
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s - m * 60);
+  return `${m}m ${rem}s`;
+}
 
 interface InsightIssue {
   id: string;
@@ -87,6 +103,7 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 
 export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
+  const { metrics } = useDashboardMetrics();
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [issues, setIssues] = useState(insightIssues);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
@@ -101,26 +118,40 @@ export function DashboardPage() {
     return () => { document.body.style.overflow = ''; };
   }, [openInsight, feedbackConvo]);
 
+  const totalMessages = metrics.messagesIn + metrics.messagesOut;
   const kpis = [
-    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: '2,847', change: '+12.5%', up: true, color: '#043CC8' },
-    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: '94.2%', change: '+3.1%', up: true, color: '#10b981' },
-    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: '156', change: '-5.2%', up: false, color: '#f59e0b' },
-    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: '1.2M', change: '+18.7%', up: true, color: '#8b5cf6' },
-    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: '8,432', change: '+22.3%', up: true, color: '#00C9BD' },
-    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: '2.5s', change: '-15.4%', up: true, color: '#ec4899' },
+    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8' },
+    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981' },
+    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b' },
+    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6' },
+    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD' },
+    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899' },
+    { icon: MessageSquare, label: t('Messages', 'الرسائل'), value: formatNumber(totalMessages), color: '#0ea5e9' },
   ];
 
-  const classificationData = [
-    { name: t('Complaint', 'شكوى'), value: 320, color: '#ff4466' },
-    { name: t('Inquiry', 'استفسار'), value: 580, color: '#043CC8' },
-    { name: t('Request', 'طلب'), value: 420, color: '#f59e0b' },
-    { name: t('Suggestion', 'اقتراح'), value: 180, color: '#10b981' },
-  ];
+  const classificationLabels: Record<string, { en: string; ar: string; color: string }> = {
+    complaint: { en: 'Complaint', ar: 'شكوى', color: '#ff4466' },
+    inquiry: { en: 'Inquiry', ar: 'استفسار', color: '#043CC8' },
+    request: { en: 'Request', ar: 'طلب', color: '#f59e0b' },
+    suggestion: { en: 'Suggestion', ar: 'اقتراح', color: '#10b981' },
+    shipping: { en: 'Shipping', ar: 'شحن', color: '#06b6d4' },
+    refund: { en: 'Refund', ar: 'استرجاع', color: '#a855f7' },
+    product: { en: 'Product', ar: 'منتج', color: '#14b8a6' },
+    payment: { en: 'Payment', ar: 'دفع', color: '#eab308' },
+    other: { en: 'Other', ar: 'أخرى', color: '#8b5cf6' },
+  };
+  const classificationData = Object.entries(metrics.classification)
+    .map(([k, v]) => ({
+      name: t(classificationLabels[k]?.en ?? k, classificationLabels[k]?.ar ?? k),
+      value: v,
+      color: classificationLabels[k]?.color ?? '#8b5cf6',
+    }))
+    .sort((a, b) => b.value - a.value);
 
   const ticketStatusData = [
-    { name: t('Total', 'الإجمالي'), value: 156, fill: '#043CC8' },
-    { name: t('Open', 'مفتوحة'), value: 42, fill: '#ff4466' },
-    { name: t('Closed', 'مغلقة'), value: 114, fill: '#10b981' },
+    { name: t('Total', 'الإجمالي'), value: metrics.ticketsTotal, fill: '#043CC8' },
+    { name: t('Open', 'مفتوحة'), value: metrics.ticketsOpen, fill: '#ff4466' },
+    { name: t('Closed', 'مغلقة'), value: metrics.ticketsClosed, fill: '#10b981' },
   ];
 
   const insights = [
@@ -199,9 +230,9 @@ export function DashboardPage() {
                 className="text-[22px] text-foreground"
                 style={{ fontWeight: 700 }}
               />
-              <span className={`text-[11px] flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-400'}`} style={{ fontWeight: 600 }}>
-                {kpi.change}
-                {kpi.up ? <TrendingUp className="w-3 h-3" /> : <TrendingUp className="w-3 h-3 rotate-180" />}
+              <span className="text-[11px] flex items-center gap-1 text-green-500" style={{ fontWeight: 600 }}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                {t('Live', 'مباشر')}
               </span>
             </div>
           </motion.div>

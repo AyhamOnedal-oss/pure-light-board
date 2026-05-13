@@ -31,3 +31,6 @@ verify_jwt = false
 verify_jwt = false
 [functions.seed-zid-test-tenant]
 verify_jwt = false
+
+[functions.classify-conversation]
+verify_jwt = false
