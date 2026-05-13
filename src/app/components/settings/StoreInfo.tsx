@@ -253,10 +253,14 @@ export function StoreInfo() {
           <label className="text-[13px] text-muted-foreground mb-2 block">{t('Domain', 'النطاق')}</label>
           <input
             value={domain}
-            onChange={e => setDomain(e.target.value)}
+            readOnly
             dir="ltr"
-            className="w-full px-4 py-3 rounded-xl bg-input-background border border-border text-[14px] outline-none focus:border-[#043CC8] focus:ring-2 focus:ring-[#043CC8]/20 transition-all text-foreground"
+            placeholder={t('Auto-detected from your store', 'يتم اكتشافه تلقائياً من متجرك')}
+            className="w-full px-4 py-3 rounded-xl bg-muted border border-border text-[14px] outline-none transition-all text-foreground cursor-not-allowed opacity-80"
           />
+          <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+            {t('Synced automatically from your connected store.', 'يتم المزامنة تلقائياً من متجرك المتصل.')}
+          </p>
         </div>
 
         {/* Cancel (LEFT, red) | Save Changes (RIGHT) */}
