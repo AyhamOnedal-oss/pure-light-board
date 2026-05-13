@@ -5,11 +5,12 @@ import { ToastContainer } from './ToastContainer';
 import {
   LayoutDashboard, Users, MessageSquare, Ticket, Settings,
   ChevronDown, ChevronRight, Brain, CreditCard, User,
-  Globe, Moon, Sun, Bell, Menu, X, Paintbrush, MessageCircle, Store, Plug,
+  Globe, Moon, Sun, Bell, Menu, X, Paintbrush, MessageCircle, Store,
   LogOut, ChevronUp
 } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
+import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
 import { getCurrentMemberId, isAllowed, MemberPermissions, PermissionKey } from '../utils/permissions';
 
@@ -27,7 +28,9 @@ function readCurrentUserPermissions(): MemberPermissions | 'all' {
 }
 
 export function Layout() {
-  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut } = useApp();
+  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId } = useApp();
+  const [displayName, setDisplayName] = useState<string>('');
+  const [displayEmail, setDisplayEmail] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -37,6 +40,29 @@ export function Layout() {
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const isSettings = location.pathname.startsWith('/dashboard/settings');
+
+  useEffect(() => {
+    setDisplayEmail(user?.email ?? '');
+    if (!tenantId) { setDisplayName(user?.email?.split('@')[0] ?? ''); return; }
+    let cancelled = false;
+    (async () => {
+      const [{ data: ws }, { data: acc }] = await Promise.all([
+        supabase.from('settings_workspace').select('name').eq('id', tenantId).maybeSingle(),
+        user ? supabase.from('settings_account').select('display_name').eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null as { display_name: string | null } | null }),
+      ]);
+      if (cancelled) return;
+      const name = ws?.name || acc?.display_name || user?.email?.split('@')[0] || '';
+      setDisplayName(name);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email, tenantId]);
+
+  const initials = (displayName || displayEmail || 'U')
+    .split(/\s+|@/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(s => s[0]?.toUpperCase() ?? '')
+    .join('') || 'U';
 
   useEffect(() => {
     if (isSettings && !settingsOpen) setSettingsOpen(true);
