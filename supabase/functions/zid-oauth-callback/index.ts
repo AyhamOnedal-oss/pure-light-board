@@ -124,6 +124,23 @@ Deno.serve(async (req) => {
       return null;
     }
 
+    // Recursively find the first non-empty string under any of the candidate
+    // keys. Zid endpoints return store info under inconsistent paths so a
+    // generic walker is safer than enumerating shapes.
+    function findFirstString(obj: unknown, keys: string[]): string | null {
+      if (!obj || typeof obj !== "object") return null;
+      const o = obj as Record<string, unknown>;
+      for (const k of Object.keys(o)) {
+        const v = o[k];
+        if (keys.includes(k) && typeof v === "string" && v.trim()) return v.trim();
+      }
+      for (const k of Object.keys(o)) {
+        const found = findFirstString(o[k], keys);
+        if (found) return found;
+      }
+      return null;
+    }
+
     async function tryEndpoint(path: string) {
       const r = await fetch(`https://api.zid.sa${path}`, {
         headers: {
@@ -173,16 +190,23 @@ Deno.serve(async (req) => {
             b?.user?.store?.name ??
             b?.data?.store?.name ??
             b?.store?.name ??
-            b?.data?.name ??
-            b?.name ??
+            findFirstString(b?.user?.store, ["name", "store_name", "title", "shop_name"]) ??
+            findFirstString(b, ["store_name", "shop_name"]) ??
             null;
           storeUrl =
             b?.user?.store?.store_url ??
             b?.data?.store?.store_url ??
             b?.store?.store_url ??
             b?.data?.store_url ??
+            findFirstString(b?.user?.store, ["store_url", "url", "domain", "site_url", "shop_url"]) ??
+            findFirstString(b, ["store_url", "shop_url", "site_url"]) ??
             null;
-          storeEmail = b?.user?.email ?? b?.data?.email ?? b?.email ?? null;
+          storeEmail =
+            b?.user?.email ??
+            b?.data?.email ??
+            b?.email ??
+            findFirstString(b, ["store_email", "owner_email", "email"]) ??
+            null;
           if (storeUuid) break;
         }
       } catch (e) {
