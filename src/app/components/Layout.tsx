@@ -5,11 +5,12 @@ import { ToastContainer } from './ToastContainer';
 import {
   LayoutDashboard, Users, MessageSquare, Ticket, Settings,
   ChevronDown, ChevronRight, Brain, CreditCard, User,
-  Globe, Moon, Sun, Bell, Menu, X, Paintbrush, MessageCircle, Store, Plug,
+  Globe, Moon, Sun, Bell, Menu, X, Paintbrush, MessageCircle, Store,
   LogOut, ChevronUp
 } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
+import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
 import { getCurrentMemberId, isAllowed, MemberPermissions, PermissionKey } from '../utils/permissions';
 
@@ -27,7 +28,9 @@ function readCurrentUserPermissions(): MemberPermissions | 'all' {
 }
 
 export function Layout() {
-  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut } = useApp();
+  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId } = useApp();
+  const [displayName, setDisplayName] = useState<string>('');
+  const [displayEmail, setDisplayEmail] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -37,6 +40,29 @@ export function Layout() {
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const isSettings = location.pathname.startsWith('/dashboard/settings');
+
+  useEffect(() => {
+    setDisplayEmail(user?.email ?? '');
+    if (!tenantId) { setDisplayName(user?.email?.split('@')[0] ?? ''); return; }
+    let cancelled = false;
+    (async () => {
+      const [{ data: ws }, { data: acc }] = await Promise.all([
+        supabase.from('settings_workspace').select('name').eq('id', tenantId).maybeSingle(),
+        user ? supabase.from('settings_account').select('display_name').eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null as { display_name: string | null } | null }),
+      ]);
+      if (cancelled) return;
+      const name = ws?.name || acc?.display_name || user?.email?.split('@')[0] || '';
+      setDisplayName(name);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email, tenantId]);
+
+  const initials = (displayName || displayEmail || 'U')
+    .split(/\s+|@/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(s => s[0]?.toUpperCase() ?? '')
+    .join('') || 'U';
 
   useEffect(() => {
     if (isSettings && !settingsOpen) setSettingsOpen(true);
@@ -84,7 +110,6 @@ export function Layout() {
     { to: '/dashboard/settings/plans', icon: CreditCard, label: t('Plans', 'الخطط'), key: 'settings_plans' as PermissionKey },
     { to: '/dashboard/settings/account', icon: User, label: t('Account', 'الحساب'), key: 'settings_account' as PermissionKey },
     { to: '/dashboard/settings/store', icon: Store, label: t('Store Info', 'معلومات المتجر'), key: 'settings_store' as PermissionKey },
-    { to: '/dashboard/settings/connections', icon: Plug, label: t('Connections', 'الاتصالات'), key: 'settings_store' as PermissionKey },
   ];
 
   const canSettings = userPerms === 'all' ? true : !!(userPerms as MemberPermissions).settings;
@@ -224,11 +249,11 @@ export function Layout() {
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-sidebar-accent transition-colors"
         >
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#043CC8] to-[#00FFF4] flex items-center justify-center text-white text-[12px] shrink-0" style={{ fontWeight: 700 }}>
-            AH
+            {initials}
           </div>
           <div className="flex-1 min-w-0 text-start">
-            <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>{t('Ahmed Hassan', 'أحمد حسن')}</p>
-            <p className="text-[11px] text-sidebar-foreground/50 truncate">admin@store.com</p>
+            <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>{displayName || t('Account', 'الحساب')}</p>
+            <p className="text-[11px] text-sidebar-foreground/50 truncate">{displayEmail || '—'}</p>
           </div>
           <ChevronUp className={`w-4 h-4 text-sidebar-foreground/40 transition-transform ${userMenuOpen ? '' : 'rotate-180'}`} />
         </button>

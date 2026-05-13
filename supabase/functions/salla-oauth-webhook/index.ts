@@ -138,11 +138,23 @@ Deno.serve(async (req) => {
 
       await supabase.from("salla_connections").upsert(upsertRow, { onConflict: "merchant_id" });
 
+      // Derive a hostname from store_url (handles raw domains too).
+      const deriveDomain = (u: string | null): string | null => {
+        if (!u) return null;
+        try {
+          const url = u.startsWith("http") ? new URL(u) : new URL("https://" + u);
+          return url.hostname || null;
+        } catch {
+          return u.replace(/^https?:\/\//, "").split("/")[0] || null;
+        }
+      };
+      const storeDomain = deriveDomain(storeUrl);
+
       if (tenantId && merchantId) {
-        await supabase
-          .from("settings_workspace")
-          .update({ salla_merchant_id: merchantId, platform: "salla" })
-          .eq("id", tenantId);
+        const wsUpdate: Record<string, unknown> = { salla_merchant_id: merchantId, platform: "salla" };
+        if (storeName) wsUpdate.name = storeName;
+        if (storeDomain) wsUpdate.domain = storeDomain;
+        await supabase.from("settings_workspace").update(wsUpdate).eq("id", tenantId);
       }
 
       // Auto-provision merchant account if we couldn't link a tenant via pending claim.
@@ -179,10 +191,10 @@ Deno.serve(async (req) => {
               .update({ tenant_id: tenantId })
               .eq("merchant_id", merchantId);
             if (merchantId) {
-              await supabase
-                .from("settings_workspace")
-                .update({ salla_merchant_id: merchantId, platform: "salla" })
-                .eq("id", tenantId);
+              const wsUpdate2: Record<string, unknown> = { salla_merchant_id: merchantId, platform: "salla" };
+              if (storeName) wsUpdate2.name = storeName;
+              if (storeDomain) wsUpdate2.domain = storeDomain;
+              await supabase.from("settings_workspace").update(wsUpdate2).eq("id", tenantId);
             }
           }
         } catch (e) {
