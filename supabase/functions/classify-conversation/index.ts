@@ -32,6 +32,8 @@ async function loadAcceptedSecrets(): Promise<string[]> {
 
 const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "other"] as const;
 type Category = typeof ALLOWED_CATEGORIES[number];
+const ALLOWED_INTENTS = ["complaint", "inquiry", "request", "suggestion"] as const;
+type Intent = typeof ALLOWED_INTENTS[number];
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -62,6 +64,17 @@ Deno.serve(async (req) => {
     return json({ error: "missing_fields" }, 400);
   }
 
+  // Idempotency guard: skip if already analyzed.
+  const { data: convRow } = await supabase
+    .from("conversations_main")
+    .select("analysis_done")
+    .eq("id", conversation_id)
+    .eq("tenant_id", tenant_id)
+    .maybeSingle();
+  if (convRow?.analysis_done) {
+    return json({ ok: true, skipped: "already_analyzed" });
+  }
+
   // Load transcript
   const { data: messages, error: msgErr } = await supabase
     .from("conversations_messages")
@@ -90,12 +103,20 @@ Deno.serve(async (req) => {
   }
 
   const systemPrompt = [
-    "You classify customer-support chat transcripts.",
+    "You analyze customer-support chat transcripts.",
     "Reply ONLY in JSON with this exact shape:",
     `{ "category": "complaint" | "inquiry" | "request" | "suggestion" | "other",`,
-    `  "subject": string,  // <= 80 chars, in the conversation's language`,
-    `  "close_reason": string  // <= 120 chars, why the conversation ended`,
+    `  "intent_type": "complaint" | "inquiry" | "request" | "suggestion",`,
+    `  "subject": string,           // <= 80 chars, in the conversation's language`,
+    `  "close_reason": string,      // <= 120 chars, why the conversation ended`,
+    `  "completion_score": number,  // 0-100, how completely the customer was helped`,
+    `  "goal_met": boolean           // did the customer get what they came for?`,
     "}",
+    "Scoring guide for completion_score:",
+    " 90-100 = fully resolved, customer satisfied.",
+    " 70-89  = mostly resolved, minor follow-up possible.",
+    " 40-69  = partially resolved or escalated.",
+    " 0-39   = unresolved, abandoned, or AI failed to help.",
   ].join("\n");
 
   let openaiRes: Response;
@@ -107,7 +128,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4.1-mini-2025-04-14",
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
@@ -129,7 +150,14 @@ Deno.serve(async (req) => {
 
   const completion = await openaiRes.json();
   const raw = completion?.choices?.[0]?.message?.content ?? "{}";
-  let parsed: { category?: string; subject?: string; close_reason?: string };
+  let parsed: {
+    category?: string;
+    intent_type?: string;
+    subject?: string;
+    close_reason?: string;
+    completion_score?: number;
+    goal_met?: boolean;
+  };
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -140,12 +168,28 @@ Deno.serve(async (req) => {
   const category = (ALLOWED_CATEGORIES as readonly string[]).includes(parsed.category ?? "")
     ? (parsed.category as Category)
     : "other";
+  const intent_type: Intent = (ALLOWED_INTENTS as readonly string[]).includes(parsed.intent_type ?? "")
+    ? (parsed.intent_type as Intent)
+    : (category !== "other" ? (category as Intent) : "inquiry");
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
   const close_reason = (parsed.close_reason ?? "").toString().slice(0, 500) || null;
+  let completion_score: number | null = null;
+  if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
+    completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
+  }
+  const goal_met: boolean | null = typeof parsed.goal_met === "boolean" ? parsed.goal_met : null;
 
   const { error: updErr } = await supabase
     .from("conversations_main")
-    .update({ category, subject, close_reason })
+    .update({
+      category,
+      subject,
+      close_reason,
+      intent_type,
+      completion_score,
+      goal_met,
+      analysis_done: true,
+    })
     .eq("id", conversation_id)
     .eq("tenant_id", tenant_id);
 
@@ -154,5 +198,5 @@ Deno.serve(async (req) => {
     return json({ error: "update_failed" }, 500);
   }
 
-  return json({ ok: true, category, subject, close_reason });
+  return json({ ok: true, category, intent_type, subject, close_reason, completion_score, goal_met });
 });
