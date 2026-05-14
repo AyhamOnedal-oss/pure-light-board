@@ -146,6 +146,16 @@ Deno.serve(async (req) => {
 
   const systemPrompt = [
     "You analyze customer-support chat transcripts.",
+    "The transcripts are usually in Arabic. Read carefully and classify the",
+    "customer's PRIMARY intent based on what the customer actually wrote, not",
+    "the agent replies.",
+    "Arabic intent guidance:",
+    " - 'اقتراح', 'أقترح', 'فكرة', 'ياليت تضيفون', 'تحسين', 'لو سمحتم تضيفون' => suggestion",
+    " - 'شكوى', 'مشكلة', 'تأخر', 'سيء', 'غلط', 'ما وصل', 'ضايقني' => complaint",
+    " - 'أبغى', 'أريد', 'ممكن ترجعون', 'استرجاع', 'إلغاء', 'تغيير', 'طلب' => request",
+    " - 'وش', 'كم', 'متى', 'هل', 'استفسار', 'سؤال' => inquiry",
+    "If the customer is sharing an idea or improvement (suggestion), do NOT",
+    "label it as inquiry just because they greeted first. Pick suggestion.",
     "Reply ONLY in JSON with this exact shape:",
     `{ "category": "complaint" | "inquiry" | "request" | "suggestion" | "other",`,
     `  "intent_type": "complaint" | "inquiry" | "request" | "suggestion",`,
