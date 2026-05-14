@@ -28,6 +28,7 @@ export interface SendMessageResult {
   reply: string;
   rateLimited?: boolean;
   error?: string;
+  conversationId?: string;
 }
 
 export async function sendMessage(
@@ -63,7 +64,7 @@ export async function sendMessage(
       return { reply: "", error: `http_${res.status}` };
     }
     const data = await res.json();
-    return { reply: data.reply ?? "" };
+    return { reply: data.reply ?? "", conversationId: data.conversation_id };
   } catch (err) {
     console.log("[FuqahChat] chat-ai threw:", err);
     return { reply: "", error: "network" };
