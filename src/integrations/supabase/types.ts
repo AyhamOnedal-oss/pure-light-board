@@ -908,18 +908,22 @@ export type Database = {
         Row: {
           ai_handled: boolean
           ai_quality_score: number | null
+          analysis_done: boolean
           assignee_user_id: string | null
           category: Database["public"]["Enums"]["conversation_category"] | null
           channel_id: string | null
           channel_kind: Database["public"]["Enums"]["channel_kind"]
           close_reason: string | null
+          completion_score: number | null
           created_at: string
           csat_comment: string | null
           csat_rating: number | null
           customer_id: string | null
           display_code: string | null
           first_response_at: string | null
+          goal_met: boolean | null
           id: string
+          intent_type: string | null
           language: string
           last_message_at: string
           rating_comment: string | null
@@ -933,18 +937,22 @@ export type Database = {
         Insert: {
           ai_handled?: boolean
           ai_quality_score?: number | null
+          analysis_done?: boolean
           assignee_user_id?: string | null
           category?: Database["public"]["Enums"]["conversation_category"] | null
           channel_id?: string | null
           channel_kind?: Database["public"]["Enums"]["channel_kind"]
           close_reason?: string | null
+          completion_score?: number | null
           created_at?: string
           csat_comment?: string | null
           csat_rating?: number | null
           customer_id?: string | null
           display_code?: string | null
           first_response_at?: string | null
+          goal_met?: boolean | null
           id?: string
+          intent_type?: string | null
           language?: string
           last_message_at?: string
           rating_comment?: string | null
@@ -958,18 +966,22 @@ export type Database = {
         Update: {
           ai_handled?: boolean
           ai_quality_score?: number | null
+          analysis_done?: boolean
           assignee_user_id?: string | null
           category?: Database["public"]["Enums"]["conversation_category"] | null
           channel_id?: string | null
           channel_kind?: Database["public"]["Enums"]["channel_kind"]
           close_reason?: string | null
+          completion_score?: number | null
           created_at?: string
           csat_comment?: string | null
           csat_rating?: number | null
           customer_id?: string | null
           display_code?: string | null
           first_response_at?: string | null
+          goal_met?: boolean | null
           id?: string
+          intent_type?: string | null
           language?: string
           last_message_at?: string
           rating_comment?: string | null

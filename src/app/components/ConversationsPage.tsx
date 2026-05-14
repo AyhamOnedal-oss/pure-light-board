@@ -6,6 +6,7 @@ import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -25,6 +26,9 @@ export interface Conversation {
   category?: ChatCategory;
   createdAt: string;
   closedAt?: string;
+  completionScore?: number | null;
+  intentType?: IntentType | null;
+  goalMet?: boolean | null;
 }
 
 // Kept for backwards compat with any legacy import; populated from DB now.
@@ -77,7 +81,7 @@ export function ConversationsPage() {
     try {
       const { data: convs } = await supabase
         .from('conversations_main')
-        .select('id, customer_id, subject, category, status, ticket_status, csat_rating, rating_comment, close_reason, created_at, resolved_at, last_message_at')
+        .select('id, customer_id, subject, category, status, ticket_status, csat_rating, rating_comment, close_reason, created_at, resolved_at, last_message_at, completion_score, intent_type, goal_met, analysis_done')
         .eq('tenant_id', tenantId)
         .order('last_message_at', { ascending: false });
 
@@ -114,10 +118,12 @@ export function ConversationsPage() {
 
       const mapped: Conversation[] = convs.map(c => {
         const cust = c.customer_id ? cMap.get(c.customer_id) : null;
-        const name = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || cust?.phone || t('Unknown', 'مجهول');
+        const name = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || cust?.phone || visitorCustomerLabel(t);
         const msgs = msgsByConv.get(c.id) || [];
         const last = msgs[msgs.length - 1];
         const isClosed = c.status === 'closed' || c.status === 'resolved';
+        const intentRaw = (c as { intent_type?: string | null }).intent_type;
+        const intent: IntentType | null = (intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null;
         return {
           id: c.id,
           name,
@@ -134,6 +140,9 @@ export function ConversationsPage() {
           createdAt: formatDateTime(c.created_at),
           closedAt: c.resolved_at ? formatDateTime(c.resolved_at) : undefined,
           messages: msgs,
+          completionScore: typeof (c as { completion_score?: number | null }).completion_score === 'number' ? (c as { completion_score: number }).completion_score : null,
+          intentType: intent,
+          goalMet: typeof (c as { goal_met?: boolean | null }).goal_met === 'boolean' ? (c as { goal_met: boolean }).goal_met : null,
         };
       });
 
@@ -169,7 +178,7 @@ export function ConversationsPage() {
     setBumpV(v => v + 1);
   };
 
-  const getDisplayName = (name: string) => name?.trim() || t('Unknown Customer', 'عميل غير معروف');
+  const getDisplayName = (name: string) => name?.trim() || visitorCustomerLabel(t);
   const getInitials = (name: string) => {
     const display = name?.trim();
     if (!display) return '?';
@@ -258,6 +267,7 @@ export function ConversationsPage() {
                   <p className="text-[11px] text-muted-foreground/60 mt-0.5" style={{ fontWeight: 500 }}>{c.id.slice(0, 8)}</p>
                   <p className="text-[13px] text-muted-foreground truncate mt-0.5">{c.lastMessage}</p>
                   <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                    {c.chatStatus === 'closed' && <CompletionPill score={c.completionScore} size="sm" />}
                     {c.hasTicket && c.ticketStatus === 'open' ? (
                       <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full bg-red-500/10 text-red-400" style={{ fontWeight: 600 }}>
                         <CircleDot className="w-2.5 h-2.5" />
@@ -353,6 +363,9 @@ export function ConversationsPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap ps-12 md:ps-0">
+              {selected.chatStatus === 'closed' && <CompletionPill score={selected.completionScore} size="md" />}
+              {selected.intentType && <IntentBadge type={selected.intentType} size="md" />}
+              <GoalMetBadge met={selected.goalMet} />
               {selected.category && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
                   {t(categoryMap[selected.category].en, categoryMap[selected.category].ar)}
