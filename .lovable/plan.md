@@ -1,32 +1,30 @@
-## الخطة المعدّلة (بدون cron)
+## مشكلتان
 
-### 1. إلغاء أي مهمة cron مجدولة
-- لا ننشئ migration لـ `pg_cron`/`pg_net`.
-- إذا كانت المهمة `auto-close-idle-conversations` قد جُدوِلت سابقاً، نزيلها:
-  ```sql
-  SELECT cron.unschedule('auto-close-idle-conversations');
-  ```
-  (migration واحد فقط للتنظيف، بدون أي جدولة جديدة).
+### 1) التصنيف يظهر "استفسار" دائماً
+**السبب:** في `src/app/components/ConversationsPage.tsx` السطر 142 يحوّل `category=null` إلى `'inquiry'` افتراضياً. محادثتك `2bbc5dd1` حالتها `status=new` و `analysis_done=false` — لم تُحلَّل بعد لأنها لم تُغلق. التحليل من AI يحدث عند الإغلاق فقط (عبر trigger `notify_classify_conversation` → `classify-conversation`)، وهذا متوافق مع رغبتك.
 
-### 2. إغلاق فوري من الويدجت عند انتهاء مؤقت الخمول
-في `widget/src/app/utils/analytics.ts` (أو حيث يُدار مؤقت الخمول):
-- عند انتهاء المؤقت المعرّف في إعدادات الويدجت، نستدعي:
-  - `trackEvent("conversation.closed", { conversation_id, reason: "inactivity" })`
-- هذا الحدث يصل إلى edge function `widget-events` التي تحتوي بالفعل (من التعديل السابق) على معالج `conversation.closed` الذي يحدّث `conversations_main` بـ `status='closed'` و `close_reason='inactivity'` و `resolved_at=now()`.
+**الإصلاح:** عند `category=null` نُرجع `null` ولا نعرض شارة الفئة في الواجهة (أو نعرض "بانتظار التحليل").
 
-### 3. إغلاق يدوي للمحادثة `ea5a3f5c` العالقة
-migration لمرة واحدة:
-```sql
-UPDATE conversations_main
-SET status='closed', close_reason='inactivity', resolved_at=now(), updated_at=now()
-WHERE id LIKE 'ea5a3f5c%' AND status IN ('new','open','pending');
-```
+### 2) التذاكر لا تظهر
+**السبب:** تينانتك `c9b3f2cf…` يحوي **0 تذكرة**. كل تذاكر الـDB مزروعة لتينانتات أخرى. إضافة لذلك في `widget/src/app/components/ChatWindow.tsx` يُستدعى `postTicket(...)` ثم `trackEvent('ticket.created', ...)` بشكل مكرر بدون subject — يُرسل حدثين، الثاني بدون subject.
 
-### خارج النطاق
-- لا cron، لا job دوري.
-- لا تعديل على معالجة `ticket.created` (تم سابقاً).
-- لا تغيير في منطق مؤقت الخمول نفسه (مدته تبقى من إعدادات الويدجت).
+**الإصلاح:**
+- إزالة استدعاء `trackEvent('ticket.created')` المكرر (سطر 269 و 326) — `postTicket` يستدعيه داخلياً.
+- إعادة بناء حزمة الويدجت بعد التعديل.
+- اختبار يدوي بـ curl على `widget-events` لإثبات أن الإدراج في `tickets_main` يعمل لتينانتك، ثم متابعة الإدراج الفعلي من الويدجت.
 
-### الملفات المتأثرة
-- migration جديد: إلغاء cron + إغلاق المحادثة العالقة.
-- `widget/src/app/utils/analytics.ts`: التأكد من إرسال `conversation.closed` عند انتهاء المؤقت.
+## الملفات المتأثرة
+- `src/app/components/ConversationsPage.tsx` — تعيين `category` (سطر 142).
+- `src/app/components/conversation/AnalysisBadges.tsx` — إخفاء شارة عند `null`.
+- `widget/src/app/components/ChatWindow.tsx` — حذف استدعائي `trackEvent('ticket.created')` المكررين.
+- إعادة بناء widget bundle.
+
+## خارج النطاق
+- لا تعديل على `classify-conversation` (تعمل صحيحاً).
+- لا تعديل على schema قاعدة البيانات.
+- لا cron / لا مهام دورية.
+
+## خطوات الاختبار
+1. افتح محادثة جديدة من الويدجت → لا تظهر شارة فئة (لأن التحليل لم يحدث).
+2. أغلق المحادثة → trigger يستدعي `classify-conversation` → تظهر الفئة الصحيحة.
+3. أنشئ تذكرة من الويدجت → تظهر مباشرة في صفحة التذاكر لتينانتك.

@@ -139,7 +139,7 @@ export function ConversationsPage() {
           ticketStatus: (c.ticket_status === 'open' || c.ticket_status === 'closed') ? c.ticket_status : undefined,
           chatStatus: isClosed ? 'closed' : 'open',
           closeReason: (c.close_reason as ChatCloseReason | null) || undefined,
-          category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? c.category : 'inquiry') as ChatCategory,
+          category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? (c.category as ChatCategory) : undefined),
           createdAt: formatDateTime(c.created_at),
           closedAt: c.resolved_at ? formatDateTime(c.resolved_at) : undefined,
           messages: msgs,
