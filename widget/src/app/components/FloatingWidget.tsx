@@ -68,34 +68,34 @@ export function FloatingWidget({
   const [isOpen, setIsOpen] = useState(false);
   // Lifted messages state — persists across open/close cycles
   const [messages, setMessages] = useState<Message[]>([]);
-  // Conversation ID — generated on first open, reset on full close
-  const conversationIdRef = useRef<string>(
-    generateConversationId(),
-  );
+  // Conversation ID — starts as a temp client id, swapped for the
+  // backend UUID once chat-ai responds. State (not ref) so children
+  // re-render with the real id and use it for ticket/event posts.
+  const [conversationId, setConversationId] = useState<string>(generateConversationId);
   // Ref for the touch-blocking overlay
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Platform-aware bottom offset (detects floating bottom bars on Zid, Salla, etc.)
   const platformBottomOffset = usePlatformBottomBar();
 
-  const evCtx = () => ({ storeId, conversationId: conversationIdRef.current });
+  const evCtx = () => ({ storeId, conversationId });
 
   const handleOpen = useCallback(() => {
     setIsOpen(true);
-    trackEvent('widget.opened', { storeId, conversationId: conversationIdRef.current });
+    trackEvent('widget.opened', { storeId, conversationId });
     if (messages.length === 0) {
-      startConversation({ storeId, conversationId: conversationIdRef.current });
+      startConversation({ storeId, conversationId });
     }
-  }, [storeId, messages.length]);
+  }, [storeId, messages.length, conversationId]);
 
   /** Full close — clears conversation and generates new ID for next session */
   const handleFullClose = useCallback(() => {
     trackEvent('widget.closed', evCtx(), { cleared: true });
     setIsOpen(false);
     setMessages([]);
-    conversationIdRef.current = generateConversationId();
+    setConversationId(generateConversationId());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeId]);
+  }, [storeId, conversationId]);
 
   /** Return to chat — hides UI but keeps messages and conversation ID */
   const handleReturnClose = useCallback(() => {
@@ -184,7 +184,8 @@ export function FloatingWidget({
             storeLogo={storeLogo}
             storeIcon={storeIcon}
             storeId={storeId}
-            conversationId={conversationIdRef.current}
+            conversationId={conversationId}
+            onConversationIdChange={setConversationId}
             messages={messages}
             setMessages={setMessages}
             themeSettings={themeSettings}
