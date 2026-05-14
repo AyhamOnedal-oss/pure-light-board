@@ -270,7 +270,7 @@ export function ChatWindow({
     );
     const res = await postTicket(
       { ...evCtx, ticketId },
-      { subject: 'تذكرة من المحادثة', phone: _phone, dialCode: _dialCode, source: 'inline' } as never,
+      { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone}` },
     );
     if (res?.displayCode) setTicketId(res.displayCode);
     setCurrentScreen('ticket-created');
@@ -330,7 +330,7 @@ export function ChatWindow({
     trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'form' });
     const res = await postTicket(
       { ...evCtx, ticketId },
-      { subject: 'تذكرة من المحادثة', phone: _phone, dialCode: _code, source: 'form' } as never,
+      { subject: 'تذكرة من المحادثة', phone: `${_code}${_phone}` },
     );
     if (res?.displayCode) setTicketId(res.displayCode);
     setCurrentScreen('ticket-created');
