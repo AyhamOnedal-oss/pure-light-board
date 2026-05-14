@@ -8,6 +8,7 @@ import { NotesActivityPanel, Activity, AuthorRole } from './chat/NotesActivityPa
 import { CURRENT_USER_ID, CURRENT_USER_NAME, CURRENT_USER_ROLE, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -32,6 +33,9 @@ interface TicketItem {
   conversationId?: string;
   messages: Message[];
   activities: Activity[];
+  completionScore?: number | null;
+  intentType?: IntentType | null;
+  goalMet?: boolean | null;
 }
 
 const CURRENT_USER = { id: CURRENT_USER_ID, name: CURRENT_USER_NAME, role: CURRENT_USER_ROLE as AuthorRole };
@@ -86,7 +90,7 @@ export function TicketsPage() {
       const ticketIds = rows.map(r => r.id);
       const convIds = rows.map(r => r.conversation_id).filter(Boolean) as string[];
 
-      const [{ data: activities }, { data: messages }] = await Promise.all([
+      const [{ data: activities }, { data: messages }, { data: convAnalysis }] = await Promise.all([
         supabase.from('tickets_activities')
           .select('id, ticket_id, type, status, text, attachment, author_name, author_role, created_at, edited_at')
           .in('ticket_id', ticketIds)
@@ -97,7 +101,15 @@ export function TicketsPage() {
               .in('conversation_id', convIds)
               .order('created_at', { ascending: true })
           : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string }> }),
+        convIds.length > 0
+          ? supabase.from('conversations_main')
+              .select('id, completion_score, intent_type, goal_met')
+              .in('id', convIds)
+          : Promise.resolve({ data: [] as Array<{ id: string; completion_score: number | null; intent_type: string | null; goal_met: boolean | null }> }),
       ]);
+
+      const analysisByConv = new Map<string, { completion_score: number | null; intent_type: string | null; goal_met: boolean | null }>();
+      (convAnalysis || []).forEach(a => analysisByConv.set(a.id, a));
 
       const actsByTk = new Map<string, Activity[]>();
       (activities || []).forEach(a => {
@@ -131,20 +143,28 @@ export function TicketsPage() {
         msgsByConv.set(m.conversation_id, arr);
       });
 
-      const mapped: TicketItem[] = rows.map(r => ({
-        id: r.id,
-        customerId: r.customer_phone || '',
-        category: dbCategoryToUI(r.category),
-        priority: dbPriorityToUI(r.priority),
-        status: dbStatusToUI(r.status),
-        createdAt: formatDateTime(r.created_at),
-        closedAt: r.resolved_at ? formatDateTime(r.resolved_at) : undefined,
-        customerName: r.customer_name || t('Unknown', 'مجهول'),
-        avatarColor: r.customer_avatar_color || '#043CC8',
-        conversationId: r.conversation_id || undefined,
-        messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
-        activities: actsByTk.get(r.id) || [],
-      }));
+      const mapped: TicketItem[] = rows.map(r => {
+        const a = r.conversation_id ? analysisByConv.get(r.conversation_id) : undefined;
+        const intentRaw = a?.intent_type;
+        const intent: IntentType | null = (intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null;
+        return {
+          id: r.id,
+          customerId: r.customer_phone || '',
+          category: dbCategoryToUI(r.category),
+          priority: dbPriorityToUI(r.priority),
+          status: dbStatusToUI(r.status),
+          createdAt: formatDateTime(r.created_at),
+          closedAt: r.resolved_at ? formatDateTime(r.resolved_at) : undefined,
+          customerName: r.customer_name || visitorCustomerLabel(t),
+          avatarColor: r.customer_avatar_color || '#043CC8',
+          conversationId: r.conversation_id || undefined,
+          messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
+          activities: actsByTk.get(r.id) || [],
+          completionScore: typeof a?.completion_score === 'number' ? a.completion_score : null,
+          intentType: intent,
+          goalMet: typeof a?.goal_met === 'boolean' ? a.goal_met : null,
+        };
+      });
 
       setTickets(mapped);
       if (selected) {
@@ -187,7 +207,7 @@ export function TicketsPage() {
     bump();
   };
 
-  const getDisplayName = (name: string) => name?.trim() || t('Unknown Customer', 'عميل غير معروف');
+  const getDisplayName = (name: string) => name?.trim() || visitorCustomerLabel(t);
   const getInitials = (name: string) => {
     const display = name?.trim();
     if (!display) return '?';
@@ -360,6 +380,7 @@ export function TicketsPage() {
                       <span className="text-[9px] px-1.5 py-[1px] rounded" style={{ backgroundColor: cat.color + '12', color: cat.color, fontWeight: 600 }}>
                         {t(cat.en, cat.ar)}
                       </span>
+                      {tk.status === 'closed' && <CompletionPill score={tk.completionScore} size="sm" showIcon={false} />}
                     </div>
                     <p className="text-[12px] text-muted-foreground truncate mt-1">
                       {tk.messages[tk.messages.length - 1]?.text || tk.messages[tk.messages.length - 1]?.fileName || ''}
@@ -479,6 +500,9 @@ export function TicketsPage() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap ps-12 md:ps-0">
+                {selected.status === 'closed' && <CompletionPill score={selected.completionScore} size="md" />}
+                {selected.intentType && <IntentBadge type={selected.intentType} size="md" />}
+                <GoalMetBadge met={selected.goalMet} />
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
                   {t(categoryMap[selected.category].en, categoryMap[selected.category].ar)}
                 </span>
