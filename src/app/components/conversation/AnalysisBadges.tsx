@@ -84,3 +84,30 @@ export function GoalMetBadge({ met }: { met: boolean | null | undefined }) {
 export function visitorCustomerLabel(t: (en: string, ar: string) => string): string {
   return t('Visitor Customer', 'عميل زائر');
 }
+
+/**
+ * Canonical placeholder names that the widget / external systems may save for
+ * anonymous visitors. We treat all of these as "no real name" and fall back
+ * to the localized visitor label.
+ */
+const VISITOR_PLACEHOLDERS = new Set<string>([
+  'storefront visitor',
+  'store visitor',
+  'visitor',
+  'visitor customer',
+  'anonymous',
+  'guest',
+  'عميل زائر',
+  'زائر',
+  'زائر المتجر',
+]);
+
+export function resolveVisitorName(
+  name: string | null | undefined,
+  t: (en: string, ar: string) => string,
+): string {
+  const v = (name ?? '').trim();
+  if (!v) return visitorCustomerLabel(t);
+  if (VISITOR_PLACEHOLDERS.has(v.toLowerCase())) return visitorCustomerLabel(t);
+  return v;
+}
