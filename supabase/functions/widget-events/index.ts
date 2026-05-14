@@ -74,19 +74,58 @@ Deno.serve(async (req) => {
         }
       }
 
-      const { error } = await supabase.from("tickets_main").insert({
+      const { data: inserted, error } = await supabase
+        .from("tickets_main")
+        .insert({
+          tenant_id,
+          conversation_id: conversation_id ?? null,
+          subject,
+          description,
+          status: "open",
+          priority: "medium",
+          customer_phone,
+          customer_id,
+          customer_name,
+        })
+        .select("id, number, display_code")
+        .single();
+      if (error || !inserted) {
+        console.error("widget-events: ticket insert failed", error);
+        return jsonResponse({ ok: false, error: "ticket_insert_failed" }, 500);
+      }
+
+      // Mark the conversation as having an open ticket and close it so the
+      // post-resolve classify trigger fires for AI analysis.
+      if (conversation_id) {
+        await supabase
+          .from("conversations_main")
+          .update({
+            ticket_status: "open",
+            status: "closed",
+            close_reason: "customer_manual",
+            resolved_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conversation_id)
+          .eq("tenant_id", tenant_id);
+      }
+
+      // Timeline entry for the ticket
+      await supabase.from("tickets_activities").insert({
         tenant_id,
-        conversation_id: conversation_id ?? null,
-        subject,
-        description,
-        status: "open",
-        priority: "medium",
-        customer_phone,
-        customer_id,
-        customer_name,
+        ticket_id: inserted.id,
+        type: "status",
+        status: "created",
+        author_name: customer_name ?? "Customer",
+        author_role: "agent",
       });
-      if (error) console.error("widget-events: ticket insert failed", error);
-      return jsonResponse({ ok: true });
+
+      return jsonResponse({
+        ok: true,
+        ticket_id: inserted.id,
+        ticket_number: inserted.number,
+        display_code: inserted.display_code ?? `TKT-${inserted.number}`,
+      });
     }
 
     const today = new Date().toISOString().slice(0, 10);
