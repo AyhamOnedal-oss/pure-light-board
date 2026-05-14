@@ -30,6 +30,37 @@ async function loadAcceptedSecrets(): Promise<string[]> {
   return out;
 }
 
+/**
+ * Authorize the request: either a valid `x-classify-secret` header (used by
+ * the Postgres trigger) OR an authenticated user that is a member of the
+ * tenant the conversation belongs to (used by the in-app "Re-analyze"
+ * button). Returns true when authorized.
+ */
+async function isAuthorized(
+  req: Request,
+  tenantId: string,
+): Promise<{ ok: boolean; force?: boolean }> {
+  const provided = req.headers.get("x-classify-secret") ?? "";
+  const accepted = await loadAcceptedSecrets();
+  if (provided && accepted.includes(provided)) return { ok: true };
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!token) return { ok: false };
+  const { data: userData } = await supabase.auth.getUser(token);
+  const userId = userData?.user?.id;
+  if (!userId) return { ok: false };
+  const { data: member } = await supabase
+    .from("auth_tenant_members")
+    .select("role")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!member) return { ok: false };
+  // In-app callers may force a re-analysis even if analysis_done=true.
+  return { ok: true, force: true };
+}
+
 const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "other"] as const;
 type Category = typeof ALLOWED_CATEGORIES[number];
 const ALLOWED_INTENTS = ["complaint", "inquiry", "request", "suggestion"] as const;
@@ -46,13 +77,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  // Verify shared secret from the trigger
-  const provided = req.headers.get("x-classify-secret") ?? "";
-  const accepted = await loadAcceptedSecrets();
-  if (accepted.length === 0 || !accepted.includes(provided)) {
-    return json({ error: "unauthorized" }, 401);
-  }
-
   let payload: { tenant_id?: string; conversation_id?: string };
   try {
     payload = await req.json();
@@ -62,6 +86,24 @@ Deno.serve(async (req) => {
   const { tenant_id, conversation_id } = payload;
   if (!tenant_id || !conversation_id) {
     return json({ error: "missing_fields" }, 400);
+  }
+
+  const auth = await isAuthorized(req, tenant_id);
+  if (!auth.ok) return json({ error: "unauthorized" }, 401);
+
+  // For in-app "Re-analyze" calls, reset the analysis flag so the
+  // idempotency guard below doesn't short-circuit.
+  if (auth.force) {
+    await supabase
+      .from("conversations_main")
+      .update({
+        analysis_done: false,
+        completion_score: null,
+        intent_type: null,
+        goal_met: null,
+      })
+      .eq("id", conversation_id)
+      .eq("tenant_id", tenant_id);
   }
 
   // Idempotency guard: skip if already analyzed.

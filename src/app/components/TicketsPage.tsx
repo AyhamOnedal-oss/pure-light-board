@@ -8,7 +8,7 @@ import { NotesActivityPanel, Activity, AuthorRole } from './chat/NotesActivityPa
 import { CURRENT_USER_ID, CURRENT_USER_NAME, CURRENT_USER_ROLE, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
-import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel } from './conversation/AnalysisBadges';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel, resolveVisitorName } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -155,7 +155,7 @@ export function TicketsPage() {
           status: dbStatusToUI(r.status),
           createdAt: formatDateTime(r.created_at),
           closedAt: r.resolved_at ? formatDateTime(r.resolved_at) : undefined,
-          customerName: r.customer_name || visitorCustomerLabel(t),
+          customerName: resolveVisitorName(r.customer_name, t),
           avatarColor: r.customer_avatar_color || '#043CC8',
           conversationId: r.conversation_id || undefined,
           messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
@@ -207,7 +207,7 @@ export function TicketsPage() {
     bump();
   };
 
-  const getDisplayName = (name: string) => name?.trim() || visitorCustomerLabel(t);
+  const getDisplayName = (name: string) => resolveVisitorName(name, t);
   const getInitials = (name: string) => {
     const display = name?.trim();
     if (!display) return '?';

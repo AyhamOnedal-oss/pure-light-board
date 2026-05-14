@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2 } from 'lucide-react';
+import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { AttachmentBubble } from './chat/AttachmentBubble';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
-import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel } from './conversation/AnalysisBadges';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel, resolveVisitorName } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -74,6 +74,7 @@ export function ConversationsPage() {
   const [, setBumpV] = useState(0);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
 
   const loadConversations = async () => {
     if (!tenantId) return;
@@ -118,7 +119,9 @@ export function ConversationsPage() {
 
       const mapped: Conversation[] = convs.map(c => {
         const cust = c.customer_id ? cMap.get(c.customer_id) : null;
-        const name = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || cust?.phone || visitorCustomerLabel(t);
+        const rawName = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || '';
+        const resolved = resolveVisitorName(rawName, t);
+        const name = resolved === visitorCustomerLabel(t) ? (cust?.phone || resolved) : resolved;
         const msgs = msgsByConv.get(c.id) || [];
         const last = msgs[msgs.length - 1];
         const isClosed = c.status === 'closed' || c.status === 'resolved';
@@ -159,6 +162,24 @@ export function ConversationsPage() {
 
   useEffect(() => { loadConversations(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId, language]);
 
+  const handleReanalyze = async (conv: Conversation) => {
+    if (!tenantId || reanalyzing) return;
+    setReanalyzing(true);
+    try {
+      const { error } = await supabase.functions.invoke('classify-conversation', {
+        body: { tenant_id: tenantId, conversation_id: conv.id },
+      });
+      if (error) {
+        showToast(t('Re-analysis failed', 'فشل إعادة التحليل'));
+      } else {
+        showToast(t('Analysis updated', 'تم تحديث التحليل'));
+        await loadConversations();
+      }
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
   const handleSeed = async () => {
     if (!tenantId) return;
     setSeeding(true);
@@ -178,7 +199,7 @@ export function ConversationsPage() {
     setBumpV(v => v + 1);
   };
 
-  const getDisplayName = (name: string) => name?.trim() || visitorCustomerLabel(t);
+  const getDisplayName = (name: string) => resolveVisitorName(name, t);
   const getInitials = (name: string) => {
     const display = name?.trim();
     if (!display) return '?';
@@ -366,6 +387,19 @@ export function ConversationsPage() {
               {selected.chatStatus === 'closed' && <CompletionPill score={selected.completionScore} size="md" />}
               {selected.intentType && <IntentBadge type={selected.intentType} size="md" />}
               <GoalMetBadge met={selected.goalMet} />
+              {selected.chatStatus === 'closed' && (
+                <button
+                  type="button"
+                  onClick={() => handleReanalyze(selected)}
+                  disabled={reanalyzing}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-[#043CC8]/10 text-[#043CC8] dark:text-[#6b8bff] inline-flex items-center gap-1 hover:bg-[#043CC8]/20 transition-colors disabled:opacity-50"
+                  style={{ fontWeight: 600 }}
+                  title={t('Re-run AI analysis on this conversation', 'إعادة تشغيل تحليل الذكاء الاصطناعي')}
+                >
+                  {reanalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  {t('Re-analyze', 'إعادة التحليل')}
+                </button>
+              )}
               {selected.category && (
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
                   {t(categoryMap[selected.category].en, categoryMap[selected.category].ar)}

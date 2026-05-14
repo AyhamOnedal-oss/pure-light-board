@@ -1,93 +1,55 @@
-## Goal
+## Problem
 
-Add per-conversation AI quality analysis (completion %, intent, goal-met) that runs **once** when a conversation closes, store results on `conversations_main`, and render them identically inside both the Conversations and Tickets views — without changing how dashboard KPIs are loaded (they stay pure SQL).
+1. **Visitor name still shows "Storefront visitor"** — not the empty fallback we localized. The widget saves `conversations_customers.display_name = "Storefront visitor"` for anonymous visitors, so the `name || visitorCustomerLabel(t)` chain in `ConversationsPage.tsx` / `TicketsPage.tsx` / `ChatLogDownload` never falls through to the Arabic label.
+2. **Want to re-test AI analysis** on already-analyzed (or stuck) conversations to verify badges + scores end-to-end.
 
-## Two parallel tracks
+## Plan
 
-```text
-Track A — Dashboard KPIs (already built, untouched)
-  conversations_main / messages / tickets / widget_events
-        │  pure SQL counts + Realtime
-        ▼
-  DashboardPage tiles
+### A. Treat "Storefront visitor" as the placeholder
 
-Track B — Per-conversation AI analysis (new)
-  conversation.status flips to "resolved"
-        │
-  Postgres trigger (extend existing notify_classify_conversation)
-        │  pg_net.http_post  →  classify-conversation edge function
-        ▼
-  OpenAI gpt-4.1-mini-2025-04-14   (system-paid, NOT counted in tenant words)
-        │
-  UPDATE conversations_main SET
-    category, subject, close_reason,
-    completion_score, intent_type, goal_met, analysis_done = true
-        │
-        ▼
-  ConversationsPage card + header  ─┐
-                                    ├─ same data, same colors, same labels
-  TicketsPage card + header  ───────┘
+Add a helper next to `visitorCustomerLabel`:
+
+```ts
+const VISITOR_PLACEHOLDERS = ['storefront visitor', 'visitor customer', 'عميل زائر', 'زائر المتجر'];
+export function resolveVisitorName(name: string | null | undefined, t) {
+  const v = (name ?? '').trim();
+  if (!v || VISITOR_PLACEHOLDERS.includes(v.toLowerCase())) return visitorCustomerLabel(t);
+  return v;
+}
 ```
 
-## Database changes
+Replace the 5 call sites that currently do `name || visitorCustomerLabel(t)`:
+- `ConversationsPage.tsx` lines 121, 181
+- `TicketsPage.tsx` lines 158, 210
+- `ChatLogDownload` (if it uses the same pattern)
 
-Add to `conversations_main`:
-- `completion_score` smallint (0–100, nullable)
-- `intent_type` text (nullable; one of complaint/inquiry/request/suggestion — already covered by existing `category` column, but kept as a separate explicit field per spec)
-- `goal_met` boolean (nullable)
-- `analysis_done` boolean NOT NULL DEFAULT false
-- index on `(tenant_id, analysis_done)` for safety
+Also fix the **widget** so new visitors are saved with `display_name = NULL` instead of the literal string `"Storefront visitor"`. File to update: `widget/src/...` where the customer row is upserted.
 
-The existing `notify_classify_conversation()` trigger already fires on `status → resolved`. We extend the edge function to also write the four new fields, and we guard with `analysis_done = false` so it never reruns. The shared-secret model and pg_net path stay as-is.
+### B. Re-run AI analysis for testing
 
-## Edge function (`classify-conversation`)
+Two parts:
 
-- Switch model to `gpt-4.1-mini-2025-04-14`.
-- Skip immediately if `analysis_done = true` (idempotent).
-- One OpenAI call, JSON mode, returns:
-  ```
-  { category, subject, close_reason,
-    completion_score (0-100), intent_type, goal_met (bool) }
-  ```
-- Writes all six fields + `analysis_done = true` in a single UPDATE.
-- **Token accounting:** these tokens are spent on the system OpenAI key and are NEVER added to `settings_plans.monthly_words_used` or `conversations_messages.word_count`. Only widget chat replies (already handled in `chat-ai`) charge the tenant.
+1. **Reset flag + dispatch** via SQL: clear `analysis_done`, `completion_score`, `intent_type`, `goal_met` for all `status IN ('resolved','closed')` rows of the current tenant, then loop `net.http_post` to the classify webhook for each. This is run as a one-shot migration (or via the insert tool with a DO block).
+2. **Add a manual "Re-analyze" button** in the conversation detail header (admin-only), visible when `chatStatus === 'closed'`. Clicking it calls a small `createServerFn` (`reanalyze_conversation.functions.ts`) that:
+   - Verifies the caller is a tenant admin/agent for that conversation
+   - Resets the four analysis fields on that single row
+   - Calls the same `classify-conversation` edge function with the project's classify secret
+   - Returns the fresh row so React Query can refetch
 
-## Frontend — shared analysis UI
+This gives an in-app way to re-test without DB access for future iterations.
 
-New file `src/app/components/conversation/AnalysisBadges.tsx` exporting:
-- `<CompletionPill score={n} />` — colored % chip with the spec's thresholds:
-  - ≥90 → green
-  - 80–89 → light orange
-  - 40–79 → dark orange (covers the 40–70 + 71–79 range)
-  - <40 → red
-  - `null` → muted "—" (analysis pending)
-- `<IntentBadge type={...} />` — complaint / inquiry / request / suggestion (bilingual via `t()`)
-- `<GoalMetIcon met={...} />`
+### C. Out of scope
 
-Used in **four** places, identical styling:
-1. ConversationsPage list card (small pill next to time)
-2. ConversationsPage detail header (large pill + intent + goal)
-3. TicketsPage list card
-4. TicketsPage detail header
+- Changing the AI model, prompt, or scoring thresholds
+- Backfilling historical `conversations_customers.display_name` rows (the resolver above handles them at read time; no destructive update needed)
+- Dashboard KPIs
 
-Both pages already query `conversations_main` (Tickets joins via `conversation_id`); we extend their `select(...)` strings with the new columns. No duplicate AI work — both views read the same row.
+## Files
 
-## Visitor naming localization
-
-Replace any hardcoded "Visitor Customer" / blank fallback in both pages and `ChatLogDownload` with `t('Visitor Customer', 'عميل زائر')` so it follows the active language from `useApp()`.
-
-## Out of scope
-
-- Re-classifying historical conversations (only new ones going forward, per earlier decision).
-- Sentiment, AI quality avg tile, unique-customers tile.
-- Any change to dashboard KPI queries.
-
-## Files touched
-
-- `supabase/migrations/<ts>_conversation_analysis_fields.sql` — new (4 columns + index)
-- `supabase/functions/classify-conversation/index.ts` — extend prompt, model, fields, idempotency guard
-- `src/app/components/conversation/AnalysisBadges.tsx` — new shared component
-- `src/app/components/ConversationsPage.tsx` — load new columns, render badges in card + header, localize visitor name
-- `src/app/components/TicketsPage.tsx` — same: load (via conversation join or extra select), render badges, localize visitor name
-
-Approve to implement.
+- `src/app/components/conversation/AnalysisBadges.tsx` — add `resolveVisitorName`
+- `src/app/components/ConversationsPage.tsx` — use resolver; add Re-analyze button
+- `src/app/components/TicketsPage.tsx` — use resolver
+- `src/app/components/ChatLogDownload.tsx` (if applicable) — use resolver
+- `widget/src/...` — stop writing literal "Storefront visitor" on visitor creation
+- `src/lib/reanalyze_conversation.functions.ts` — new server fn
+- One-shot SQL via insert tool to reset + re-dispatch existing closed conversations
