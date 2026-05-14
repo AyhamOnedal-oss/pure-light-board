@@ -1,30 +1,45 @@
-## مشكلتان
+## What I found
 
-### 1) التصنيف يظهر "استفسار" دائماً
-**السبب:** في `src/app/components/ConversationsPage.tsx` السطر 142 يحوّل `category=null` إلى `'inquiry'` افتراضياً. محادثتك `2bbc5dd1` حالتها `status=new` و `analysis_done=false` — لم تُحلَّل بعد لأنها لم تُغلق. التحليل من AI يحدث عند الإغلاق فقط (عبر trigger `notify_classify_conversation` → `classify-conversation`)، وهذا متوافق مع رغبتك.
+- Conversation `7574c956-9cd7-44b1-9f3b-d65b52a1b42e` exists for tenant `c9b3f2cf-bc64-4ea0-8d8e-a0811e413761`.
+- It has the expected transcript, including: `عندي اقتراح بطور متجركم بشكل رهيب`.
+- It is still `status = new`, with `analysis_done = false`, `category = null`, `intent_type = null`, and `completion_score = null`.
+- There is no row in `tickets_main` for this conversation, and no dashboard activity for it.
+- The widget currently shows a fake/local ticket number immediately, but ticket creation depends on `widget-events`. That endpoint receives the client conversation id, while `chat-ai` may replace non-UUID conversation ids with a new UUID and the widget never stores that real backend id. That can break ticket linking/creation.
+- Classification is only triggered when the conversation becomes `closed` or `resolved`; this conversation never closed in the DB, so the AI analysis never ran.
 
-**الإصلاح:** عند `category=null` نُرجع `null` ولا نعرض شارة الفئة في الواجهة (أو نعرض "بانتظار التحليل").
+## Plan
 
-### 2) التذاكر لا تظهر
-**السبب:** تينانتك `c9b3f2cf…` يحوي **0 تذكرة**. كل تذاكر الـDB مزروعة لتينانتات أخرى. إضافة لذلك في `widget/src/app/components/ChatWindow.tsx` يُستدعى `postTicket(...)` ثم `trackEvent('ticket.created', ...)` بشكل مكرر بدون subject — يُرسل حدثين، الثاني بدون subject.
+1. Fix the widget conversation ID lifecycle
+   - Change `chatApi.sendMessage` to return the backend `conversation_id` from `chat-ai`.
+   - Update `FloatingWidget` / `ChatWindow` so after the first AI response, the widget replaces its temporary id with the real UUID returned by the backend.
+   - Ensure all future events use that same backend UUID.
 
-**الإصلاح:**
-- إزالة استدعاء `trackEvent('ticket.created')` المكرر (سطر 269 و 326) — `postTicket` يستدعيه داخلياً.
-- إعادة بناء حزمة الويدجت بعد التعديل.
-- اختبار يدوي بـ curl على `widget-events` لإثبات أن الإدراج في `tickets_main` يعمل لتينانتك، ثم متابعة الإدراج الفعلي من الويدجت.
+2. Fix ticket creation reliability
+   - Make ticket submission wait for the backend `widget-events` response instead of showing success unconditionally.
+   - Have `widget-events` return the inserted ticket id/number/display code.
+   - Update the widget success screen to show the actual backend ticket number, not a random local number.
+   - On ticket creation, update the linked `conversations_main.ticket_status = 'open'` so the conversations dashboard shows “Open Ticket”.
+   - Insert a `tickets_activities` “created” activity so the ticket detail timeline is populated.
 
-## الملفات المتأثرة
-- `src/app/components/ConversationsPage.tsx` — تعيين `category` (سطر 142).
-- `src/app/components/conversation/AnalysisBadges.tsx` — إخفاء شارة عند `null`.
-- `widget/src/app/components/ChatWindow.tsx` — حذف استدعائي `trackEvent('ticket.created')` المكررين.
-- إعادة بناء widget bundle.
+3. Fix conversation closure and AI analysis trigger
+   - When a ticket is created from a conversation, mark the conversation as `closed`, set a valid `close_reason`, and let the existing DB trigger call `classify-conversation`.
+   - Keep manual/rating/inactivity close flows using valid close reasons only.
+   - Remove the unsupported `rating_submit` reason path by mapping it safely to `customer_manual`.
 
-## خارج النطاق
-- لا تعديل على `classify-conversation` (تعمل صحيحاً).
-- لا تعديل على schema قاعدة البيانات.
-- لا cron / لا مهام دورية.
+4. Harden AI classification
+   - Update the classification prompt to strongly classify Arabic suggestion language like `اقتراح`, `أقترح`, `فكرة`, `تحسين` as `suggestion` unless the transcript clearly asks a question or requests service.
+   - Keep analysis post-completion only; do not classify active/open conversations.
 
-## خطوات الاختبار
-1. افتح محادثة جديدة من الويدجت → لا تظهر شارة فئة (لأن التحليل لم يحدث).
-2. أغلق المحادثة → trigger يستدعي `classify-conversation` → تظهر الفئة الصحيحة.
-3. أنشئ تذكرة من الويدجت → تظهر مباشرة في صفحة التذاكر لتينانتك.
+5. Validate with the reported conversation
+   - After implementation, manually run classification for `7574c956-9cd7-44b1-9f3b-d65b52a1b42e` if it remains unclosed, or close it through the corrected flow.
+   - Confirm that a new ticket appears in `tickets_main`, the dashboard can query it, and the conversation has classification plus completion score.
+
+## Technical files likely involved
+
+- `widget/src/app/utils/chatApi.ts`
+- `widget/src/app/utils/analytics.ts`
+- `widget/src/app/components/FloatingWidget.tsx`
+- `widget/src/app/components/ChatWindow.tsx`
+- `supabase/functions/widget-events/index.ts`
+- `supabase/functions/classify-conversation/index.ts`
+- Possible database migration for trigger/policy improvements if existing DB triggers or ticket metadata need adjustment.
