@@ -129,12 +129,43 @@ export function postRating(
   trackEvent("rating.submitted", ctx, rating);
 }
 
-export function postTicket(
+export async function postTicket(
   ctx: EventContext,
   ticket: { subject: string; phone?: string; message?: string },
-): void {
-  trackEvent("ticket.created", ctx, ticket);
-  // Insertion into tickets_main is now handled server-side by the
-  // widget-events edge function (uses service-role + resolves tenant_id
-  // from conversation context, bypassing RLS issues).
+): Promise<{ ticketId?: string; ticketNumber?: number; displayCode?: string } | null> {
+  // Synchronous call so we can return the real ticket number from the backend.
+  const sc = getStoreContext();
+  try {
+    const res = await fetch(`${FUNCTIONS_BASE}/widget-events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        event: "ticket.created",
+        tenant_id: ctx.storeId || sc.tenant_id,
+        platform: sc.platform,
+        store_id: sc.store_id,
+        conversation_id: ctx.conversationId,
+        ticket_id: ctx.ticketId,
+        payload: ticket,
+        ts: new Date().toISOString(),
+      }),
+    });
+    if (!res.ok) {
+      console.log("[FuqahChat] postTicket failed:", res.status);
+      return null;
+    }
+    const data = await res.json().catch(() => ({}));
+    return {
+      ticketId: data.ticket_id,
+      ticketNumber: data.ticket_number,
+      displayCode: data.display_code,
+    };
+  } catch (err) {
+    console.log("[FuqahChat] postTicket threw:", err);
+    return null;
+  }
 }
