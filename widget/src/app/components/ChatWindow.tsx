@@ -266,7 +266,6 @@ export function ChatWindow({
       ),
     );
     postTicket({ ...evCtx, ticketId }, { phone: _phone, dialCode: _dialCode, source: 'inline' });
-    trackEvent('ticket.created', { ...evCtx, ticketId }, { source: 'inline' });
     setTimeout(() => setCurrentScreen('ticket-created'), 400);
   };
 
@@ -323,7 +322,6 @@ export function ChatWindow({
     setTicketCreated(true);
     postTicket({ ...evCtx, ticketId }, { phone: _phone, dialCode: _code, source: 'form' });
     trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'form' });
-    trackEvent('ticket.created', { ...evCtx, ticketId }, { source: 'form' });
     setCurrentScreen('ticket-created');
   };
   const handleTicketFormBack   = () => { ticketCreatingRef.current = false; setCurrentScreen('chat'); };
