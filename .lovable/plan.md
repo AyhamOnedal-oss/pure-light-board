@@ -1,105 +1,93 @@
+## Goal
 
-# Live merchant metrics + single classify endpoint
+Add per-conversation AI quality analysis (completion %, intent, goal-met) that runs **once** when a conversation closes, store results on `conversations_main`, and render them identically inside both the Conversations and Tickets views — without changing how dashboard KPIs are loaded (they stay pure SQL).
 
-## Confirmed scope
-
-- All listed metrics live (Supabase Realtime, no polling).
-- Add **widget clicks** as a tracked metric.
-- نسبة الإكمال = simple resolution rate (no AI).
-- **Skip** metric 8 (unique customers), metric 9 (resolved count tile), metric 12 (AI quality avg).
-- Sentiment skipped.
-- Classifier runs once per conversation, triggered by Postgres when `status` flips to `resolved` (after the موقت الخمول inactivity timer auto-closes the conversation).
-- Only new conversations going forward — no backfill.
-
-## Live metric wiring
-
-| # | Tile | Source | Realtime trigger |
-|---|---|---|---|
-| 1 | عدد المحادثات | `conversations_main` count | INSERT on `conversations_main` |
-| 2 | الرسائل (in/out) | `conversations_messages` count by sender | INSERT on `conversations_messages` |
-| 3 | الكلمات المستخدمة | sum `conversations_messages.word_count` (sender ai/agent) | INSERT on `conversations_messages` |
-| 4 | نقرات الودجت | count `widget_events` where type='widget_open' | INSERT on `widget_events` |
-| 5 | متوسط زمن الرد | derived from `conversations_messages` ordering | INSERT on `conversations_messages` |
-| 6 | التذاكر | `tickets_main` count by status | INSERT/UPDATE on `tickets_main` |
-| 7 | التقييمات / CSAT | `conversations_main.csat_rating` distribution | UPDATE on `conversations_main` |
-| 11 | نسبة الإكمال | `resolved / total` from `conversations_main` (pure SQL) | UPDATE on `conversations_main` |
-| 10 | تصنيف المحادثات | `conversations_main.category` (filled by classifier) | UPDATE on `conversations_main` |
-
-A single `useDashboardRealtime` hook opens four channels (`conversations_main`, `conversations_messages`, `tickets_main`, `widget_events`) and invalidates the matching React Query keys on each event.
-
-## Architecture
+## Two parallel tracks
 
 ```text
-widget ──► Supabase REST  (messages, tickets, ratings, widget_events)
-                │
-   conversations_main.status → 'resolved'   (set by inactivity auto-close)
-                │
-        Postgres trigger (pg_net.http_post)
-                │
-        POST /api/public/classify-conversation
-                │
-        OpenAI (your key, JSON mode)
-                │
-        UPDATE conversations_main
-          SET category, subject, close_reason
-                │
-dashboard ◄── Supabase Realtime (postgres_changes)
+Track A — Dashboard KPIs (already built, untouched)
+  conversations_main / messages / tickets / widget_events
+        │  pure SQL counts + Realtime
+        ▼
+  DashboardPage tiles
+
+Track B — Per-conversation AI analysis (new)
+  conversation.status flips to "resolved"
+        │
+  Postgres trigger (extend existing notify_classify_conversation)
+        │  pg_net.http_post  →  classify-conversation edge function
+        ▼
+  OpenAI gpt-4.1-mini-2025-04-14   (system-paid, NOT counted in tenant words)
+        │
+  UPDATE conversations_main SET
+    category, subject, close_reason,
+    completion_score, intent_type, goal_met, analysis_done = true
+        │
+        ▼
+  ConversationsPage card + header  ─┐
+                                    ├─ same data, same colors, same labels
+  TicketsPage card + header  ───────┘
 ```
 
-n8n is not used.
+## Database changes
 
-## Implementation steps
+Add to `conversations_main`:
+- `completion_score` smallint (0–100, nullable)
+- `intent_type` text (nullable; one of complaint/inquiry/request/suggestion — already covered by existing `category` column, but kept as a separate explicit field per spec)
+- `goal_met` boolean (nullable)
+- `analysis_done` boolean NOT NULL DEFAULT false
+- index on `(tenant_id, analysis_done)` for safety
 
-### A. Migration (one file)
+The existing `notify_classify_conversation()` trigger already fires on `status → resolved`. We extend the edge function to also write the four new fields, and we guard with `analysis_done = false` so it never reruns. The shared-secret model and pg_net path stay as-is.
 
-1. New table `widget_events (id, tenant_id, type, conversation_id, metadata jsonb, created_at)` with RLS:
-   - anon `INSERT` when `tenant_exists(tenant_id)`
-   - tenant members `SELECT` their rows
-2. Enable `pg_net` extension.
-3. Trigger function `notify_classify_conversation()` on `conversations_main`:
-   - `AFTER UPDATE` when `OLD.status <> 'resolved' AND NEW.status = 'resolved'`
-   - `pg_net.http_post(url, headers={x-classify-signature: HMAC}, body={tenant_id, conversation_id})`
-4. Enable realtime publication for the four tables above.
+## Edge function (`classify-conversation`)
 
-### B. Single AI endpoint
+- Switch model to `gpt-4.1-mini-2025-04-14`.
+- Skip immediately if `analysis_done = true` (idempotent).
+- One OpenAI call, JSON mode, returns:
+  ```
+  { category, subject, close_reason,
+    completion_score (0-100), intent_type, goal_met (bool) }
+  ```
+- Writes all six fields + `analysis_done = true` in a single UPDATE.
+- **Token accounting:** these tokens are spent on the system OpenAI key and are NEVER added to `settings_plans.monthly_words_used` or `conversations_messages.word_count`. Only widget chat replies (already handled in `chat-ai`) charge the tenant.
 
-`src/routes/api/public/classify-conversation.ts`:
-- Verify `x-classify-signature` HMAC against `CLASSIFY_WEBHOOK_SECRET`.
-- Load transcript with `supabaseAdmin` from `conversations_messages`.
-- Call OpenAI with JSON-mode prompt → `{ category, subject, close_reason }`.
-- `UPDATE conversations_main` with the result.
-- Errors logged server-side; no retry (kept simple).
+## Frontend — shared analysis UI
 
-### C. Frontend
+New file `src/app/components/conversation/AnalysisBadges.tsx` exporting:
+- `<CompletionPill score={n} />` — colored % chip with the spec's thresholds:
+  - ≥90 → green
+  - 80–89 → light orange
+  - 40–79 → dark orange (covers the 40–70 + 71–79 range)
+  - <40 → red
+  - `null` → muted "—" (analysis pending)
+- `<IntentBadge type={...} />` — complaint / inquiry / request / suggestion (bilingual via `t()`)
+- `<GoalMetIcon met={...} />`
 
-1. `src/app/services/metrics.ts` — one typed function per tile, all using the authenticated browser `supabase` client (RLS scopes by tenant).
-2. `src/app/hooks/useDashboardRealtime.ts` — opens the four channels and invalidates query keys per event.
-3. `src/app/components/DashboardPage.tsx` — replace hardcoded numbers with these hooks. UI layout untouched.
+Used in **four** places, identical styling:
+1. ConversationsPage list card (small pill next to time)
+2. ConversationsPage detail header (large pill + intent + goal)
+3. TicketsPage list card
+4. TicketsPage detail header
 
-### D. Widget
+Both pages already query `conversations_main` (Tickets joins via `conversation_id`); we extend their `select(...)` strings with the new columns. No duplicate AI work — both views read the same row.
 
-- On widget open: direct REST insert into `widget_events` (`type='widget_open'`). Replaces only this single telemetry path. All other widget behavior unchanged.
+## Visitor naming localization
 
-### E. Out of scope
+Replace any hardcoded "Visitor Customer" / blank fallback in both pages and `ChatLogDownload` with `t('Visitor Customer', 'عميل زائر')` so it follows the active language from `useApp()`.
 
-- Visual redesign of the dashboard.
-- Backfill of old conversations.
-- n8n.
-- Sentiment, AI quality score, unique-customers tile, resolved-count tile.
-- Admin panel.
+## Out of scope
 
-## New secrets needed
-
-- `OPENAI_API_KEY`
-- `CLASSIFY_WEBHOOK_SECRET`
+- Re-classifying historical conversations (only new ones going forward, per earlier decision).
+- Sentiment, AI quality avg tile, unique-customers tile.
+- Any change to dashboard KPI queries.
 
 ## Files touched
 
-- `supabase/migrations/<ts>_widget_events_and_classify_trigger.sql` — new
-- `src/routes/api/public/classify-conversation.ts` — new
-- `src/app/services/metrics.ts` — new
-- `src/app/hooks/useDashboardRealtime.ts` — new
-- `src/app/components/DashboardPage.tsx` — wire to live data
-- `widget/src/app/utils/analytics.ts` — switch open event to `widget_events` insert
+- `supabase/migrations/<ts>_conversation_analysis_fields.sql` — new (4 columns + index)
+- `supabase/functions/classify-conversation/index.ts` — extend prompt, model, fields, idempotency guard
+- `src/app/components/conversation/AnalysisBadges.tsx` — new shared component
+- `src/app/components/ConversationsPage.tsx` — load new columns, render badges in card + header, localize visitor name
+- `src/app/components/TicketsPage.tsx` — same: load (via conversation join or extra select), render badges, localize visitor name
 
 Approve to implement.
