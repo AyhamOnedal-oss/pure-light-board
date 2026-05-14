@@ -14,13 +14,80 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { event, platform, store_id } = body;
+    const { event, platform, store_id, conversation_id, payload } = body;
     const { tenant_id } = await resolveTenant({
       tenant_id: body.tenant_id,
       platform,
       store_id,
     });
     if (!event || !tenant_id) return jsonResponse({ error: "missing fields" }, 400);
+
+    // ── Conversation closed by widget (manual / inactivity / ai / rating_skip)
+    if (event === "conversation.closed" && conversation_id) {
+      const rawReason = String(payload?.reason ?? "manual");
+      const reasonMap: Record<string, string> = {
+        manual: "customer_manual",
+        ai: "ai_request",
+        inactivity: "idle",
+        rating_skip: "idle",
+      };
+      const close_reason = reasonMap[rawReason] ?? "customer_manual";
+      const { error } = await supabase
+        .from("conversations_main")
+        .update({
+          status: "closed",
+          close_reason,
+          resolved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conversation_id)
+        .eq("tenant_id", tenant_id)
+        .in("status", ["new", "open", "pending"]);
+      if (error) console.error("widget-events: close conv failed", error);
+      return jsonResponse({ ok: true });
+    }
+
+    // ── Ticket created from widget (inline form or modal)
+    if (event === "ticket.created") {
+      const subject = String(payload?.subject ?? payload?.message ?? "تذكرة جديدة من المحادثة").slice(0, 200);
+      const description = payload?.message ? String(payload.message) : null;
+      const customer_phone = payload?.phone ? String(payload.phone) : null;
+
+      // Resolve customer info from conversation if available
+      let customer_id: string | null = null;
+      let customer_name: string | null = null;
+      if (conversation_id) {
+        const { data: conv } = await supabase
+          .from("conversations_main")
+          .select("customer_id")
+          .eq("id", conversation_id)
+          .eq("tenant_id", tenant_id)
+          .maybeSingle();
+        if (conv?.customer_id) {
+          customer_id = conv.customer_id;
+          const { data: cust } = await supabase
+            .from("conversations_customers")
+            .select("display_name")
+            .eq("id", customer_id)
+            .maybeSingle();
+          customer_name = cust?.display_name ?? null;
+        }
+      }
+
+      const { error } = await supabase.from("tickets_main").insert({
+        tenant_id,
+        conversation_id: conversation_id ?? null,
+        subject,
+        description,
+        status: "open",
+        priority: "medium",
+        customer_phone,
+        customer_id,
+        customer_name,
+      });
+      if (error) console.error("widget-events: ticket insert failed", error);
+      return jsonResponse({ ok: true });
+    }
 
     const today = new Date().toISOString().slice(0, 10);
     const { data: existing } = await supabase
