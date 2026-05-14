@@ -6,7 +6,7 @@ import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
-import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel } from './conversation/AnalysisBadges';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel, resolveVisitorName } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -118,7 +118,9 @@ export function ConversationsPage() {
 
       const mapped: Conversation[] = convs.map(c => {
         const cust = c.customer_id ? cMap.get(c.customer_id) : null;
-        const name = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || cust?.phone || visitorCustomerLabel(t);
+        const rawName = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || '';
+        const resolved = resolveVisitorName(rawName, t);
+        const name = resolved === visitorCustomerLabel(t) ? (cust?.phone || resolved) : resolved;
         const msgs = msgsByConv.get(c.id) || [];
         const last = msgs[msgs.length - 1];
         const isClosed = c.status === 'closed' || c.status === 'resolved';
@@ -178,7 +180,7 @@ export function ConversationsPage() {
     setBumpV(v => v + 1);
   };
 
-  const getDisplayName = (name: string) => name?.trim() || visitorCustomerLabel(t);
+  const getDisplayName = (name: string) => resolveVisitorName(name, t);
   const getInitials = (name: string) => {
     const display = name?.trim();
     if (!display) return '?';
