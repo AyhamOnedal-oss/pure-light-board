@@ -134,40 +134,7 @@ export function postTicket(
   ticket: { subject: string; phone?: string; message?: string },
 ): void {
   trackEvent("ticket.created", ctx, ticket);
-
-  // Best-effort real insert into tickets_main so the merchant dashboard
-  // shows widget-raised tickets. Requires a resolved tenant_id (set by
-  // widget-loader after widget-resolve) — without it the row would fail RLS.
-  const storeCtx = getStoreContext();
-  const tenantId = storeCtx.tenant_id;
-  if (!tenantId) {
-    console.log("[FuqahChat] postTicket skipped: no tenant_id resolved");
-    return;
-  }
-  const subject = ticket.subject || ticket.message || "New ticket from chat";
-  fetch(`${SUPABASE_URL}/rest/v1/tickets_main`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify({
-      tenant_id: tenantId,
-      conversation_id: ctx.conversationId ?? null,
-      subject: subject.slice(0, 200),
-      description: ticket.message ?? null,
-      status: "open",
-      priority: "medium",
-      customer_phone: ticket.phone ?? null,
-    }),
-  })
-    .then(async (r) => {
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        console.log("[FuqahChat] tickets insert failed", r.status, txt);
-      }
-    })
-    .catch((err) => console.log("[FuqahChat] tickets insert threw:", err));
+  // Insertion into tickets_main is now handled server-side by the
+  // widget-events edge function (uses service-role + resolves tenant_id
+  // from conversation context, bypassing RLS issues).
 }
