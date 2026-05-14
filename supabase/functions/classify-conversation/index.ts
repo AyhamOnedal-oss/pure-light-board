@@ -214,7 +214,6 @@ Deno.serve(async (req) => {
     ? (parsed.intent_type as Intent)
     : (category !== "other" ? (category as Intent) : "inquiry");
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
-  const close_reason = (parsed.close_reason ?? "").toString().slice(0, 500) || null;
   let completion_score: number | null = null;
   if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
     completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
@@ -226,7 +225,6 @@ Deno.serve(async (req) => {
     .update({
       category,
       subject,
-      close_reason,
       intent_type,
       completion_score,
       goal_met,
@@ -240,5 +238,5 @@ Deno.serve(async (req) => {
     return json({ error: "update_failed" }, 500);
   }
 
-  return json({ ok: true, category, intent_type, subject, close_reason, completion_score, goal_met });
+  return json({ ok: true, category, intent_type, subject, completion_score, goal_met });
 });
