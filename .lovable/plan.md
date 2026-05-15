@@ -1,73 +1,73 @@
-# Fix Plan (after reviewing widget.js v3.4.0)
+# Fix the ticket flow (live)
 
-## Root causes I confirmed in the deployed `widget.js`
+Goal: when the customer taps X → "Create ticket" and submits the phone form, a complete ticket appears on `/dashboard/tickets` with code `TKT-{n}`, phone, category, and the linked conversation closes + gets classified. No new buttons added.
 
-1. **Old conversation comes back after refresh** — confirmed bug.
-   On every page load, lines 2082–2098 read `fuqah_conversation_id` from `localStorage` and call `restLoadHistory` to refetch up to 50 messages. There is no check whether that conversation is closed/rated/ticketed, so any ended conversation reappears. The id is saved (line 2041) the moment `chat-ai` returns a UUID, and is never cleared.
+## 1. Database — make tickets and classification self-healing
 
-2. **Ticket-form design bug** — confirmed (line 1591).
-   `body.appendChild(el('div')).style.cssText = 'flex:1;min-height:24px;'` is a flex spacer that pushes the submit button to the very bottom, leaving the empty area you see between the phone input and the button. Also: the SA flag in your screenshot renders as a solid green box because the country selector falls back to a colored rectangle when the SVG flag fails to load.
+Single migration:
 
-3. **Ticket saved without details** — confirmed.
-   Direct REST insert (line 48 `restCreateTicket`) bypasses the `widget-events` edge function, so:
-   - `customer_name` stays null (form only collects phone).
-   - `display_code` is not generated (the column is not set; only computed from `number` client-side).
-   - `category` is null because the conversation hasn't been re-classified yet at insert time.
-   - `conversations_main.ticket_status` is not set to `'open'` after the insert, so the dashboard tag "Open Ticket" doesn't light up.
+- **Re-create classification trigger** (currently missing):
+  ```
+  CREATE TRIGGER trg_notify_classify_conversation
+  AFTER UPDATE ON public.conversations_main
+  FOR EACH ROW EXECUTE FUNCTION public.notify_classify_conversation();
+  ```
+- **New trigger on `tickets_main` BEFORE INSERT**:
+  - set `display_code = 'TKT-' || number` if null
+  - if `category` null and `conversation_id` set → copy `conversations_main.category`
+  - if `customer_phone` / `customer_name` null and conversation has them → copy
+  - assign random `customer_avatar_color` if null
+- **Backfill** existing rows: `display_code` for all tickets where null; copy category/phone from linked conversation.
+- **Fix ticket #328** specifically (set phone, display_code, category from its linked conversation).
 
-4. **Stale placeholder conv id used for ticket** — partial bug.
-   `restCreateTicket` uses `state.conversationId`. If the user opens the chat, types a message, and the AI hasn't replied yet (so the swap on line 2040 hasn't happened), the ticket would be inserted with the local `conv_…` placeholder, which doesn't exist in `conversations_main` and breaks linkage. Need a guard.
+## 2. Edge function `widget-events` — make it the single source of truth
 
-## Fixes
+Currently only `subject` is reliably persisted. Update `ticket.created` handler:
 
-### A. Stop restoring old conversations on refresh
-Edit `widget.js` v3.4.0 (and the source file `widget/src/app/components/FloatingWidget.tsx`):
+- Require a real UUID `conversation_id`; if missing/local, return 400 so the widget falls back to creating a conversation first.
+- Insert `tickets_main` with `subject`, `description`, `customer_phone`, `customer_name`, `customer_id`, `conversation_id`, `tenant_id` (rest filled by trigger).
+- After insert, UPDATE conversation: `status='closed'`, `ticket_status='open'`, `close_reason='customer_manual'`, `resolved_at=now()`, `subject` if empty (this fires the classify trigger).
+- Insert `tickets_activities` row (status=created).
+- Return `{ ticket_id, number, display_code }`.
 
-- Delete the restore block at lines 2082–2098. New behavior: every page load starts a brand-new chat with a fresh local `conv_…` id. The backend UUID is assigned the moment the user sends the first message.
-- Stop calling `persistConversationId(...)` on line 2041. Don't write `fuqah_conversation_id` at all.
-- Keep only `fuqah_visitor_id` in localStorage (so analytics still recognize the same visitor).
-- In `fullClose()` (line 1770) also call `localStorage.removeItem('fuqah_conversation_id')` once, to clean up any old keys still saved from previous installs.
+Deploy `widget-events` and `classify-conversation`.
 
-Result: refresh = empty new chat. Ended conversations live only in the dashboard.
+## 3. Widget (`public/widget.js`) — call the right endpoint, no fakes
 
-### B. Fix the ticket-form layout
-- Remove the `flex:1; min-height:24px` spacer (line 1591). The button should sit naturally below the phone input with `margin-top: 16px` (or move the submit into a sticky footer with proper padding).
-- Replace the country-flag block fallback with the same flag SVG used in the inline form (`CountryFlag` in source).
-- Tighten the screen: title at top, single phone input, helper text, submit button, and "powered by" footer — no empty middle gap.
+- Remove any client-side direct REST insert into `tickets_main`. The ONLY ticket creation path is `POST /widget-events` with `event:'ticket.created'`.
+- Before posting, ensure `conversation_id` is a backend UUID:
+  - if still local `conv_…`, send a single silent `chat-ai` ping with the customer-form context to mint a UUID, then use it.
+- On success, show the success screen with the returned `display_code` (e.g. `TKT-329`), then `fullClose()` and clear `localStorage.fuqah_conversation_id` so refresh starts fresh (already done in 3.5.0 — keep).
+- The X-button → modal → "Create ticket" flow stays the only manual entry. No new header button.
 
-I'll mirror the same fix in source `widget/src/app/components/CreateTicketForm.tsx`, then rebuild.
+## 4. Form/flag UI in `CreateTicketForm` — design fix
 
-### C. Make ticket creation reliable + complete
-In `restCreateTicket`:
-- Guard: if `state.conversationId` starts with `conv_` (not a UUID), call `chat-ai` first with the user's message, await the swap, then insert the ticket using the real UUID.
-- After successful insert, also `PATCH conversations_main` setting `status='closed'`, `close_reason='customer_manual'`, `ticket_status='open'`, `resolved_at=now()`. This both lights up the "Open Ticket" badge in the dashboard AND fires the classify trigger so AI fills in `category`/`completion_score`.
-- Save `customer_name` if collected (or fall back to phone). Generate `display_code = 'TKT-' + row.number` and PATCH it back into the row so the dashboard shows it.
+- Replace the `flex:1; min-height:24px` spacer with a fixed `height:12px` gap so the submit button sits directly under the phone input.
+- `CountryFlag`: keep inline SVG fallback for SA/AE/EG/KW/QA/BH/OM/JO/IQ — no green box.
+- Tighten select+input spacing (`gap:8px`), button full-width below.
 
-### D. Two ways to raise a ticket
-- Manual: add a small "إنشاء تذكرة دعم" button in `ChatHeader` (next to the X) that opens the ticket-form screen directly.
-- AI-driven: when `chat-ai` returns `escalate: true` (forwarded from n8n), inject a system message and an inline ticket form. Small change in `supabase/functions/chat-ai/index.ts` to pass the flag through to the widget.
-- Remove the `'A'` test trigger from source.
+## 5. Dashboard `TicketsPage` — show the data that now exists
 
-### E. Dashboard polish
-- `TicketsPage.tsx`: render `display_code` (e.g. `TKT-328`) instead of `#id.slice(0,8)` when it's set.
-- Re-analyze button is already wired for unclassified conversations.
+- Select `display_code, category, customer_phone, customer_name, customer_avatar_color, conversations_main(category, completion_score, intent_type, goal_met)` from `tickets_main`.
+- Render `display_code` (fallback `TKT-{number}`) instead of raw UUID.
+- Use `ticket.category ?? conversation.category` for the category badge.
+- Keep existing completion-score / intent / goal-met badges visible on each card.
 
-## Files to change
+## 6. Validation checklist (manual, after deploy)
 
-- `widget/src/app/components/FloatingWidget.tsx` — stop persisting/restoring conversation
-- `widget/src/app/components/ChatWindow.tsx` — explicit ticket button entry, remove `'A'` trigger, escalation handling
-- `widget/src/app/components/ChatHeader.tsx` — add manual ticket button
-- `widget/src/app/components/CreateTicketForm.tsx` — layout fix
-- `widget/src/app/utils/chatApi.ts` — read `escalate` from response
-- `supabase/functions/chat-ai/index.ts` — forward `escalate` flag from n8n
-- `supabase/functions/widget-events/index.ts` — keep as fallback; no behavior change
-- `src/app/components/TicketsPage.tsx` — show `display_code`
-- Rebuild and redeploy `widget.js` to `widget.fuqah.net`
+```
+[ ] Open widget → send 1 message → tap X → "Create ticket"
+[ ] Enter phone → submit → success screen shows TKT-{n}
+[ ] Refresh page → widget opens empty (no restore)
+[ ] /dashboard/tickets shows new ticket: TKT-{n}, phone, category badge
+[ ] /dashboard/conversations shows linked conv as Closed + ticket_status=open
+[ ] Conversation has completion_score, intent_type, goal_met populated
+```
 
-## Order of execution after approval
-1. Fix conversation persistence (root cause of refresh bug) — single biggest UX win.
-2. Fix ticket-form layout + flag.
-3. Strengthen `restCreateTicket` (UUID guard, conversation close, display_code).
-4. Add explicit ticket button + AI escalation.
-5. Dashboard `display_code` rendering.
-6. Build widget bundle and ask you to deploy.
+## Technical notes
+
+- No schema columns added — only triggers + backfill.
+- Edge fn keeps the existing `resolveTenant` path; no auth change.
+- `chat-ai` is unchanged — we only call it once if we still need a UUID.
+- `widget.js` v bumped to 3.6.0.
+- Files touched: 1 SQL migration, `supabase/functions/widget-events/index.ts`, `public/widget.js`, `widget/src/app/components/CreateTicketForm.tsx`, `widget/src/app/components/CountryFlag.tsx`, `src/app/components/TicketsPage.tsx`.
