@@ -39,6 +39,7 @@ import { downloadAsImage } from '../utils/downloadAsImage';
 import {
   trackEvent, postMessage, postFeedback, postTicket, postRating, closeConversation,
 } from '../utils/analytics';
+import { sendMessage as sendBackendMessage, type ChatHistoryEntry } from '../utils/chatApi';
 import type { Theme } from '../types/theme';
 import type { MessageAttachment, Message } from './ChatWidget';
 import type { ThemeSettings } from '../types/themeSettings';
@@ -153,7 +154,7 @@ export function ChatWindow({
   const evCtx = { storeId, conversationId, ticketId: ticketCreated ? ticketId : undefined };
 
   // ── Message handlers ──────────────────────────────────────────────────────
-  const handleSendMessage = (text: string, attachment?: MessageAttachment) => {
+  const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
     const customerMsg: Message = {
       id: Date.now().toString(),
       text,
@@ -208,27 +209,40 @@ export function ChatWindow({
       return;
     }
 
-    /* Normal simulated AI response */
+    /* Real backend AI response */
     setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      const response: Message = {
-        id: (Date.now() + 1).toString(),
-        text: attachment
-          ? 'شكراً لإرسال الملف! سنقوم بمراجعته والرد عليك قريباً.'
-          : 'شكراً لتواصلك معنا! كيف يمكنني مساعدتك اليوم؟',
-        sender: 'store',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, response]);
-      postMessage(evCtx, {
-        messageId: response.id,
-        sender: 'store',
-        text: response.text,
-        timestamp: response.timestamp.toISOString(),
-      });
-      trackEvent('message.received', evCtx);
-    }, 1500);
+    const history: ChatHistoryEntry[] = messages.map(m => ({
+      sender: m.sender === 'customer' ? 'customer' : 'store',
+      text: m.text ?? '',
+    }));
+    const result = await sendBackendMessage(conversationId, text, history);
+    setIsTyping(false);
+
+    // Swap to backend-issued conversation UUID on first reply
+    if (result.conversationId && result.conversationId !== conversationId) {
+      onConversationIdChange?.(result.conversationId);
+    }
+
+    const replyText = result.reply
+      || (result.rateLimited
+        ? 'لقد تجاوزت الحد المسموح من الرسائل، حاول لاحقاً.'
+        : result.error
+          ? 'تعذّر الاتصال بالخادم، يرجى المحاولة مرة أخرى.'
+          : 'شكراً لتواصلك معنا! سنقوم بالرد عليك قريباً.');
+    const response: Message = {
+      id: (Date.now() + 1).toString(),
+      text: replyText,
+      sender: 'store',
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, response]);
+    postMessage(evCtx, {
+      messageId: response.id,
+      sender: 'store',
+      text: response.text,
+      timestamp: response.timestamp.toISOString(),
+    });
+    trackEvent('message.received', evCtx);
   };
 
   /** Helper: injects a system message into chat indicating ticket already exists */
@@ -241,6 +255,19 @@ export function ChatWindow({
         sender: 'store' as const,
         timestamp: new Date(),
         type: 'ticket-success' as const,
+      },
+    ]);
+  };
+
+  /** Helper: append an error message inside the chat */
+  const injectErrorMessage = (text: string) => {
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `error-${Date.now()}`,
+        text,
+        sender: 'store' as const,
+        timestamp: new Date(),
       },
     ]);
   };
@@ -260,7 +287,16 @@ export function ChatWindow({
       );
       return;
     }
+    const res = await postTicket(
+      { ...evCtx, ticketId },
+      { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone}` },
+    );
+    if (!res?.ticketId) {
+      injectErrorMessage('تعذّر إنشاء التذكرة، يرجى المحاولة مرة أخرى.');
+      return;
+    }
     setTicketCreated(true);
+    if (res.displayCode) setTicketId(res.displayCode);
     setMessages(prev =>
       prev.map(m =>
         m.type === 'ticket-form' && !m.ticketFormSubmitted
@@ -268,11 +304,6 @@ export function ChatWindow({
           : m,
       ),
     );
-    const res = await postTicket(
-      { ...evCtx, ticketId },
-      { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone}` },
-    );
-    if (res?.displayCode) setTicketId(res.displayCode);
     setCurrentScreen('ticket-created');
   };
 
@@ -326,13 +357,18 @@ export function ChatWindow({
   const handleTicketFormSubmit = async (_phone: string, _code: string) => {
     if (ticketCreatingRef.current || ticketCreated) return;
     ticketCreatingRef.current = true;
-    setTicketCreated(true);
     trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'form' });
     const res = await postTicket(
       { ...evCtx, ticketId },
       { subject: 'تذكرة من المحادثة', phone: `${_code}${_phone}` },
     );
-    if (res?.displayCode) setTicketId(res.displayCode);
+    if (!res?.ticketId) {
+      ticketCreatingRef.current = false;
+      injectErrorMessage('تعذّر إنشاء التذكرة، يرجى المحاولة مرة أخرى.');
+      return;
+    }
+    setTicketCreated(true);
+    if (res.displayCode) setTicketId(res.displayCode);
     setCurrentScreen('ticket-created');
   };
   const handleTicketFormBack   = () => { ticketCreatingRef.current = false; setCurrentScreen('chat'); };
