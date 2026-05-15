@@ -348,7 +348,7 @@ export function CreateTicketForm({ theme, storeName, onSubmit, onBack, ticketAlr
               <p style={{ fontSize: '12px', color: '#ef4444', marginTop: '6px' }}>{error}</p>
             )}
 
-            <div style={{ flex: 1, minHeight: '24px' }} />
+            <div style={{ height: '12px', flexShrink: 0 }} />
 
             {/* Submit */}
             <button
