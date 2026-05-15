@@ -22,6 +22,8 @@ type UIStatus = 'open' | 'closed';
 
 interface TicketItem {
   id: string;
+  displayCode: string;
+  number: number;
   customerId: string; // phone
   category: UICategory;
   priority: UIPriority;
@@ -81,7 +83,7 @@ export function TicketsPage() {
     try {
       const { data: rows } = await supabase
         .from('tickets_main')
-        .select('id, subject, conversation_id, category, priority, status, customer_name, customer_phone, customer_avatar_color, created_at, resolved_at, number')
+        .select('id, subject, conversation_id, category, priority, status, customer_name, customer_phone, customer_avatar_color, created_at, resolved_at, number, display_code')
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
@@ -147,10 +149,13 @@ export function TicketsPage() {
         const a = r.conversation_id ? analysisByConv.get(r.conversation_id) : undefined;
         const intentRaw = a?.intent_type;
         const intent: IntentType | null = (intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null;
+        const fallbackCategory = r.category ?? (intent ?? null);
         return {
           id: r.id,
+          displayCode: r.display_code || `TKT-${r.number}`,
+          number: r.number,
           customerId: r.customer_phone || '',
-          category: dbCategoryToUI(r.category),
+          category: dbCategoryToUI(fallbackCategory),
           priority: dbPriorityToUI(r.priority),
           status: dbStatusToUI(r.status),
           createdAt: formatDateTime(r.created_at),
@@ -376,7 +381,7 @@ export function TicketsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-1">
-                      <span className="text-[10px] text-muted-foreground/60" style={{ fontWeight: 500 }}>#{tk.id.slice(0, 8)}</span>
+                      <span className="text-[10px] text-muted-foreground/60" style={{ fontWeight: 500 }}>{tk.displayCode}</span>
                       <span className="text-[9px] px-1.5 py-[1px] rounded" style={{ backgroundColor: cat.color + '12', color: cat.color, fontWeight: 600 }}>
                         {t(cat.en, cat.ar)}
                       </span>
@@ -412,7 +417,7 @@ export function TicketsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-[14px]" style={{ fontWeight: 600 }}>{getDisplayName(selected.customerName)}</p>
-                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>#{selected.id.slice(0, 8)}</span>
+                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.displayCode}</span>
                   </div>
                   <button
                     type="button"
