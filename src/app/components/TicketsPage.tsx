@@ -22,6 +22,8 @@ type UIStatus = 'open' | 'closed';
 
 interface TicketItem {
   id: string;
+  displayCode: string;
+  number: number;
   customerId: string; // phone
   category: UICategory;
   priority: UIPriority;
@@ -81,7 +83,7 @@ export function TicketsPage() {
     try {
       const { data: rows } = await supabase
         .from('tickets_main')
-        .select('id, subject, conversation_id, category, priority, status, customer_name, customer_phone, customer_avatar_color, created_at, resolved_at, number')
+        .select('id, subject, conversation_id, category, priority, status, customer_name, customer_phone, customer_avatar_color, created_at, resolved_at, number, display_code')
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
@@ -147,10 +149,13 @@ export function TicketsPage() {
         const a = r.conversation_id ? analysisByConv.get(r.conversation_id) : undefined;
         const intentRaw = a?.intent_type;
         const intent: IntentType | null = (intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null;
+        const fallbackCategory = r.category ?? (intent ?? null);
         return {
           id: r.id,
+          displayCode: r.display_code || `TKT-${r.number}`,
+          number: r.number,
           customerId: r.customer_phone || '',
-          category: dbCategoryToUI(r.category),
+          category: dbCategoryToUI(fallbackCategory),
           priority: dbPriorityToUI(r.priority),
           status: dbStatusToUI(r.status),
           createdAt: formatDateTime(r.created_at),
