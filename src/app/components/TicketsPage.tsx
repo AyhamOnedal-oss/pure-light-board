@@ -381,7 +381,7 @@ export function TicketsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-1">
-                      <span className="text-[10px] text-muted-foreground/60" style={{ fontWeight: 500 }}>#{tk.id.slice(0, 8)}</span>
+                      <span className="text-[10px] text-muted-foreground/60" style={{ fontWeight: 500 }}>{tk.displayCode}</span>
                       <span className="text-[9px] px-1.5 py-[1px] rounded" style={{ backgroundColor: cat.color + '12', color: cat.color, fontWeight: 600 }}>
                         {t(cat.en, cat.ar)}
                       </span>
@@ -417,7 +417,7 @@ export function TicketsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-[14px]" style={{ fontWeight: 600 }}>{getDisplayName(selected.customerName)}</p>
-                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>#{selected.id.slice(0, 8)}</span>
+                    <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.displayCode}</span>
                   </div>
                   <button
                     type="button"
