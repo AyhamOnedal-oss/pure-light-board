@@ -88,6 +88,11 @@ export function FloatingWidget({
     }
   }, [storeId, messages.length, conversationId]);
 
+  const handleLauncherClick = useCallback(() => {
+    trackEvent('bubble.click', { storeId, conversationId });
+    handleOpen();
+  }, [storeId, conversationId, handleOpen]);
+
   /** Full close — clears conversation and generates new ID for next session */
   const handleFullClose = useCallback(() => {
     trackEvent('widget.closed', evCtx(), { cleared: true });
@@ -205,7 +210,7 @@ export function FloatingWidget({
             line2={themeSettings?.welcomeBubbleLine2 || 'كيف يمكنني مساعدتك؟'}
             position={position}
             isDarkMode={themeSettings?.mode === 'dark'}
-            onClick={() => { trackEvent('welcome_bubble.clicked', evCtx()); handleOpen(); }}
+            onClick={() => { trackEvent('welcome_bubble.clicked', evCtx()); handleLauncherClick(); }}
           />
         )}
       </AnimatePresence>
@@ -215,7 +220,7 @@ export function FloatingWidget({
           <ChatBubble
             theme={theme}
             position={position}
-            onClick={handleOpen}
+            onClick={handleLauncherClick}
             widgetOuterColor={themeSettings?.widgetOuterColor}
             widgetInnerColor={themeSettings?.widgetInnerColor}
           />
