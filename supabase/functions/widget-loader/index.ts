@@ -54,6 +54,7 @@ const LOADER_JS = `
   }
 
   function mount(tenantId, ctx, cfg) {
+    if (cfg && cfg.bubble_visible === false) { return; }
     var host = document.createElement("div");
     host.id = "fuqah-widget-host";
     host.style.cssText = "all: initial; position: fixed; z-index: 2147483647;";
