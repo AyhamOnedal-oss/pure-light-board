@@ -102,6 +102,8 @@ export function TicketsPage() {
               .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
               .in('conversation_id', convIds)
               .order('created_at', { ascending: true })
+              .order('sender', { ascending: true })
+              .order('id', { ascending: true })
           : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string }> }),
         convIds.length > 0
           ? supabase.from('conversations_main')

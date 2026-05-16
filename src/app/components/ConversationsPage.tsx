@@ -98,7 +98,9 @@ export function ConversationsPage() {
         supabase.from('conversations_messages')
           .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
           .in('conversation_id', convIds)
-          .order('created_at', { ascending: true }),
+          .order('created_at', { ascending: true })
+          .order('sender', { ascending: true })
+          .order('id', { ascending: true }),
       ]);
 
       const cMap = new Map((customers || []).map(c => [c.id, c]));
