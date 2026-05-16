@@ -586,7 +586,7 @@ export function ChatCustomization() {
               </div>
 
               {/* Welcome Bubble — above widget (preview-only, non-interactive) */}
-              {welcomeBubbleEnabled && (
+              {bubbleVisible && welcomeBubbleEnabled && (
                 <div
                   dir="rtl"
                   className={`absolute pointer-events-none ${position === 'right' ? 'right-2.5' : 'left-2.5'}`}
@@ -615,6 +615,7 @@ export function ChatCustomization() {
               )}
 
               {/* Widget — custom SVG */}
+              {bubbleVisible && (
               <div className={`absolute bottom-14 ${position === 'right' ? 'right-2.5' : 'left-2.5'}`}>
                 <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-xl shadow-black/30 overflow-hidden p-0" style={{ backgroundColor: widgetOuter }}>
                   <svg viewBox="0 0 1000 1000" className="w-full h-full">
@@ -623,6 +624,7 @@ export function ChatCustomization() {
                   </svg>
                 </div>
               </div>
+              )}
             </div>
           </div>
         </div>
