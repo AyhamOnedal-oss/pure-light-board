@@ -78,6 +78,7 @@ export function useFetchChatSettings(): FetchedChatSettings {
           ratingInactivitySeconds: Number.isFinite(s.rating_inactivity_seconds)
             ? Number(s.rating_inactivity_seconds)
             : 900,
+          bubbleVisible: typeof s.bubble_visible === "boolean" ? s.bubble_visible : true,
         });
 
         setPosition(s.position === "left" ? "bottom-left" : "bottom-right");

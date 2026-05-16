@@ -43,37 +43,6 @@ export function trackEvent(type: string, ctx: EventContext, payload?: EventPaylo
   const sc = getStoreContext();
   const tenantId = ctx.storeId || sc.tenant_id;
 
-  // bubble.click / bubble.shown go DIRECTLY into widget_events (live metric).
-  // Other events keep going through the legacy edge function for now.
-  if ((type === "bubble.click" || type === "bubble.shown") && tenantId) {
-    const eventType = type === "bubble.click" ? "widget_open" : "widget_shown";
-    try {
-      fetch(`${SUPABASE_URL}/rest/v1/widget_events`, {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          "Content-Type": "application/json",
-          Prefer: "return=minimal",
-        },
-        body: JSON.stringify({
-          tenant_id: tenantId,
-          type: eventType,
-          conversation_id: ctx.conversationId || null,
-          metadata: {
-            platform: sc.platform,
-            store_id: sc.store_id,
-            ...(payload ?? {}),
-          },
-        }),
-        keepalive: true,
-      }).catch((err) => console.log(`[FuqahChat] widget_events insert failed:`, err));
-    } catch (err) {
-      console.log(`[FuqahChat] widget_events insert threw:`, err);
-    }
-    return;
-  }
-
   post("/widget-events", {
     event: type,
     tenant_id: ctx.storeId || sc.tenant_id,

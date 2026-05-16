@@ -37,6 +37,9 @@ export interface ThemeSettings {
   inactivityCloseSeconds?: number;
   /** Seconds of idle time on rating screen before auto-skip + close (default 900 = 15 min) */
   ratingInactivitySeconds?: number;
+
+  /** Master switch — when false, the floating bubble must not render. */
+  bubbleVisible?: boolean;
 }
 
 /** Default Light Mode settings (fallback: elegant black) */
