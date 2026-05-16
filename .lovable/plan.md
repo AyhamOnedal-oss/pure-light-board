@@ -1,36 +1,41 @@
-## Plan
+## What's happening
 
-Keep the flag in the ticket phone field — just fix the visual shift/distortion. I will rebuild the flag rendering on a solid, well-known approach instead of the hand-drawn inline SVG.
+Your app is a Vite + React Router SPA (`createBrowserRouter` in `src/app/routes.tsx`). When you open `/dashboard` directly or hit refresh, the host has to serve `index.html` so the client router can take over. The "not found" you see in the top-left is the host's 404 page, not your app's UI — meaning the request never reached React Router.
 
-## Root cause
+Two things contribute:
 
-In the uploaded Hostinger `widget-v3.7.0.js`, the flag is drawn with custom inline SVG paths inside a wrapper that gets stretched by the parent flex row (`fq-phone-row` has `height:44px` and the button has `height:100%`). Even with `preserveAspectRatio`, the wrapper picks up host page CSS resets and ends up shifted up and squished. This is why your screenshot still shows a tilted/clipped flag.
+1. **SPA fallback fragility.** You rely on `public/_redirects` (`/* /index.html 200`). On the live preview (`id-preview--…lovable.app`) and during sandbox restarts/rebuilds, this fallback can momentarily fail, returning the platform 404. That matches "sometimes, on hard refresh / direct URL, in Lovable and on direct URL".
+2. **No app-level catch-all UI.** Your catch-all route is `<Navigate to="/dashboard" replace />`. If routing ever resolves an unknown path before auth/tenant load, the redirect briefly mounts — but it does not protect against the host-level 404 above.
 
-## Fix
+## Fix plan
 
-1. **Use a stable flag library**
-   - Embed `flag-icons` (the standard CSS sprite-based flag set used across phone-input libraries) directly into the widget bundle so Hostinger needs no extra files.
-   - Inline its CSS + base64 SVG sprites into `FQ_INLINE_CSS` so the widget stays a single self-contained `widget.js`.
+### 1. Make SPA fallback robust (primary fix)
+- Keep `public/_redirects` but also add the same rule via headers so static hosts that ignore `_redirects` still fall back. Specifically:
+  - Add `public/200.html` as a copy of `index.html` (some static hosts use this convention).
+  - Add a `public/_headers` entry — harmless on hosts that don't read it.
+- Verify the published build emits `_redirects` into `dist/` (it does by default for files in `public/`), and confirm the file is present in production.
 
-2. **Replace `flagSVG()` rendering**
-   - Render flags as `<span class="fq fq-kw">` (or equivalent) with fixed dimensions.
-   - Wrap in a locked-size box: `width:22px; height:16px; flex:0 0 22px; display:inline-block; background-size:cover; background-position:center;`.
-   - Apply `!important` on critical layout props so host page CSS (Salla/Zid themes) cannot shift it.
+### 2. Add a real app 404 instead of a silent redirect
+- Replace `{ path: '*', element: <Navigate to="/dashboard" replace /> }` with a real `NotFoundPage` component that:
+  - Renders inside your layout if authed,
+  - Shows a "Go to dashboard" / "Go to login" CTA otherwise.
+- This makes accidental misroutes obvious instead of bouncing, and surfaces whether the 404 is host-side (plain text "Not found") vs app-side (styled page). Future "sometimes 404" reports become diagnosable at a glance.
 
-3. **Apply to both ticket UIs**
-   - Inline ticket form inside chat (around lines 927–1045).
-   - Full create-ticket screen (around lines 1518–1680).
-   - Also fix the country dropdown items so flags there render identically.
+### 3. Guard against bad initial URLs
+- In `RootEntry`, currently `/` → `<Navigate to="/dashboard" />`. Add the same handling for typos like `/dashoard` (you mentioned this) by mounting the new `NotFoundPage` with a "Did you mean /dashboard?" hint.
 
-4. **Keep everything else intact**
-   - Country selection, dial code, validation, submission via `widget-events` edge function — all unchanged.
-   - Version bumped to `3.7.1`.
+### 4. Verify
+- After deploy, hard-refresh `/dashboard`, `/dashboard/tickets`, `/dashboard/settings/account` 10× each in an incognito window. None should show the platform 404.
+- If a platform 404 still appears occasionally on the **live preview** specifically, it's the sandbox restarting — that's expected behavior of the preview, not the published site. We'll confirm by reproducing only on `id-preview--…` and never on `pure-light-board.lovable.app`.
 
-5. **Deliverables for Hostinger**
-   - `widget.js` — corrected production file (single file, no extra assets needed).
-   - `widget-v3.7.1.js` — versioned backup.
-   - `widget-v3.7.1-notes.md` — short deployment notes.
+## Files to change
 
-## Result
+- `public/_redirects` — keep.
+- `public/200.html` — new (copy of `index.html`).
+- `src/app/components/NotFoundPage.tsx` — new.
+- `src/app/routes.tsx` — replace the `*` catch-all with `<NotFoundPage />`.
 
-The Kuwait flag (and every other country flag) will render at a fixed 22×16 box, perfectly centered next to `KW ▾`, with no shift, no distortion, no clipping — even inside Salla/Zid themes.
+No business logic, auth, or data changes.
+
+## Note on the "sometimes" in Lovable preview
+The live preview iframe (`id-preview--…`) is backed by a sandboxed dev server. While it restarts (after edits, idle wake-ups, or transient errors) any direct URL load can momentarily return a platform 404. The published site (`pure-light-board.lovable.app`) does not have this restart behavior — it serves static files + `_redirects`. The fix above hardens both, but expect occasional preview-only blips during active editing; they're not present for end users.
