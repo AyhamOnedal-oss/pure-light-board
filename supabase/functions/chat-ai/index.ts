@@ -161,8 +161,8 @@ Deno.serve(async (req) => {
         },
         ai: {
           mode: training?.mode,
-          prompt: training?.prompt,
-          file_url: training?.file_url,
+          prompt: training?.mode === "file" ? null : (training?.prompt ?? null),
+          file_url: training?.mode === "file" ? (training?.file_url ?? null) : null,
         },
       }),
     });
