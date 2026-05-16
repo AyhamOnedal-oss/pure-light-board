@@ -1925,6 +1925,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_widget_click: {
+        Args: { p_day?: string; p_tenant_id: string }
+        Returns: undefined
+      }
       is_tenant_member: {
         Args: { _tenant_id: string; _user_id: string }
         Returns: boolean
