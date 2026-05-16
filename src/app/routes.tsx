@@ -4,6 +4,7 @@ import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
 import { DashboardPage } from './components/DashboardPage';
+import { NotFoundPage } from './components/NotFoundPage';
 import { TeamPage } from './components/TeamPage';
 import { ConversationsPage } from './components/ConversationsPage';
 import { TicketsPage } from './components/TicketsPage';
@@ -79,5 +80,5 @@ export const router = createBrowserRouter([
       { path: 'ad-automation/:platformRowId', element: <AdAutomationDetailPage /> },
     ],
   },
-  { path: '*', element: <Navigate to="/dashboard" replace /> },
+  { path: '*', element: <NotFoundPage /> },
 ]);
