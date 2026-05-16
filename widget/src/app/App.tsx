@@ -271,8 +271,9 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
       </main>
 
       {/* ── Live floating widget — only render after backend data is loaded
-            to avoid flash of default color / default store name / default logo. ── */}
-      {isReady && (
+            to avoid flash of default color / default store name / default logo.
+            Also honor the dashboard's bubble visibility master switch. ── */}
+      {isReady && settings.bubbleVisible !== false && (
         <FloatingWidget
           theme={activeTheme}
           position={effectivePosition}

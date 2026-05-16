@@ -55,7 +55,6 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     conversations,
     messagesIn,
     messagesOut,
-    widgetClicks,
     ticketsTotal,
     ticketsOpen,
     ticketsClosed,
@@ -63,11 +62,11 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     convRows,
     msgRows,
     csatRows,
+    usageRows,
   ] = await Promise.all([
     count('conversations_main', (q) => q.eq('tenant_id', tenantId)),
     count('conversations_messages', (q) => q.eq('tenant_id', tenantId).eq('sender', 'customer')),
     count('conversations_messages', (q) => q.eq('tenant_id', tenantId).in('sender', ['ai', 'agent'])),
-    count('widget_events', (q) => q.eq('tenant_id', tenantId).eq('type', 'widget_open')),
     count('tickets_main', (q) => q.eq('tenant_id', tenantId)),
     count('tickets_main', (q) => q.eq('tenant_id', tenantId).in('status', ['open', 'in_progress', 'pending'])),
     count('tickets_main', (q) => q.eq('tenant_id', tenantId).in('status', ['resolved', 'closed'])),
@@ -92,10 +91,19 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
       .select('csat_rating')
       .eq('tenant_id', tenantId)
       .not('csat_rating', 'is', null),
+    supabase
+      .from('dashboard_usage_daily')
+      .select('clicks')
+      .eq('tenant_id', tenantId),
   ]);
 
   const wordsUsed = (wordsRows.data ?? []).reduce(
     (sum, r: any) => sum + (r.word_count ?? 0),
+    0,
+  );
+
+  const widgetClicks = (usageRows.data ?? []).reduce(
+    (sum, r: any) => sum + (r.clicks ?? 0),
     0,
   );
 
