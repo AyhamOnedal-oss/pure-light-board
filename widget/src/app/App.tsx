@@ -36,6 +36,8 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
     console.log('Settings saved:', settings);
   };
 
+  const isWidgetVisible = isReady && settings.bubbleVisible !== false;
+
   return (
     <div className="min-h-screen" style={{ background: pageBg }} dir="rtl">
       {/* ── Header ── */}
@@ -191,10 +193,10 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
             <PreviewCard
               label="سطح المكتب"
               icon={<Monitor className="w-4 h-4" />}
-              description={effectivePosition === 'bottom-right' ? 'الفقاعة أسفل اليمين' : 'الفقاعة أسفل اليسار'}
+              description={isWidgetVisible ? (effectivePosition === 'bottom-right' ? 'الفقاعة أسفل اليمين' : 'الفقاعة أسفل اليسار') : 'الويدجت مخفي'}
               isDarkMode={isDarkMode}
             >
-              <MockBrowser theme={activeTheme} position={effectivePosition} type="desktop" />
+              <MockBrowser theme={activeTheme} position={effectivePosition} type="desktop" bubbleVisible={isWidgetVisible} />
             </PreviewCard>
 
             {/* Tablet */}
@@ -204,7 +206,7 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
               description="نفس سلوك سطح المكتب"
               isDarkMode={isDarkMode}
             >
-              <MockBrowser theme={activeTheme} position={effectivePosition} type="tablet" />
+              <MockBrowser theme={activeTheme} position={effectivePosition} type="tablet" bubbleVisible={isWidgetVisible} />
             </PreviewCard>
 
             {/* Mobile */}
@@ -214,7 +216,7 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
               description="الشات يفتح بملء الشاشة"
               isDarkMode={isDarkMode}
             >
-              <MockBrowser theme={activeTheme} position={effectivePosition} type="mobile" />
+              <MockBrowser theme={activeTheme} position={effectivePosition} type="mobile" bubbleVisible={isWidgetVisible} />
             </PreviewCard>
           </div>
         </section>
@@ -231,8 +233,10 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
           >
             الفقاعات السبع — الحالة المغلقة
           </h2>
-          <div className="flex flex-wrap gap-4 items-center">
-            {THEMES.map(t => {
+          <div className="flex flex-wrap gap-4 items-center min-h-16">
+            {!isWidgetVisible ? (
+              <span style={{ fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#6b7280' }}>الويدجت مخفي حالياً</span>
+            ) : THEMES.map(t => {
               const bg = getBubbleBg(t);
               const isWhite = t.id === 'white';
               return (
@@ -273,7 +277,7 @@ function AppContent({ branding, isReady }: { branding: StoreBranding; isReady: b
       {/* ── Live floating widget — only render after backend data is loaded
             to avoid flash of default color / default store name / default logo.
             Also honor the dashboard's bubble visibility master switch. ── */}
-      {isReady && settings.bubbleVisible !== false && (
+      {isWidgetVisible && (
         <FloatingWidget
           theme={activeTheme}
           position={effectivePosition}
