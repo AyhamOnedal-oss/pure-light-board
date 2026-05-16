@@ -140,30 +140,19 @@ Deno.serve(async (req) => {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const { data: existing } = await supabase
-      .from("dashboard_usage_daily")
-      .select("id, clicks")
-      .eq("tenant_id", tenant_id)
-      .eq("day", today)
-      .maybeSingle();
-
     if (event === "bubble.click") {
-      if (existing) {
-        await supabase
-          .from("dashboard_usage_daily")
-          .update({ clicks: (existing.clicks ?? 0) + 1 })
-          .eq("id", existing.id);
-      } else {
-        await supabase
-          .from("dashboard_usage_daily")
-          .insert({ tenant_id, day: today, clicks: 1 });
+      const { error } = await supabase.rpc("increment_widget_click", {
+        p_tenant_id: tenant_id,
+        p_day: today,
+      });
+      if (error) {
+        console.error("widget-events: click increment failed", error);
+        return jsonResponse({ error: "click_increment_failed" }, 500);
       }
     } else if (event === "bubble.shown") {
-      if (!existing) {
-        await supabase
-          .from("dashboard_usage_daily")
-          .insert({ tenant_id, day: today });
-      }
+      await supabase
+        .from("dashboard_usage_daily")
+        .upsert({ tenant_id, day: today }, { onConflict: "tenant_id,day", ignoreDuplicates: true });
     }
 
     return jsonResponse({ ok: true });

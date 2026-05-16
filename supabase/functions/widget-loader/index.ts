@@ -37,7 +37,9 @@ const LOADER_JS = `
   }
 
   function api(path) {
+    path += (path.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
     return fetch(SUPABASE_URL + "/functions/v1" + path, {
+      cache: "no-store",
       headers: { "apikey": ANON_KEY, "Authorization": "Bearer " + ANON_KEY },
     }).then(function (r) { return r.json(); });
   }
@@ -54,6 +56,10 @@ const LOADER_JS = `
   }
 
   function mount(tenantId, ctx, cfg) {
+    var existing = document.getElementById("fuqah-widget-host");
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var existingIframe = document.getElementById("fuqah-widget-iframe");
+    if (existingIframe && existingIframe.parentNode) existingIframe.parentNode.removeChild(existingIframe);
     if (cfg && cfg.bubble_visible === false) { return; }
     var host = document.createElement("div");
     host.id = "fuqah-widget-host";
@@ -105,6 +111,7 @@ const LOADER_JS = `
 
     var iframe = document.createElement("iframe");
     iframe.className = "fq-iframe";
+    iframe.id = "fuqah-widget-iframe";
     iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
     iframe.setAttribute("title", "Chat");
     iframe.src =
