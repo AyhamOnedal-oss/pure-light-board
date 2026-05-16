@@ -130,6 +130,9 @@ export function ChatCustomization() {
   const [saving, setSaving] = useState(false);
   const [loadedFromServer, setLoadedFromServer] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  // Mirrors settings_train_ai.bubble_visible — when false, the preview must
+  // hide the floating widget icon AND the welcome bubble entirely.
+  const [bubbleVisible, setBubbleVisible] = useState<boolean>(true);
 
   const DEFAULTS = {
     primaryColor: '#000000',
@@ -202,6 +205,33 @@ export function ChatCustomization() {
       console.log('Error loading settings from Supabase:', err);
       setLoadedFromServer(true);
     });
+  }, [tenantId]);
+
+  // Load bubble visibility master switch from settings_train_ai and keep it
+  // in sync via realtime so toggling it in Train AI updates this preview live.
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    supabase
+      .from('settings_train_ai')
+      .select('bubble_visible')
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data) setBubbleVisible(data.bubble_visible ?? true);
+      });
+    const ch = supabase
+      .channel(`train-ai-bubble-${tenantId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'settings_train_ai', filter: `tenant_id=eq.${tenantId}` },
+        (payload: any) => {
+          const v = payload?.new?.bubble_visible;
+          if (typeof v === 'boolean') setBubbleVisible(v);
+        },
+      )
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [tenantId]);
 
   const hasChanges =
