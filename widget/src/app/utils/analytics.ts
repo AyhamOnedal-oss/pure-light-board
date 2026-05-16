@@ -10,7 +10,7 @@
  * dashboard can ingest them as raw events until dedicated endpoints exist.
  */
 
-import { FUNCTIONS_BASE, SUPABASE_URL, SUPABASE_ANON_KEY, getStoreContext } from "../config/supabase";
+import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getStoreContext } from "../config/supabase";
 
 function post(route: string, body: unknown): void {
   try {

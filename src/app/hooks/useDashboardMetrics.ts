@@ -53,6 +53,7 @@ export function useDashboardMetrics() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations_messages', filter }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets_main', filter }, scheduleRefetch)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'widget_events', filter }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_usage_daily', filter }, scheduleRefetch)
       .subscribe();
 
     return () => {
