@@ -526,6 +526,20 @@ export function ChatCustomization() {
 
           <div className="mx-auto max-w-[300px]">
             <div dir="ltr" className="relative rounded-2xl overflow-hidden border border-border shadow-lg" style={{ backgroundColor: bgColor, height: '420px' }}>
+              {!bubbleVisible ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 gap-2">
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                    <MessageCircle className="w-6 h-6 text-muted-foreground" />
+                  </div>
+                  <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                    {t('Chat bubble is off', 'فقاعة المحادثة مغلقة')}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('Turn it on in Train AI to show the widget on your store.', 'قم بتفعيلها من تدريب الذكاء الاصطناعي لإظهار الأداة في متجرك.')}
+                  </p>
+                </div>
+              ) : (
+              <>
               {/* Header */}
               <div dir="rtl" className="px-3.5 py-2.5 flex items-center gap-2" style={{ backgroundColor: headerColor }}>
                 <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center shrink-0 overflow-hidden p-0.5">
@@ -615,7 +629,6 @@ export function ChatCustomization() {
               )}
 
               {/* Widget — custom SVG */}
-              {bubbleVisible && (
               <div className={`absolute bottom-14 ${position === 'right' ? 'right-2.5' : 'left-2.5'}`}>
                 <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-xl shadow-black/30 overflow-hidden p-0" style={{ backgroundColor: widgetOuter }}>
                   <svg viewBox="0 0 1000 1000" className="w-full h-full">
@@ -624,6 +637,7 @@ export function ChatCustomization() {
                   </svg>
                 </div>
               </div>
+              </>
               )}
             </div>
           </div>
