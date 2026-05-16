@@ -147,6 +147,10 @@ export function FloatingWidget({
 
   const isRight = position === "bottom-right";
 
+  if (themeSettings?.bubbleVisible === false) {
+    return null;
+  }
+
   return (
     <div
       className="fixed"
