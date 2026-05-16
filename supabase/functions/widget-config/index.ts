@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
         bubble_visible: train?.bubble_visible ?? true,
       },
       200,
-      { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" },
+      { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
     );
   } catch (e) {
     console.error("widget-config error", e);
