@@ -1,41 +1,108 @@
-## What's happening
+## What's broken
 
-Your app is a Vite + React Router SPA (`createBrowserRouter` in `src/app/routes.tsx`). When you open `/dashboard` directly or hit refresh, the host has to serve `index.html` so the client router can take over. The "not found" you see in the top-left is the host's 404 page, not your app's UI — meaning the request never reached React Router.
+I traced all four issues end-to-end. Here's the actual state of the system:
 
-Two things contribute:
+### 1. "Show chat bubble" toggle is ignored by the storefront
+- `bubble_visible` is saved on `settings_train_ai` (TrainAI page).
+- The storefront fetches config from `widget-config`, which only returns `settings_chat_design` — so `bubble_visible` is **never sent to the widget**.
+- The Hostinger `widget.js` you upload also has no `if (cfg.bubble_visible === false) return;` guard.
+- Result: toggle off has zero effect.
 
-1. **SPA fallback fragility.** You rely on `public/_redirects` (`/* /index.html 200`). On the live preview (`id-preview--…lovable.app`) and during sandbox restarts/rebuilds, this fallback can momentarily fail, returning the platform 404. That matches "sometimes, on hard refresh / direct URL, in Lovable and on direct URL".
-2. **No app-level catch-all UI.** Your catch-all route is `<Navigate to="/dashboard" replace />`. If routing ever resolves an unknown path before auth/tenant load, the redirect briefly mounts — but it does not protect against the host-level 404 above.
+### 2. "Push prompt / file from dashboard to widget via n8n"
+Good news: this **already happens on every message**. `chat-ai` loads `settings_train_ai.{mode, prompt, file_url}` and forwards it to your n8n webhook as:
+```json
+{ "ai": { "mode": "prompt", "prompt": "...", "file_url": "..." }, "store": {...}, "history": [...] }
+```
+What's missing is a clear contract for n8n + a way for the AI Agent node in your screenshot to actually consume it. Today your AI Agent node has no system message bound to `{{$json.ai.prompt}}`, so the prompt arrives but is discarded by n8n. Same for `file_url`.
+
+### 3. Widget clicks not counted
+- `widget-events` correctly increments `dashboard_usage_daily.clicks` on `event: "bubble.click"`.
+- The published Hostinger `widget.js` (v3.7.1, hand-patched) is missing the `postEvent('bubble.click', tenantId)` call inside the bubble open handler — it was lost during the flag-shift patch.
+
+### 4. Word count not working
+- `chat-ai` writes per-message `word_count` into `conversations_messages` ✓.
+- But the quota meter on PlansPage reads `settings_plans.monthly_words_used`, which **nothing ever increments**. So it stays at 0 forever.
+
+---
 
 ## Fix plan
 
-### 1. Make SPA fallback robust (primary fix)
-- Keep `public/_redirects` but also add the same rule via headers so static hosts that ignore `_redirects` still fall back. Specifically:
-  - Add `public/200.html` as a copy of `index.html` (some static hosts use this convention).
-  - Add a `public/_headers` entry — harmless on hosts that don't read it.
-- Verify the published build emits `_redirects` into `dist/` (it does by default for files in `public/`), and confirm the file is present in production.
+### A. Bubble visibility — make it work end-to-end
+1. Include `bubble_visible` in the `widget-config` response by joining `settings_train_ai`:
+   ```ts
+   const [{ data: design }, { data: workspace }, { data: train }] = await Promise.all([
+     supabase.from("settings_chat_design")...,
+     supabase.from("settings_workspace")...,
+     supabase.from("settings_train_ai").select("bubble_visible").eq("tenant_id", tenantId).maybeSingle(),
+   ]);
+   return jsonResponse({ ...design, bubble_visible: train?.bubble_visible ?? true, ... });
+   ```
+2. Update the `widget-loader` Edge Function (the canonical loader) so `mount()` early-returns when `cfg.bubble_visible === false`:
+   ```js
+   if (cfg && cfg.bubble_visible === false) { return; }
+   ```
+3. Apply the **same one-line guard** to the Hostinger `widget.js` (v3.7.2) and produce a new file for you to upload. No other Hostinger changes.
+4. Verification: toggle off in dashboard → reload store within 60s (widget-config has 60s cache) → bubble gone. Toggle on → bubble back.
 
-### 2. Add a real app 404 instead of a silent redirect
-- Replace `{ path: '*', element: <Navigate to="/dashboard" replace /> }` with a real `NotFoundPage` component that:
-  - Renders inside your layout if authed,
-  - Shows a "Go to dashboard" / "Go to login" CTA otherwise.
-- This makes accidental misroutes obvious instead of bouncing, and surfaces whether the 404 is host-side (plain text "Not found") vs app-side (styled page). Future "sometimes 404" reports become diagnosable at a glance.
+### B. Prompt / file push to widget via n8n — formalize the contract
+The push already happens. We'll do two things:
 
-### 3. Guard against bad initial URLs
-- In `RootEntry`, currently `/` → `<Navigate to="/dashboard" />`. Add the same handling for typos like `/dashoard` (you mentioned this) by mounting the new `NotFoundPage` with a "Did you mean /dashboard?" hint.
+1. **Document the n8n binding** (the actual fix). In your n8n flow:
+   - Webhook node receives the body from `chat-ai`.
+   - AI Agent node → "System Message" = `={{ $json.ai.prompt }}`
+   - AI Agent node → "User Message" = `={{ $json.message }}`
+   - HTTP Request node (if you want the file content) = `GET {{ $json.ai.file_url }}` then pass result back into the AI Agent as a tool / context.
+   - Respond to Webhook → body `={{ { reply: $json.output } }}`
+   I'll add this as `docs/n8n-integration.md` so you have the exact mappings.
 
-### 4. Verify
-- After deploy, hard-refresh `/dashboard`, `/dashboard/tickets`, `/dashboard/settings/account` 10× each in an incognito window. None should show the platform 404.
-- If a platform 404 still appears occasionally on the **live preview** specifically, it's the sandbox restarting — that's expected behavior of the preview, not the published site. We'll confirm by reproducing only on `id-preview--…` and never on `pure-light-board.lovable.app`.
+2. **Add a `widget-context` Edge Function** (clean pull endpoint) so an n8n HTTP Request node can fetch the current prompt/file/store on demand without depending on `chat-ai`'s payload shape:
+   ```
+   GET /functions/v1/widget-context?tenant_id=...
+   → { prompt, file_url, mode, store: { name, locale, domain, platform } }
+   ```
+   This is the "clear way to push from dashboard". Whenever the merchant saves a new prompt in the dashboard, the very next chat call sees it (no caching). For the file, n8n calls `widget-context` then `GET file_url`.
 
-## Files to change
+3. (Light extra) Send file URL only when `mode === 'file'` and prompt only when `mode === 'prompt'`, so n8n doesn't have to guess.
 
-- `public/_redirects` — keep.
-- `public/200.html` — new (copy of `index.html`).
-- `src/app/components/NotFoundPage.tsx` — new.
-- `src/app/routes.tsx` — replace the `*` catch-all with `<NotFoundPage />`.
+### C. Widget click counting — re-attach the event in Hostinger widget.js
+1. Re-add inside the bubble click handler:
+   ```js
+   bubble.addEventListener('click', function () {
+     open = !open;
+     panel.style.display = open ? 'flex' : 'none';
+     if (open) { try { fetch(SUPABASE_URL + '/functions/v1/widget-events', { method: 'POST', headers: {...}, body: JSON.stringify({ event: 'bubble.click', tenant_id: TENANT_ID }), keepalive: true }); } catch(e) {} }
+   });
+   ```
+2. Verify by clicking bubble on the live store, then running `select clicks from dashboard_usage_daily where tenant_id=... and day=current_date;` — it should increment.
+3. Bump widget to v3.7.2 with both fixes (A.3 + C.1) and deliver `widget.js` + `widget-v3.7.2.js` + notes.
 
-No business logic, auth, or data changes.
+### D. Word count — actually increment the quota meter
+1. Add a Postgres trigger on `conversations_messages` (AFTER INSERT) that bumps:
+   - `settings_plans.monthly_words_used` (for the PlansPage meter)
+   - `dashboard_usage_daily.ai_words_used` (for daily charts), only when `sender = 'ai'`
+   - `dashboard_usage_daily.customer_words_used` if such column exists, when `sender = 'customer'`
+   
+   Using a trigger (not chat-ai code) means even messages persisted from other paths still count.
+2. Reset logic: if `settings_plans.period_start` is older than 1 month, reset `monthly_words_used` to 0 before incrementing.
+3. Verification: send one message via the widget → refresh PlansPage → `usedWords` jumps by the message word count + the AI reply word count.
 
-## Note on the "sometimes" in Lovable preview
-The live preview iframe (`id-preview--…`) is backed by a sandboxed dev server. While it restarts (after edits, idle wake-ups, or transient errors) any direct URL load can momentarily return a platform 404. The published site (`pure-light-board.lovable.app`) does not have this restart behavior — it serves static files + `_redirects`. The fix above hardens both, but expect occasional preview-only blips during active editing; they're not present for end users.
+---
+
+## Files I'll change
+
+- `supabase/functions/widget-config/index.ts` — add `bubble_visible` to response.
+- `supabase/functions/widget-loader/index.ts` — guard mount on `bubble_visible`.
+- `supabase/functions/widget-context/index.ts` — **new** clean endpoint for n8n.
+- `supabase/functions/chat-ai/index.ts` — only send `file_url` when `mode === 'file'`, etc.
+- New Postgres migration — trigger on `conversations_messages` to bump word usage.
+- Hostinger widget (delivered): `widget.js` v3.7.2 with bubble_visible guard + click event.
+- `docs/n8n-integration.md` — exact n8n node bindings for prompt/file.
+
+## What I won't touch
+- Auth, RLS, tickets, the existing chat-ai → n8n round-trip semantics, the visual widget design.
+
+## Verification checklist (before I say it's done)
+- [ ] Toggle bubble off → bubble disappears in store after reload.
+- [ ] Click bubble 3× → `dashboard_usage_daily.clicks` for today increases by 3.
+- [ ] Send a 10-word message + receive a 25-word reply → PlansPage "words used" increases by 35.
+- [ ] n8n HTTP Request node hitting `/widget-context?tenant_id=…` returns the latest prompt the merchant typed.
