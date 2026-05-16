@@ -134,38 +134,46 @@ export async function postTicket(
   ticket: { subject: string; phone?: string; message?: string },
 ): Promise<{ ticketId?: string; ticketNumber?: number; displayCode?: string } | null> {
   // Synchronous call so we can return the real ticket number from the backend.
+  // Retries once on transient network error.
   const sc = getStoreContext();
-  try {
-    const res = await fetch(`${FUNCTIONS_BASE}/widget-events`, {
+  const payload = JSON.stringify({
+    event: "ticket.created",
+    tenant_id: ctx.storeId || sc.tenant_id,
+    platform: sc.platform,
+    store_id: sc.store_id,
+    conversation_id: ctx.conversationId,
+    ticket_id: ctx.ticketId,
+    payload: ticket,
+    ts: new Date().toISOString(),
+  });
+  const attempt = async () =>
+    fetch(`${FUNCTIONS_BASE}/widget-events`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
-      body: JSON.stringify({
-        event: "ticket.created",
-        tenant_id: ctx.storeId || sc.tenant_id,
-        platform: sc.platform,
-        store_id: sc.store_id,
-        conversation_id: ctx.conversationId,
-        ticket_id: ctx.ticketId,
-        payload: ticket,
-        ts: new Date().toISOString(),
-      }),
+      body: payload,
     });
-    if (!res.ok) {
-      console.log("[FuqahChat] postTicket failed:", res.status);
+  let res: Response | null = null;
+  try {
+    res = await attempt();
+  } catch (err) {
+    console.log("[FuqahChat] postTicket network error, retrying:", err);
+    try { res = await attempt(); } catch (err2) {
+      console.log("[FuqahChat] postTicket retry failed:", err2);
       return null;
     }
-    const data = await res.json().catch(() => ({}));
-    return {
-      ticketId: data.ticket_id,
-      ticketNumber: data.ticket_number,
-      displayCode: data.display_code,
-    };
-  } catch (err) {
-    console.log("[FuqahChat] postTicket threw:", err);
+  }
+  const data = await res.json().catch(() => ({} as Record<string, unknown>));
+  if (!res.ok || data?.ok === false) {
+    console.log("[FuqahChat] postTicket failed:", res.status, data);
     return null;
   }
+  return {
+    ticketId: data.ticket_id as string | undefined,
+    ticketNumber: data.ticket_number as number | undefined,
+    displayCode: data.display_code as string | undefined,
+  };
 }

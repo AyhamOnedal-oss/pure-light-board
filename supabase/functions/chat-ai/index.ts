@@ -177,27 +177,30 @@ Deno.serve(async (req) => {
     const reply: string =
       aiData.reply ?? aiData.message ?? aiData.text ?? aiData.output ?? "";
 
-    // Best-effort persistence (don't fail the response if this errors)
+    // Best-effort persistence (don't fail the response if this errors).
+    // Insert sequentially with a small offset on the AI row so the dashboard
+    // never shows the reply before the question when ordering by created_at.
     if (conversation_id) {
       try {
-        await supabase.from("conversations_messages").insert([
-          {
-            tenant_id,
-            conversation_id,
-            sender: "customer",
-            kind: "text",
-            body: message,
-            word_count: message.split(/\s+/).length,
-          },
-          {
-            tenant_id,
-            conversation_id,
-            sender: "ai",
-            kind: "text",
-            body: reply,
-            word_count: reply.split(/\s+/).length,
-          },
-        ]);
+        const nowMs = Date.now();
+        await supabase.from("conversations_messages").insert({
+          tenant_id,
+          conversation_id,
+          sender: "customer",
+          kind: "text",
+          body: message,
+          word_count: message.split(/\s+/).length,
+          created_at: new Date(nowMs).toISOString(),
+        });
+        await supabase.from("conversations_messages").insert({
+          tenant_id,
+          conversation_id,
+          sender: "ai",
+          kind: "text",
+          body: reply,
+          word_count: reply.split(/\s+/).length,
+          created_at: new Date(nowMs + 50).toISOString(),
+        });
       } catch (e) {
         console.log("persist failed (non-fatal):", e);
       }
