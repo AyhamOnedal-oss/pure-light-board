@@ -3,16 +3,19 @@ import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { resolveTenant } from "../_shared/resolve-tenant.ts";
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL") ?? "",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-);
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   try {
+    if (!SERVICE_ROLE_KEY || !SUPABASE_URL) {
+      console.error("widget-events: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+      return jsonResponse({ error: "service_role_missing" }, 503);
+    }
     const body = await req.json();
     const { event, platform, store_id, conversation_id, payload } = body;
     const { tenant_id } = await resolveTenant({
@@ -91,7 +94,15 @@ Deno.serve(async (req) => {
         .single();
       if (error || !inserted) {
         console.error("widget-events: ticket insert failed", error);
-        return jsonResponse({ ok: false, error: "ticket_insert_failed" }, 500);
+        return jsonResponse(
+          {
+            ok: false,
+            error: "ticket_insert_failed",
+            message: error?.message ?? "unknown",
+            code: (error as { code?: string } | null)?.code ?? null,
+          },
+          500,
+        );
       }
 
       // Mark the conversation as having an open ticket and close it so the
