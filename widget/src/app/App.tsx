@@ -368,10 +368,12 @@ function MockBrowser({
   theme,
   position,
   type,
+  bubbleVisible,
 }: {
   theme: Theme;
   position: 'bottom-right' | 'bottom-left';
   type: 'desktop' | 'tablet' | 'mobile';
+  bubbleVisible: boolean;
 }) {
   const isWhite = theme.id === 'white';
   const isBlack = theme.id === 'black';
@@ -402,19 +404,21 @@ function MockBrowser({
         <div className="h-2 bg-gray-100 rounded w-1/3" />
       </div>
 
-      {/* Mini chat window */}
-      <div
-        className="absolute rounded-xl overflow-hidden shadow-lg border border-gray-200"
-        style={{
-          width: chatW,
-          height: chatH,
-          ...(isMobile
-            ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }
-            : position === 'bottom-right'
-              ? { right: '12px', bottom: '48px' }
-              : { left: '12px', bottom: '48px' }),
-        }}
-      >
+      {bubbleVisible && (
+      <>
+        {/* Mini chat window */}
+        <div
+          className="absolute rounded-xl overflow-hidden shadow-lg border border-gray-200"
+          style={{
+            width: chatW,
+            height: chatH,
+            ...(isMobile
+              ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }
+              : position === 'bottom-right'
+                ? { right: '12px', bottom: '48px' }
+                : { left: '12px', bottom: '48px' }),
+          }}
+        >
         {/* Mini header */}
         <div
           className="flex items-center gap-1.5 px-2 py-1.5"
@@ -442,32 +446,34 @@ function MockBrowser({
         <div className="bg-white border-t border-gray-100 px-1.5 py-1">
           <div className="h-3 bg-gray-100 rounded-full" />
         </div>
-      </div>
+        </div>
 
-      {/* Mini bubble */}
-      <div
-        className="absolute rounded-full flex items-center justify-center"
-        style={{
-          width: '28px',
-          height: '28px',
-          bottom: '10px',
-          ...(isMobile
-            ? (position === 'bottom-right' ? { right: '10px' } : { left: '10px' })
-            : position === 'bottom-right'
-              ? { right: '12px' }
-              : { left: '12px' }),
-          background: bg,
-          border: isWhite ? '1.5px solid #e5e7eb' : 'none',
-          boxShadow: `0 2px 8px rgba(0,0,0,0.15)`,
-        }}
-      >
-        <svg viewBox="0 0 1000 1000" className="w-3.5 h-3.5">
-          <path
-            fill={iconColor}
-            d="M500,217.35c-156.1,0-282.65,126.55-282.65,282.65s126.55,282.65,282.65,282.65v68.68s282.65-77.5,282.65-351.33c0-156.11-126.55-282.65-282.65-282.65Z"
-          />
-        </svg>
-      </div>
+        {/* Mini bubble */}
+        <div
+          className="absolute rounded-full flex items-center justify-center"
+          style={{
+            width: '28px',
+            height: '28px',
+            bottom: '10px',
+            ...(isMobile
+              ? (position === 'bottom-right' ? { right: '10px' } : { left: '10px' })
+              : position === 'bottom-right'
+                ? { right: '12px' }
+                : { left: '12px' }),
+            background: bg,
+            border: isWhite ? '1.5px solid #e5e7eb' : 'none',
+            boxShadow: `0 2px 8px rgba(0,0,0,0.15)`,
+          }}
+        >
+          <svg viewBox="0 0 1000 1000" className="w-3.5 h-3.5">
+            <path
+              fill={iconColor}
+              d="M500,217.35c-156.1,0-282.65,126.55-282.65,282.65s126.55,282.65,282.65,282.65v68.68s282.65-77.5,282.65-351.33c0-156.11-126.55-282.65-282.65-282.65Z"
+            />
+          </svg>
+        </div>
+      </>
+      )}
     </div>
   );
 }
