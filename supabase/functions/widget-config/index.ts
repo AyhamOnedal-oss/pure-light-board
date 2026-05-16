@@ -18,12 +18,17 @@ Deno.serve(async (req) => {
   if (!is_active) return jsonResponse({ error: "tenant_inactive" }, 403);
 
   try {
-    const [{ data: design }, { data: workspace }] = await Promise.all([
+    const [{ data: design }, { data: workspace }, { data: train }] = await Promise.all([
       supabase.from("settings_chat_design").select("*").eq("tenant_id", tenantId).maybeSingle(),
       supabase
         .from("settings_workspace")
         .select("name, logo_url, icon_url, locale")
         .eq("id", tenantId)
+        .maybeSingle(),
+      supabase
+        .from("settings_train_ai")
+        .select("bubble_visible")
+        .eq("tenant_id", tenantId)
         .maybeSingle(),
     ]);
 
@@ -37,6 +42,7 @@ Deno.serve(async (req) => {
         logo_url: workspace?.logo_url ?? null,
         icon_url: workspace?.icon_url ?? null,
         locale: workspace?.locale ?? "ar",
+        bubble_visible: train?.bubble_visible ?? true,
       },
       200,
       { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" },
