@@ -99,9 +99,20 @@ export function ConversationsPage() {
           .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
           .in('conversation_id', convIds)
           .order('created_at', { ascending: true })
-          .order('sender', { ascending: true })
           .order('id', { ascending: true }),
       ]);
+
+      // Tie-break: when timestamps are equal, customer messages render first.
+      const SENDER_RANK: Record<string, number> = { customer: 0, ai: 1, agent: 1 };
+      (messages || []).sort((a, b) => {
+        const ta = new Date(a.created_at).getTime();
+        const tb = new Date(b.created_at).getTime();
+        if (ta !== tb) return ta - tb;
+        const ra = SENDER_RANK[a.sender] ?? 2;
+        const rb = SENDER_RANK[b.sender] ?? 2;
+        if (ra !== rb) return ra - rb;
+        return a.id.localeCompare(b.id);
+      });
 
       const cMap = new Map((customers || []).map(c => [c.id, c]));
       const msgsByConv = new Map<string, Message[]>();
