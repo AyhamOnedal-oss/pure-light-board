@@ -60,6 +60,21 @@ const LOADER_JS = `
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     var existingIframe = document.getElementById("fuqah-widget-iframe");
     if (existingIframe && existingIframe.parentNode) existingIframe.parentNode.removeChild(existingIframe);
+    var legacyRoot = document.getElementById("fq-widget-root");
+    if (legacyRoot && legacyRoot.parentNode) legacyRoot.parentNode.removeChild(legacyRoot);
+    var legacyWelcome = document.getElementById("fq-welcome-bubble");
+    if (legacyWelcome && legacyWelcome.parentNode) legacyWelcome.parentNode.removeChild(legacyWelcome);
+    var legacyBubble = document.getElementById("fq-bubble");
+    if (legacyBubble && legacyBubble.parentNode) legacyBubble.parentNode.removeChild(legacyBubble);
+    var legacyWindow = document.getElementById("fq-chat-window");
+    if (legacyWindow && legacyWindow.parentNode) legacyWindow.parentNode.removeChild(legacyWindow);
+    var legacyOverlay = document.getElementById("fq-overlay");
+    if (legacyOverlay && legacyOverlay.parentNode) legacyOverlay.parentNode.removeChild(legacyOverlay);
+    try {
+      document.querySelectorAll(".fq-widget-root,.fq-welcome-bubble,.fq-bubble,.fq-chat-window,.fq-touch-overlay").forEach(function (node) {
+        if (node && node.parentNode) node.parentNode.removeChild(node);
+      });
+    } catch (e) {}
     if (cfg && cfg.bubble_visible === false) { return; }
     var host = document.createElement("div");
     host.id = "fuqah-widget-host";
@@ -171,7 +186,7 @@ Deno.serve((req) => {
     headers: {
       ...corsHeaders,
       "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     },
   });
 });
