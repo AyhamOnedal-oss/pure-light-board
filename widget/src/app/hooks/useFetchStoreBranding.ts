@@ -30,8 +30,9 @@ export function useFetchStoreBranding(): StoreBranding {
     (async () => {
       try {
         const res = await fetch(
-          `${FUNCTIONS_BASE}/widget-config?${buildContextQuery(ctx)}`,
+          `${FUNCTIONS_BASE}/widget-config?${buildContextQuery(ctx)}&_=${Date.now()}`,
           {
+            cache: "no-store",
             headers: {
               apikey: SUPABASE_ANON_KEY,
               Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
