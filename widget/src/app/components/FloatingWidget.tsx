@@ -111,11 +111,12 @@ export function FloatingWidget({
 
   // Fire welcome_bubble.shown once per mount when the bubble is visible
   useEffect(() => {
+    if (themeSettings?.bubbleVisible === false) return;
     if (!isOpen && themeSettings?.welcomeBubbleEnabled) {
       trackEvent('welcome_bubble.shown', evCtx());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeSettings?.welcomeBubbleEnabled]);
+  }, [themeSettings?.bubbleVisible, themeSettings?.welcomeBubbleEnabled]);
 
   // ── Block touch events on the overlay (non-passive) ────────────────────
   useEffect(() => {
