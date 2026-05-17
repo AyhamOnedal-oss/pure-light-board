@@ -70,6 +70,11 @@ const LOADER_JS = `
     if (legacyWindow && legacyWindow.parentNode) legacyWindow.parentNode.removeChild(legacyWindow);
     var legacyOverlay = document.getElementById("fq-overlay");
     if (legacyOverlay && legacyOverlay.parentNode) legacyOverlay.parentNode.removeChild(legacyOverlay);
+    try {
+      document.querySelectorAll(".fq-widget-root,.fq-welcome-bubble,.fq-bubble,.fq-chat-window,.fq-touch-overlay").forEach(function (node) {
+        if (node && node.parentNode) node.parentNode.removeChild(node);
+      });
+    } catch (e) {}
     if (cfg && cfg.bubble_visible === false) { return; }
     var host = document.createElement("div");
     host.id = "fuqah-widget-host";
