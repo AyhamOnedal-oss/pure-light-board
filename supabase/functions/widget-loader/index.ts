@@ -181,7 +181,7 @@ Deno.serve((req) => {
     headers: {
       ...corsHeaders,
       "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     },
   });
 });
