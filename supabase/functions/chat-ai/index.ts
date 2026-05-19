@@ -140,6 +140,31 @@ Deno.serve(async (req) => {
         .maybeSingle(),
     ]);
 
+    // Load platform connection so n8n receives store_id / store_uuid / merchant_id
+    const resolvedPlatform = workspace?.platform ?? platform ?? null;
+    let storePlatformId: string | null = null;
+    let storePlatformUuid: string | null = null;
+    let storeMerchantId: string | number | null = null;
+    if (resolvedPlatform === "zid") {
+      const { data: zc } = await supabase
+        .from("zid_connections")
+        .select("store_id, store_uuid")
+        .eq("tenant_id", tenant_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      storePlatformId = zc?.store_id ?? null;
+      storePlatformUuid = zc?.store_uuid ?? null;
+    } else if (resolvedPlatform === "salla") {
+      const { data: sc } = await supabase
+        .from("salla_connections")
+        .select("store_id, merchant_id")
+        .eq("tenant_id", tenant_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      storePlatformId = sc?.store_id ?? null;
+      storeMerchantId = sc?.merchant_id ?? null;
+    }
+
     if (!N8N_WEBHOOK_URL) {
       return jsonResponse({ error: "n8n_not_configured" }, 503);
     }
@@ -154,6 +179,9 @@ Deno.serve(async (req) => {
         message,
         history: Array.isArray(history) ? history.slice(-10) : [],
         store: {
+          id: storePlatformId,
+          uuid: storePlatformUuid,
+          merchant_id: storeMerchantId,
           name: workspace?.name,
           locale: workspace?.locale,
           domain: workspace?.domain,

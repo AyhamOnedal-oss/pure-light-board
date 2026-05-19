@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
 
     // Fetch store profile to get store_uuid + name
     let storeUuid: string | null = null;
+    let storeId: string | null = null;
     let storeName: string | null = null;
     let storeUrl: string | null = null;
     let storeEmail: string | null = null;
@@ -186,6 +187,15 @@ Deno.serve(async (req) => {
             b?.data?.uuid ??
             b?.uuid ??
             findUuid(b);
+          const rawId =
+            b?.user?.store?.id ??
+            b?.data?.user?.store?.id ??
+            b?.data?.store?.id ??
+            b?.store?.id ??
+            null;
+          if (rawId !== null && rawId !== undefined && String(rawId).trim() !== "") {
+            storeId = String(rawId);
+          }
           storeName =
             b?.user?.store?.name ??
             b?.data?.store?.name ??
@@ -244,6 +254,7 @@ Deno.serve(async (req) => {
 
     const upsertRow: Record<string, unknown> = {
       store_uuid: storeUuid,
+      store_id: storeId,
       store_name: storeName,
       store_url: storeUrl,
       store_email: storeEmail,
