@@ -1818,36 +1818,6 @@ export type Database = {
         }
         Relationships: []
       }
-      zid_api_errors: {
-        Row: {
-          created_at: string
-          endpoint: string
-          http_status: number | null
-          id: string
-          request_body: Json | null
-          response_body: Json | null
-          tenant_id: string
-        }
-        Insert: {
-          created_at?: string
-          endpoint: string
-          http_status?: number | null
-          id?: string
-          request_body?: Json | null
-          response_body?: Json | null
-          tenant_id: string
-        }
-        Update: {
-          created_at?: string
-          endpoint?: string
-          http_status?: number | null
-          id?: string
-          request_body?: Json | null
-          response_body?: Json | null
-          tenant_id?: string
-        }
-        Relationships: []
-      }
       zid_connections: {
         Row: {
           authorization_token: string | null
@@ -1943,24 +1913,6 @@ export type Database = {
         }
         Relationships: []
       }
-      zid_rate_buckets: {
-        Row: {
-          count: number
-          tenant_id: string
-          window_start: string
-        }
-        Insert: {
-          count?: number
-          tenant_id: string
-          window_start: string
-        }
-        Update: {
-          count?: number
-          tenant_id?: string
-          window_start?: string
-        }
-        Relationships: []
-      }
       zid_token_refresh_errors: {
         Row: {
           created_at: string
@@ -1990,10 +1942,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      check_zid_rate_limit: {
-        Args: { p_max?: number; p_tenant_id: string }
-        Returns: boolean
-      }
       get_zid_credentials: {
         Args: { p_tenant_id: string }
         Returns: {
