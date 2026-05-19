@@ -19,6 +19,20 @@ const LOADER_JS = `
   var APP_BASE_URL = ${JSON.stringify(APP_BASE_URL)};
 
   function detectPlatform() {
+    // Highest priority: data-* attributes on the loader <script> tag itself.
+    // Merchant snippet sets data-platform="zid" data-store-id="{{store.id}}".
+    try {
+      var scripts = document.querySelectorAll('script[src*="widget.js"], script[src*="widget-loader"]');
+      for (var i = 0; i < scripts.length; i++) {
+        var s = scripts[i];
+        var plat = s.getAttribute("data-platform");
+        var sid = s.getAttribute("data-store-id");
+        var suid = s.getAttribute("data-store-uuid");
+        if (plat && (sid || suid)) {
+          return { platform: plat, external_id: String(sid || suid) };
+        }
+      }
+    } catch (e) {}
     try {
       if (window.salla && window.salla.config && typeof window.salla.config.get === "function") {
         var sid = window.salla.config.get("store.id");
