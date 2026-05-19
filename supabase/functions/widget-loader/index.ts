@@ -31,7 +31,13 @@ const LOADER_JS = `
     try {
       var meta = document.querySelector('meta[name="zid-store-id"], meta[name="store-uuid"]');
       if (meta && meta.content) return { platform: "zid", external_id: meta.content };
-      if (window.zid && window.zid.store_uuid) return { platform: "zid", external_id: window.zid.store_uuid };
+      if (window.zid) {
+        if (window.zid.store_id) return { platform: "zid", external_id: String(window.zid.store_id) };
+        if (window.zid.store_uuid) return { platform: "zid", external_id: window.zid.store_uuid };
+      }
+      // Fuqah snippet sets these from Zid theme tokens {{store.id}} / {{store.uuid}}
+      if (window.__FUQAH_ZID_STORE_ID) return { platform: "zid", external_id: String(window.__FUQAH_ZID_STORE_ID) };
+      if (window.__FUQAH_ZID_STORE_UUID) return { platform: "zid", external_id: String(window.__FUQAH_ZID_STORE_UUID) };
     } catch (e) {}
     return null;
   }
