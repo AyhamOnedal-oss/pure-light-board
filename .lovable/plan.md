@@ -1,87 +1,47 @@
+## Finding
 
-# Always get a valid `store.id` for Zid
+The widget is not failing to read `store.id`; it is doing exactly what the current data allows:
 
-## What the Zid docs actually say
+- The storefront script sees `storeUuid=cb2b687a-7d88-4ecf-8027-806782ac5cbe`.
+- The matching `public.zid_connections` row has `store_id = null` and `store_url = null`.
+- Recent OAuth/profile logs do not show a successful profile payload containing a numeric `store.id` for this store.
 
-Two separate Zid doc pages, two different meanings of "store.id":
-
-1. **Theme data (`themes.zid.dev/data-reference/store`)** — the Liquid/Jinja `{{ store.id }}` token rendered server-side in a theme renders to the **numeric** merchant id (e.g. `1011`). `{{ store.uuid }}` is the UUID. So the value IS numeric *when the template engine runs*.
-
-2. **Storefront Events (`docs.zid.sa/doc-649611`)** — the only Zid globals reliably exposed to a Custom Snippet at page load are:
-   - `window.customer`
-   - `window.customerAuthState`
-   - `window.customerAsync`
-
-   `store.id` listed in the screenshot is a **parameter inside event payloads** (signup, purchase, etc.) — NOT a global object. So we cannot read `window.store.id` from a snippet at page load.
-
-3. **Custom Snippets / App Scripts** (the section the merchant uses) are documented as plain JS/CSS injection. The doc does NOT promise Liquid/Twig templating runs on a snippet body, so `{{store.id}}` in your `<script data-store-id="{{store.id}}">` may or may not be rendered depending on where Zid pastes it.
-
-Your current snippet:
-```html
-<script src="https://widget.fuqah.net/widget.js?v=19"
-        data-platform="zid"
-        data-store-id="{{store.id}}"></script>
-```
-If Zid does template it → arrives as `data-store-id="1011"` (good, numeric).
-If Zid does NOT template it → arrives as `data-store-id="{{store.id}}"` (literal). v4.7.3 already skips that, but then nothing identifies the store.
+So the loader can only print `storeId=null` unless Zid Liquid renders `{{store.id}}` into the snippet or the backend stores the numeric ID after OAuth/API lookup.
 
 ## Plan
 
-Three layers so identification never fails — independent of whether `{{store.id}}` renders.
+1. **Fix the snippet guidance**
+   - Keep the merchant snippet as:
+     ```html
+     <script src="https://widget.fuqah.net/widget.js?v=20"
+             charset="UTF-8"
+             data-platform="zid"
+             data-store-id="{{store.id}}"
+             data-store-uuid="{{store.uuid}}"
+             async></script>
+     ```
+   - Update repo docs/onboarding copy so both values are always requested.
 
-### 1. Update the install snippet (one line)
+2. **Make the widget log more diagnostic, not misleading**
+   - If `data-store-id` is absent/unrendered but UUID is present, log that numeric `store.id` was not provided by the snippet instead of implying a loader bug.
+   - Continue sending `store_uuid` and `domain` so tenant resolution still works.
 
-```html
-<script src="https://widget.fuqah.net/widget.js?v=20"
-        charset="UTF-8"
-        data-platform="zid"
-        data-store-id="{{store.id}}"
-        data-store-uuid="{{store.uuid}}"
-        async></script>
-```
+3. **Backfill numeric `store_id` server-side where possible**
+   - Improve `zid-oauth-callback` to search more profile response paths for numeric ID fields.
+   - Add a small helper in the callback that recognizes likely fields such as `store.id`, `merchant.id`, `store_id`, and `merchant_id` while avoiding UUID values.
+   - Save the numeric ID into `zid_connections.store_id` when found.
 
-`data-store-uuid` belt-and-suspenders. Update the install instructions in `src/app/docs/widget-integration-prompt.md` and any Zid-app onboarding copy.
+4. **Expose resolved DB identifiers back to the widget**
+   - Update `widget-resolve` to return `store_id` and `store_uuid` from `zid_connections` along with `tenant_id`.
+   - Update the generated widget so after `/widget-resolve`, if `STORE_ID` is still null but the backend returns a numeric `store_id`, it fills `STORE_ID` before chat/events.
 
-### 2. Add domain-based tenant fallback (the reliable path)
+5. **Generate v4.7.5 artifacts**
+   - Produce `/mnt/documents/widget-4.7.5.js` and refresh `/mnt/documents/widget.js`.
+   - Add a short `/mnt/documents/widget-v4.7.5-notes.md` explaining that UUID/domain still work, while numeric ID depends on rendered Liquid or OAuth/API backfill.
 
-If neither `store_id` nor `store_uuid` is usable, identify the merchant by their storefront domain (`window.location.hostname`, stripped to root). We already store this on `settings_workspace.domain`.
+## Important note
 
-**Widget v4.7.4 (`/mnt/documents/widget-4.7.4.js`)**
-- Continue v4.7.3 detection.
-- If both `STORE_ID` and `STORE_UUID` end up null after all checks, send `domain=<hostname>` to `/widget-resolve`.
-- Read `window.customer` (Zid storefront global) and attach `{ id, name, email, mobile }` to `chat-ai` payloads as `visitor` so n8n gets real customer identity when the shopper is logged in.
+This will make the widget robust, but for the current store the numeric ID will remain null until one of these happens:
 
-**`supabase/functions/widget-resolve/index.ts`** (in-repo edit)
-- Accept new query `domain=`. Lookup order (unchanged for existing params):
-  1. `platform + external_id` (current)
-  2. `domain` → `select tenant_id from settings_workspace where lower(domain) = lower(:domain) and is_active`
-- Return the same `{ tenant_id, is_active }` shape.
-
-**`supabase/functions/chat-ai/index.ts`** (in-repo edit)
-- Accept optional `domain` + `visitor` fields.
-- `resolveTenant` already accepts `tenant_id`; extend `_shared/resolve-tenant.ts` with a `domain` branch that mirrors the lookup above.
-- Pass `visitor` (Zid customer object) into the n8n payload under `customer: { id, name, email, mobile }`.
-
-No DB migration required — `settings_workspace.domain` already exists and the existing zid_connections table is unchanged.
-
-### 3. Verification
-
-- Reload a Zid storefront with the new snippet → console: `Widget v4.7.4 ready ✓ storeId=1011 storeUuid=<uuid> domain=mystore.com`.
-- Send a chat → n8n payload contains `store.id: 1011`, `store.uuid: "..."`, and `customer: {...}` when the shopper is signed in.
-- Simulate the broken case: remove `data-store-*` from the snippet → widget falls back to `domain=mystore.com`, `widget-resolve` returns the same tenant, n8n still receives full `store` block populated from `zid_connections`.
-
-## Artifacts to deliver
-
-- `/mnt/documents/widget-4.7.4.js` and overwrite `/mnt/documents/widget.js`
-- `/mnt/documents/widget-v4.7.4-notes.md` + append to `widget.changelog.md`
-- In-repo edits to `widget-resolve`, `chat-ai`, `_shared/resolve-tenant.ts`, and the install docs
-
-## Why this is bulletproof
-
-- If Liquid renders → numeric `store.id` flows through (best path).
-- If Liquid doesn't render → domain fallback identifies the tenant (works for every Zid store with a published domain).
-- If the storefront global `window.customer` is present → n8n also gets the shopper identity per Zid's official storefront-events contract.
-
-## Open question for you
-
-Do you want me to **also** wire the storefront event hooks (`productCart`, `productViewd`, `Purchase`, `Start Checkout`) into widget-events so n8n can track shop activity (cart, viewed product, recent purchases) and the AI can use it for replies? That's a separate, larger piece of work — I can scope it as v4.8.0 in a follow-up plan if you want it.
+- Zid actually renders `data-store-id="{{store.id}}"` in the snippet context, or
+- a successful Zid OAuth/API response includes the numeric ID so we can backfill it into `zid_connections.store_id`.
