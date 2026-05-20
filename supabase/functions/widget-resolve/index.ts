@@ -13,20 +13,32 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const platform = url.searchParams.get("platform");
   const externalId = url.searchParams.get("external_id");
+  const domain = (url.searchParams.get("domain") || "").trim().toLowerCase().replace(/^www\./, "");
 
-  if (!platform || !externalId) {
+  if (!platform || (!externalId && !domain)) {
     return jsonResponse({ error: "Missing platform or external_id" }, 400);
   }
 
   try {
     if (platform === "salla") {
       const merchantId = Number(externalId);
-      if (!Number.isFinite(merchantId)) return jsonResponse({ error: "Bad merchant_id" }, 400);
-      const { data } = await supabase
-        .from("salla_connections")
-        .select("tenant_id, is_active")
-        .eq("merchant_id", merchantId)
-        .maybeSingle();
+      let data: { tenant_id: string | null; is_active: boolean | null } | null = null;
+      if (Number.isFinite(merchantId)) {
+        const res = await supabase
+          .from("salla_connections")
+          .select("tenant_id, is_active")
+          .eq("merchant_id", merchantId)
+          .maybeSingle();
+        data = res.data as typeof data;
+      }
+      if ((!data || !data.tenant_id) && domain) {
+        const res = await supabase
+          .from("settings_workspace")
+          .select("id")
+          .ilike("domain", domain)
+          .maybeSingle();
+        if (res.data?.id) data = { tenant_id: res.data.id, is_active: true };
+      }
       return jsonResponse(
         { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active },
         200,
@@ -37,13 +49,26 @@ Deno.serve(async (req) => {
       // Zid storefronts may pass either the store UUID or the numeric store_id
       // (the only id exposed via {{store.id}} in Zid theme templates).
       // Prefer the active row so seed/test rows don't shadow real OAuth connections.
-      const { data } = await supabase
-        .from("zid_connections")
-        .select("tenant_id, is_active")
-        .or(`store_uuid.eq.${externalId},store_id.eq.${externalId}`)
-        .order("is_active", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      let data: { tenant_id: string | null; is_active: boolean | null } | null = null;
+      if (externalId && externalId !== "default") {
+        const res = await supabase
+          .from("zid_connections")
+          .select("tenant_id, is_active")
+          .or(`store_uuid.eq.${externalId},store_id.eq.${externalId}`)
+          .order("is_active", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        data = res.data as typeof data;
+      }
+      // Domain fallback — works even when {{store.id}}/{{store.uuid}} didn't render.
+      if ((!data || !data.tenant_id) && domain) {
+        const res = await supabase
+          .from("settings_workspace")
+          .select("id")
+          .ilike("domain", domain)
+          .maybeSingle();
+        if (res.data?.id) data = { tenant_id: res.data.id, is_active: true };
+      }
       return jsonResponse(
         { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active },
         200,
