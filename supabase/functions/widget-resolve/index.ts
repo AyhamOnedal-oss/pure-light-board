@@ -49,11 +49,16 @@ Deno.serve(async (req) => {
       // Zid storefronts may pass either the store UUID or the numeric store_id
       // (the only id exposed via {{store.id}} in Zid theme templates).
       // Prefer the active row so seed/test rows don't shadow real OAuth connections.
-      let data: { tenant_id: string | null; is_active: boolean | null } | null = null;
+      let data: {
+        tenant_id: string | null;
+        is_active: boolean | null;
+        store_id?: string | null;
+        store_uuid?: string | null;
+      } | null = null;
       if (externalId && externalId !== "default") {
         const res = await supabase
           .from("zid_connections")
-          .select("tenant_id, is_active")
+          .select("tenant_id, is_active, store_id, store_uuid")
           .or(`store_uuid.eq.${externalId},store_id.eq.${externalId}`)
           .order("is_active", { ascending: false })
           .limit(1)
@@ -64,13 +69,31 @@ Deno.serve(async (req) => {
       if ((!data || !data.tenant_id) && domain) {
         const res = await supabase
           .from("settings_workspace")
-          .select("id")
+          .select("id, zid_store_uuid")
           .ilike("domain", domain)
           .maybeSingle();
-        if (res.data?.id) data = { tenant_id: res.data.id, is_active: true };
+        if (res.data?.id) {
+          let sid: string | null = null;
+          let suid: string | null = res.data.zid_store_uuid ?? null;
+          if (suid) {
+            const z = await supabase
+              .from("zid_connections")
+              .select("store_id, store_uuid")
+              .eq("store_uuid", suid)
+              .maybeSingle();
+            sid = z.data?.store_id ?? null;
+            suid = z.data?.store_uuid ?? suid;
+          }
+          data = { tenant_id: res.data.id, is_active: true, store_id: sid, store_uuid: suid };
+        }
       }
       return jsonResponse(
-        { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active },
+        {
+          tenant_id: data?.tenant_id ?? null,
+          is_active: !!data?.is_active,
+          store_id: data?.store_id ?? null,
+          store_uuid: data?.store_uuid ?? null,
+        },
         200,
         { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" },
       );

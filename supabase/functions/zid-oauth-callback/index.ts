@@ -142,6 +142,39 @@ Deno.serve(async (req) => {
       return null;
     }
 
+    // Recursively find a numeric/short ID under candidate keys, ignoring UUIDs.
+    // Zid theme `{{store.id}}` is the numeric merchant id; some profile endpoints
+    // expose it as `id`, `store_id`, `merchant_id`, etc. under varying paths.
+    function findFirstNumericId(obj: unknown, keys: string[]): string | null {
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      function pick(v: unknown): string | null {
+        if (v == null) return null;
+        if (typeof v === "number" && Number.isFinite(v)) return String(v);
+        if (typeof v === "string") {
+          const s = v.trim();
+          if (!s || UUID_RE.test(s)) return null;
+          if (/^\d{1,20}$/.test(s)) return s;
+        }
+        return null;
+      }
+      function walk(o: unknown): string | null {
+        if (!o || typeof o !== "object") return null;
+        const r = o as Record<string, unknown>;
+        for (const k of Object.keys(r)) {
+          if (keys.includes(k)) {
+            const got = pick(r[k]);
+            if (got) return got;
+          }
+        }
+        for (const k of Object.keys(r)) {
+          const found = walk(r[k]);
+          if (found) return found;
+        }
+        return null;
+      }
+      return walk(obj);
+    }
+
     async function tryEndpoint(path: string) {
       const r = await fetch(`https://api.zid.sa${path}`, {
         headers: {
@@ -194,7 +227,14 @@ Deno.serve(async (req) => {
             b?.store?.id ??
             null;
           if (rawId !== null && rawId !== undefined && String(rawId).trim() !== "") {
-            storeId = String(rawId);
+            const s = String(rawId).trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) {
+              storeId = s;
+            }
+          }
+          if (!storeId) {
+            const found = findFirstNumericId(b, ["id", "store_id", "merchant_id", "store_numeric_id"]);
+            if (found) storeId = found;
           }
           storeName =
             b?.user?.store?.name ??
