@@ -1,37 +1,53 @@
-I found the actual drop point:
+# Widget v4.7.3 — `store.id` always populated
 
-- `widget-loader` does read `data-store-id`, resolves the tenant, and passes it into the iframe URL as `store_id`.
-- But `chat-ai` builds the n8n payload using only `zid_connections.store_id` for `store.id`.
-- Your current DB row has `zid_connections.store_id = NULL` and `store_uuid = cb2b687a-...`, so n8n receives `store.id: null` even if the widget request included the rendered Zid `{{store.id}}`.
+## Root cause
 
-Plan:
+Zid Liquid `{{store.id}}` renders as the **UUID**. v4.7.2 puts the UUID into `STORE_ID` and posts it as `store_id`. The (already-fixed) `chat-ai` backend re-classifies that as `store_uuid`, leaving `store.id = null` in the n8n payload until OAuth backfills `zid_connections.store_id`. v4.7.3 makes the widget itself send `store_id` and `store_uuid` separately so n8n always has the correct UUID under `store.uuid` and can resolve a numeric id when present.
 
-1. Update `widget-loader` to make script attribute parsing more robust:
-   - Prefer `document.currentScript`.
-   - Then scan widget script tags from newest to oldest.
-   - Keep separate `store_id` and `store_uuid` fields instead of collapsing everything into one `external_id`.
-   - Pass both `store_id` and `store_uuid` into `/widget/chat` when available.
+## Changes
 
-2. Update `chat-ai` so n8n receives the storefront-provided ID as a fallback:
-   - For Zid, set `store.id` to `zid_connections.store_id` if present, otherwise use the incoming `store_id` when it is not a UUID.
-   - Set `store.uuid` to `zid_connections.store_uuid` if present, otherwise use the incoming `store_id` when it is a UUID.
-   - This fixes your exact case where the database row has only `store_uuid` but the widget request can carry the numeric `data-store-id`.
+### 1. `/mnt/documents/widget-4.7.3.js` (and overwrite `widget.js`)
 
-3. Keep database connection lookup as the preferred source:
-   - If OAuth later populates `zid_connections.store_id`, that value remains authoritative.
-   - If it is missing, the widget snippet value still reaches n8n.
+Based on v4.7.2 with surgical edits:
 
-4. Add temporary-safe logging in `chat-ai` only for non-secret identifiers if needed:
-   - Log platform, tenant_id, incoming store_id, DB store_id, DB store_uuid.
-   - This will make it easy to confirm in Edge Function logs that the rendered Zid snippet value arrived.
+- Header comment + console logs + `__FUQAH_WIDGET_CONFIG__.version` → `4.7.3`.
+- New `isUuid(v)` helper at top scope.
+- `detectStoreId(platform)` returns `{ store_id, store_uuid }`:
+  - Read `data-store-id` and (new) `data-store-uuid` from the script tag.
+  - If `data-store-id` matches UUID regex → assign to `store_uuid`, leave `store_id` null.
+  - Skip unrendered `{{...}}` placeholders.
+  - Salla branch unchanged (numeric).
+  - Zid branch: prefer `window.zid.store_id` (numeric) + `window.zid.store_uuid`; meta tags `zid-store-id` / `store-uuid` classified by UUID test; new `meta[name="zid-merchant-id"]` accepted as numeric.
+  - URL fallback reads both `store_id` and `store_uuid`.
+- Add module-level `var STORE_UUID = ctx.store_uuid;` alongside `STORE_ID`.
+- All outbound requests include both fields:
+  - `restCreateTicket` → `widget-events` body
+  - `bubble.click` `widget-events` body (line ~1902)
+  - `chat-ai` body (line ~2213)
+- `__FUQAH_WIDGET_CONFIG__` exposes `storeUuid` too.
+- Boot log prints `store=<id|null> uuid=<uuid|null>`.
 
-Expected n8n result after implementation:
+### 2. In-repo: `supabase/functions/widget-loader/index.ts`
 
-```json
-"store": {
-  "id": "<rendered Zid numeric store id>",
-  "uuid": "cb2b687a-7d88-4ecf-8027-806782ac5cbe",
-  "merchant_id": null,
-  "platform": "zid"
-}
-```
+Already correct (splits id/uuid, sends both to iframe URL, exposes `__FUQAH_STORE_CTX.store_uuid`). No change.
+
+### 3. In-repo: `supabase/functions/chat-ai/index.ts`
+
+Already correct (UUID-aware fallback, logs `resolved_id`/`resolved_uuid`, sends `store.uuid` to n8n). No change.
+
+### 4. Artifacts
+
+- `/mnt/documents/widget-4.7.3.js` (versioned copy for Hostinger)
+- `/mnt/documents/widget.js` (overwritten with 4.7.3)
+- `/mnt/documents/widget-v4.7.3-notes.md` (release notes — what changed, how to verify in n8n payload, no merchant action needed)
+- Append entry to `/mnt/documents/widget.changelog.md`
+
+## How to verify after deploy
+
+1. Hard-refresh a Zid storefront with the snippet.
+2. Console shows `Widget v4.7.3 ready ✓ store=<numeric|null> uuid=<uuid>`.
+3. Send a chat message → n8n payload now contains `store.uuid: "<uuid>"`; `store.id` will be the numeric id if `zid_connections.store_id` is populated, otherwise still null until OAuth completes (this is by design).
+
+## Confidence
+
+Backend already accepts and forwards both fields, so this widget-only change is safe — no migration, no edge function redeploy required.
