@@ -42,6 +42,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const { platform, store_id, store_uuid, visitor_id, message, history } = body;
+    const domain: string | null = body.domain ?? null;
+    const visitor = body.visitor && typeof body.visitor === "object" ? body.visitor : null;
     let conversation_id: string | null = body.conversation_id ?? null;
 
     if (!message || typeof message !== "string") {
@@ -52,6 +54,7 @@ Deno.serve(async (req) => {
       platform,
       store_id,
       tenant_id: body.tenant_id,
+      domain,
     });
     if (!tenant_id || !is_active) {
       return jsonResponse({ error: "tenant_not_found" }, 404);
@@ -215,6 +218,14 @@ Deno.serve(async (req) => {
           domain: workspace?.domain,
           platform: workspace?.platform,
         },
+        customer: visitor
+          ? {
+              id: visitor.id ?? null,
+              name: visitor.name ?? null,
+              email: visitor.email ?? null,
+              mobile: visitor.mobile ?? null,
+            }
+          : null,
         ai: {
           mode: training?.mode,
           prompt: training?.mode === "file" ? null : (training?.prompt ?? null),
