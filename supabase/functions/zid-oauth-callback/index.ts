@@ -227,7 +227,14 @@ Deno.serve(async (req) => {
             b?.store?.id ??
             null;
           if (rawId !== null && rawId !== undefined && String(rawId).trim() !== "") {
-            storeId = String(rawId);
+            const s = String(rawId).trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) {
+              storeId = s;
+            }
+          }
+          if (!storeId) {
+            const found = findFirstNumericId(b, ["id", "store_id", "merchant_id", "store_numeric_id"]);
+            if (found) storeId = found;
           }
           storeName =
             b?.user?.store?.name ??
