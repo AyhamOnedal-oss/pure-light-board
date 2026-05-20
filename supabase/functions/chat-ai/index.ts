@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { platform, store_id, visitor_id, message, history } = body;
+    const { platform, store_id, store_uuid, visitor_id, message, history } = body;
     let conversation_id: string | null = body.conversation_id ?? null;
 
     if (!message || typeof message !== "string") {
@@ -154,6 +154,31 @@ Deno.serve(async (req) => {
         .maybeSingle();
       storePlatformId = zc?.store_id ?? null;
       storePlatformUuid = zc?.store_uuid ?? null;
+      // Fallback to the value rendered by the storefront snippet
+      // ({{store.id}} / {{store.uuid}}) when the DB row is missing it.
+      const UUID_RE2 =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const incomingSid = store_id != null ? String(store_id).trim() : "";
+      const incomingSuid = store_uuid != null ? String(store_uuid).trim() : "";
+      if (!storePlatformId && incomingSid && !UUID_RE2.test(incomingSid)) {
+        storePlatformId = incomingSid;
+      }
+      if (!storePlatformUuid) {
+        if (incomingSuid && UUID_RE2.test(incomingSuid)) {
+          storePlatformUuid = incomingSuid;
+        } else if (incomingSid && UUID_RE2.test(incomingSid)) {
+          storePlatformUuid = incomingSid;
+        }
+      }
+      console.log("chat-ai zid store ids", {
+        tenant_id,
+        db_store_id: zc?.store_id ?? null,
+        db_store_uuid: zc?.store_uuid ?? null,
+        incoming_store_id: incomingSid || null,
+        incoming_store_uuid: incomingSuid || null,
+        resolved_id: storePlatformId,
+        resolved_uuid: storePlatformUuid,
+      });
     } else if (resolvedPlatform === "salla") {
       const { data: sc } = await supabase
         .from("salla_connections")
@@ -163,6 +188,9 @@ Deno.serve(async (req) => {
         .maybeSingle();
       storePlatformId = sc?.store_id ?? null;
       storeMerchantId = sc?.merchant_id ?? null;
+      if (!storePlatformId && store_id != null) {
+        storePlatformId = String(store_id);
+      }
     }
 
     if (!N8N_WEBHOOK_URL) {

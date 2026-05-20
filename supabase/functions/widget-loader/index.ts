@@ -22,36 +22,47 @@ const LOADER_JS = `
     // Highest priority: data-* attributes on the loader <script> tag itself.
     // Merchant snippet sets data-platform="zid" data-store-id="{{store.id}}".
     try {
-      var scripts = document.querySelectorAll('script[src*="widget.js"], script[src*="widget-loader"]');
-      for (var i = 0; i < scripts.length; i++) {
-        var s = scripts[i];
+      var candidates = [];
+      if (document.currentScript) candidates.push(document.currentScript);
+      var nodeList = document.querySelectorAll('script[src*="widget.js"], script[src*="widget-loader"]');
+      for (var i = nodeList.length - 1; i >= 0; i--) candidates.push(nodeList[i]);
+      for (var j = 0; j < candidates.length; j++) {
+        var s = candidates[j];
+        if (!s || !s.getAttribute) continue;
         var plat = s.getAttribute("data-platform");
-        var sid = s.getAttribute("data-store-id");
-        var suid = s.getAttribute("data-store-uuid");
+        var sidRaw = s.getAttribute("data-store-id");
+        var suidRaw = s.getAttribute("data-store-uuid");
+        var sid = sidRaw && sidRaw.indexOf("{{") === -1 ? String(sidRaw).trim() : "";
+        var suid = suidRaw && suidRaw.indexOf("{{") === -1 ? String(suidRaw).trim() : "";
         if (plat && (sid || suid)) {
-          return { platform: plat, external_id: String(sid || suid) };
+          return { platform: plat, store_id: sid || null, store_uuid: suid || null, external_id: sid || suid };
         }
       }
     } catch (e) {}
     try {
       if (window.salla && window.salla.config && typeof window.salla.config.get === "function") {
         var sid = window.salla.config.get("store.id");
-        if (sid) return { platform: "salla", external_id: String(sid) };
+        if (sid) return { platform: "salla", store_id: String(sid), store_uuid: null, external_id: String(sid) };
       }
       if (window.Salla && window.Salla.config && window.Salla.config.store) {
-        return { platform: "salla", external_id: String(window.Salla.config.store.id) };
+        var sId = String(window.Salla.config.store.id);
+        return { platform: "salla", store_id: sId, store_uuid: null, external_id: sId };
       }
     } catch (e) {}
     try {
       var meta = document.querySelector('meta[name="zid-store-id"], meta[name="store-uuid"]');
-      if (meta && meta.content) return { platform: "zid", external_id: meta.content };
+      if (meta && meta.content) {
+        var mv = String(meta.content);
+        var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mv);
+        return { platform: "zid", store_id: isUuid ? null : mv, store_uuid: isUuid ? mv : null, external_id: mv };
+      }
       if (window.zid) {
-        if (window.zid.store_id) return { platform: "zid", external_id: String(window.zid.store_id) };
-        if (window.zid.store_uuid) return { platform: "zid", external_id: window.zid.store_uuid };
+        if (window.zid.store_id) return { platform: "zid", store_id: String(window.zid.store_id), store_uuid: window.zid.store_uuid ? String(window.zid.store_uuid) : null, external_id: String(window.zid.store_id) };
+        if (window.zid.store_uuid) return { platform: "zid", store_id: null, store_uuid: String(window.zid.store_uuid), external_id: String(window.zid.store_uuid) };
       }
       // Fuqah snippet sets these from Zid theme tokens {{store.id}} / {{store.uuid}}
-      if (window.__FUQAH_ZID_STORE_ID) return { platform: "zid", external_id: String(window.__FUQAH_ZID_STORE_ID) };
-      if (window.__FUQAH_ZID_STORE_UUID) return { platform: "zid", external_id: String(window.__FUQAH_ZID_STORE_UUID) };
+      if (window.__FUQAH_ZID_STORE_ID) return { platform: "zid", store_id: String(window.__FUQAH_ZID_STORE_ID), store_uuid: window.__FUQAH_ZID_STORE_UUID ? String(window.__FUQAH_ZID_STORE_UUID) : null, external_id: String(window.__FUQAH_ZID_STORE_ID) };
+      if (window.__FUQAH_ZID_STORE_UUID) return { platform: "zid", store_id: null, store_uuid: String(window.__FUQAH_ZID_STORE_UUID), external_id: String(window.__FUQAH_ZID_STORE_UUID) };
     } catch (e) {}
     return null;
   }
@@ -149,10 +160,12 @@ const LOADER_JS = `
     iframe.id = "fuqah-widget-iframe";
     iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
     iframe.setAttribute("title", "Chat");
-    iframe.src =
-      APP_BASE_URL + "/widget/chat?platform=" + encodeURIComponent(ctx.platform) +
-      "&store_id=" + encodeURIComponent(ctx.external_id) +
+    var qs =
+      "platform=" + encodeURIComponent(ctx.platform) +
+      "&store_id=" + encodeURIComponent(ctx.store_id || ctx.external_id) +
       "&tenant_id=" + encodeURIComponent(tenantId);
+    if (ctx.store_uuid) qs += "&store_uuid=" + encodeURIComponent(ctx.store_uuid);
+    iframe.src = APP_BASE_URL + "/widget/chat?" + qs;
     document.body.appendChild(iframe);
 
     var open = false;
@@ -177,7 +190,11 @@ const LOADER_JS = `
 
     // Expose store context globally so the bundled widget can read it without a round-trip.
     try {
-      window.__FUQAH_STORE_CTX = { platform: ctx.platform, store_id: ctx.external_id };
+      window.__FUQAH_STORE_CTX = {
+        platform: ctx.platform,
+        store_id: ctx.store_id || ctx.external_id,
+        store_uuid: ctx.store_uuid || null,
+      };
     } catch (e) {}
 
     api("/widget-resolve?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id))
