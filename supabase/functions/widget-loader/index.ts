@@ -160,10 +160,12 @@ const LOADER_JS = `
     iframe.id = "fuqah-widget-iframe";
     iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
     iframe.setAttribute("title", "Chat");
-    iframe.src =
-      APP_BASE_URL + "/widget/chat?platform=" + encodeURIComponent(ctx.platform) +
-      "&store_id=" + encodeURIComponent(ctx.external_id) +
+    var qs =
+      "platform=" + encodeURIComponent(ctx.platform) +
+      "&store_id=" + encodeURIComponent(ctx.store_id || ctx.external_id) +
       "&tenant_id=" + encodeURIComponent(tenantId);
+    if (ctx.store_uuid) qs += "&store_uuid=" + encodeURIComponent(ctx.store_uuid);
+    iframe.src = APP_BASE_URL + "/widget/chat?" + qs;
     document.body.appendChild(iframe);
 
     var open = false;
@@ -188,7 +190,11 @@ const LOADER_JS = `
 
     // Expose store context globally so the bundled widget can read it without a round-trip.
     try {
-      window.__FUQAH_STORE_CTX = { platform: ctx.platform, store_id: ctx.external_id };
+      window.__FUQAH_STORE_CTX = {
+        platform: ctx.platform,
+        store_id: ctx.store_id || ctx.external_id,
+        store_uuid: ctx.store_uuid || null,
+      };
     } catch (e) {}
 
     api("/widget-resolve?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id))
