@@ -8,6 +8,7 @@ export interface ResolveInput {
   platform?: string | null;
   store_id?: string | null;
   tenant_id?: string | null;
+  domain?: string | null;
 }
 
 export interface ResolveResult {
@@ -36,7 +37,20 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
     return { tenant_id: data?.id ?? null, is_active: !!data };
   }
 
-  if (!input.platform || !input.store_id) return { tenant_id: null, is_active: false };
+  const domain = (input.domain || "").trim().toLowerCase().replace(/^www\./, "");
+
+  if (!input.platform || !input.store_id) {
+    // Domain-only fallback path.
+    if (domain) {
+      const { data } = await client()
+        .from("settings_workspace")
+        .select("id")
+        .ilike("domain", domain)
+        .maybeSingle();
+      if (data?.id) return { tenant_id: data.id, is_active: true };
+    }
+    return { tenant_id: null, is_active: false };
+  }
 
   if (input.platform === "salla") {
     const merchantId = Number(input.store_id);
@@ -46,7 +60,7 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
       .select("tenant_id, is_active")
       .eq("merchant_id", merchantId)
       .maybeSingle();
-    return { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active };
+    if (data?.tenant_id) return { tenant_id: data.tenant_id, is_active: !!data.is_active };
   }
 
   if (input.platform === "zid") {
@@ -58,7 +72,17 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
       .select("tenant_id, is_active")
       .or(`store_uuid.eq.${sid},store_id.eq.${sid}`)
       .maybeSingle();
-    return { tenant_id: data?.tenant_id ?? null, is_active: !!data?.is_active };
+    if (data?.tenant_id) return { tenant_id: data.tenant_id, is_active: !!data.is_active };
+  }
+
+  // Final domain fallback for either platform.
+  if (domain) {
+    const { data } = await client()
+      .from("settings_workspace")
+      .select("id")
+      .ilike("domain", domain)
+      .maybeSingle();
+    if (data?.id) return { tenant_id: data.id, is_active: true };
   }
 
   return { tenant_id: null, is_active: false };
@@ -69,5 +93,6 @@ export function readContextFromUrl(url: URL): ResolveInput {
     platform: url.searchParams.get("platform"),
     store_id: url.searchParams.get("store_id"),
     tenant_id: url.searchParams.get("tenant_id"),
+    domain: url.searchParams.get("domain"),
   };
 }
