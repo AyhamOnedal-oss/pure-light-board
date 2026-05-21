@@ -88,6 +88,13 @@ export function LoginPage() {
 
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
+    // Never auto-redirect while the install-success screen is showing — the
+    // merchant must explicitly continue and re-authenticate. Also skip when
+    // an oauth_result is present in the URL (defense in depth in case the
+    // forced sign-out in RootEntry hasn't completed yet).
+    const hasOAuthResult = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('oauth_result') !== null;
+    if (showInstallSuccess || hasOAuthResult) return;
     if (!authLoading && !roleLoading && session) {
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
@@ -98,7 +105,7 @@ export function LoginPage() {
             : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,7 +233,16 @@ export function LoginPage() {
                 )}
               </p>
               <button
-                onClick={() => setShowInstallSuccess(false)}
+                onClick={() => {
+                  setShowInstallSuccess(false);
+                  // Strip oauth_result params so a successful sign-in can
+                  // navigate to /dashboard normally.
+                  if (typeof window !== 'undefined') {
+                    const url = new URL(window.location.href);
+                    ['oauth_result', 'from', 'email', 'status'].forEach(k => url.searchParams.delete(k));
+                    window.history.replaceState({}, '', url.pathname + (url.search || ''));
+                  }
+                }}
                 className="w-full py-3 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[15px] mb-3"
                 style={{ fontWeight: 600 }}
               >

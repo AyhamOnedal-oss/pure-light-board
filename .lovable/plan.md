@@ -1,47 +1,48 @@
-## Finding
+## The actual security/UX bug
 
-The widget is not failing to read `store.id`; it is doing exactly what the current data allows:
+When a merchant lands back on the app from the Zid OAuth install (`/?oauth_result=install_success&email=NEW@store...`), the SPA does NOT clear any existing browser session. If a previous account (e.g. the Test 12 owner `aj1vxofkqc@…`) was signed in on that browser, the LoginPage's "already signed in → /dashboard" effect fires instantly and drops the visitor into the previous tenant's workspace without entering any credentials.
 
-- The storefront script sees `storeUuid=cb2b687a-7d88-4ecf-8027-806782ac5cbe`.
-- The matching `public.zid_connections` row has `store_id = null` and `store_url = null`.
-- Recent OAuth/profile logs do not show a successful profile payload containing a numeric `store.id` for this store.
+Concretely, in `src/app/components/LoginPage.tsx` lines 90-101:
 
-So the loader can only print `storeId=null` unless Zid Liquid renders `{{store.id}}` into the snippet or the backend stores the numeric ID after OAuth/API lookup.
+```ts
+useEffect(() => {
+  if (!authLoading && !roleLoading && session) {
+    navigate(isSuperAdmin ? '/admin' : '/dashboard', { replace: true });
+  }
+}, [...]);
+```
 
-## Plan
+This runs even when `?oauth_result=install_success` is in the URL, so the "check your email" screen is bypassed and the visitor lands in whatever tenant the stale session belongs to.
 
-1. **Fix the snippet guidance**
-   - Keep the merchant snippet as:
-     ```html
-     <script src="https://widget.fuqah.net/widget.js?v=20"
-             charset="UTF-8"
-             data-platform="zid"
-             data-store-id="{{store.id}}"
-             data-store-uuid="{{store.uuid}}"
-             async></script>
-     ```
-   - Update repo docs/onboarding copy so both values are always requested.
+There is no actual cross-tenant data leak — RLS still scopes data to the signed-in user — but the experience looks like one, and it can let a previous user on a shared device reach a workspace they no longer should access without re-authenticating.
 
-2. **Make the widget log more diagnostic, not misleading**
-   - If `data-store-id` is absent/unrendered but UUID is present, log that numeric `store.id` was not provided by the snippet instead of implying a loader bug.
-   - Continue sending `store_uuid` and `domain` so tenant resolution still works.
+## Fix plan
 
-3. **Backfill numeric `store_id` server-side where possible**
-   - Improve `zid-oauth-callback` to search more profile response paths for numeric ID fields.
-   - Add a small helper in the callback that recognizes likely fields such as `store.id`, `merchant.id`, `store_id`, and `merchant_id` while avoiding UUID values.
-   - Save the numeric ID into `zid_connections.store_id` when found.
+1. **Force sign-out on install landing**
+   - In `src/app/routes.tsx` `RootEntry` (and `LoginPage`), if `oauth_result=install_success` is present in the URL, call `supabase.auth.signOut()` once before rendering, then clean the URL’s session-y params. This guarantees a clean slate for the new install.
 
-4. **Expose resolved DB identifiers back to the widget**
-   - Update `widget-resolve` to return `store_id` and `store_uuid` from `zid_connections` along with `tenant_id`.
-   - Update the generated widget so after `/widget-resolve`, if `STORE_ID` is still null but the backend returns a numeric `store_id`, it fills `STORE_ID` before chat/events.
+2. **Stop auto-redirect while install-success screen is showing**
+   - In `LoginPage.tsx`, gate the "already signed in" auto-navigate effect on `!showInstallSuccess`. Even if a session re-appears mid-render, the merchant must explicitly hit "Continue to Sign In" and enter their new credentials.
 
-5. **Generate v4.7.5 artifacts**
-   - Produce `/mnt/documents/widget-4.7.5.js` and refresh `/mnt/documents/widget.js`.
-   - Add a short `/mnt/documents/widget-v4.7.5-notes.md` explaining that UUID/domain still work, while numeric ID depends on rendered Liquid or OAuth/API backfill.
+3. **Reset session-derived state**
+   - After the forced sign-out, also clear `tenantId` and any cached values that the previous user could leak via UI flicker. The existing `signOut()` in `AppContext` already does this; we just need to make sure the install flow uses it.
 
-## Important note
+4. **Tighten the OAuth callback redirect**
+   - Keep the `email` query param (used only as a UI prefill, not a credential).
+   - Do not add tokens, passwords, or `access_token` fragments to the redirect URL (already the case — confirm and document).
 
-This will make the widget robust, but for the current store the numeric ID will remain null until one of these happens:
+5. **Optional hardening (recommend, not implement unless approved)**
+   - Add a short-lived, single-use `install_token` issued by `zid-oauth-callback`, validated by a small `claim-install` edge function, so the install-success screen can prove it came from a real OAuth round-trip. This blocks anyone from crafting `/?oauth_result=install_success&email=victim@…` to phish the "check your email" screen.
 
-- Zid actually renders `data-store-id="{{store.id}}"` in the snippet context, or
-- a successful Zid OAuth/API response includes the numeric ID so we can backfill it into `zid_connections.store_id`.
+## Files to touch
+
+- `src/app/routes.tsx` — `RootEntry` calls `supabase.auth.signOut()` when `oauth_result` is present.
+- `src/app/components/LoginPage.tsx` — gate the auto-redirect effect on `!showInstallSuccess`, ensure the install screen always wins when an `oauth_result` param is present.
+- `src/app/context/AppContext.tsx` — expose a small `forceSignOut()` helper (or reuse `signOut()`).
+
+## Validation
+
+- Sign in as User A on the published origin → install a new Zid store whose email is User B → confirm you land on the "Check your email" screen for User B and **not** in User A's `/dashboard`.
+- Sign out completely → repeat the install flow → confirm same screen, no auto-redirect.
+- Sign in as User A normally (no `oauth_result`) → confirm normal redirect to `/dashboard` is unchanged.
+- Super admin login → confirm redirect to `/admin` is unchanged.
