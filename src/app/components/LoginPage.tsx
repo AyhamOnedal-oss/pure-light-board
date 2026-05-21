@@ -88,6 +88,13 @@ export function LoginPage() {
 
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
+    // Never auto-redirect while the install-success screen is showing — the
+    // merchant must explicitly continue and re-authenticate. Also skip when
+    // an oauth_result is present in the URL (defense in depth in case the
+    // forced sign-out in RootEntry hasn't completed yet).
+    const hasOAuthResult = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('oauth_result') !== null;
+    if (showInstallSuccess || hasOAuthResult) return;
     if (!authLoading && !roleLoading && session) {
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
@@ -98,7 +105,7 @@ export function LoginPage() {
             : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
