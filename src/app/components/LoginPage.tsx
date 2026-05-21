@@ -233,7 +233,16 @@ export function LoginPage() {
                 )}
               </p>
               <button
-                onClick={() => setShowInstallSuccess(false)}
+                onClick={() => {
+                  setShowInstallSuccess(false);
+                  // Strip oauth_result params so a successful sign-in can
+                  // navigate to /dashboard normally.
+                  if (typeof window !== 'undefined') {
+                    const url = new URL(window.location.href);
+                    ['oauth_result', 'from', 'email', 'status'].forEach(k => url.searchParams.delete(k));
+                    window.history.replaceState({}, '', url.pathname + (url.search || ''));
+                  }
+                }}
                 className="w-full py-3 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[15px] mb-3"
                 style={{ fontWeight: 600 }}
               >
