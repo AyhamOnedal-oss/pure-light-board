@@ -24,11 +24,22 @@ export interface ChatHistoryEntry {
   text: string;
 }
 
+export interface ProductCard {
+  type: "product_card";
+  id: string | number;
+  name: string;
+  price?: string | null;
+  sale_price?: string | null;
+  image_url?: string | null;
+  url?: string | null;
+}
+
 export interface SendMessageResult {
   reply: string;
   rateLimited?: boolean;
   error?: string;
   conversationId?: string;
+  attachments?: ProductCard[];
 }
 
 export async function sendMessage(
@@ -64,7 +75,11 @@ export async function sendMessage(
       return { reply: "", error: `http_${res.status}` };
     }
     const data = await res.json();
-    return { reply: data.reply ?? "", conversationId: data.conversation_id };
+    return {
+      reply: data.reply ?? "",
+      conversationId: data.conversation_id,
+      attachments: Array.isArray(data.attachments) ? data.attachments : [],
+    };
   } catch (err) {
     console.log("[FuqahChat] chat-ai threw:", err);
     return { reply: "", error: "network" };
