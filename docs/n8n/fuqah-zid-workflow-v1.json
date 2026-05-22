@@ -1,0 +1,726 @@
+{
+  "name": "Fuqah × Zid (v1 static)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fuqah-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e402f4af-5ddd-4155-844d-cede434bb9de",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ],
+      "webhookId": "bed1d1b0-0955-4d2f-aa67-34c80e6f1c48"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "754d2a67-e261-42a2-b17d-f3ce9e80ed49",
+              "name": "zid_access_token",
+              "value": "REPLACE_WITH_TEST_STORE_ACCESS_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "1dca534b-87b9-4c6a-97b6-5474806973d1",
+              "name": "zid_authorization",
+              "value": "Bearer REPLACE_WITH_TEST_STORE_AUTHORIZATION",
+              "type": "string"
+            },
+            {
+              "id": "bb266b69-838a-49b2-8a4a-94c05d687bd8",
+              "name": "store_currency",
+              "value": "SAR",
+              "type": "string"
+            },
+            {
+              "id": "cda43027-5ced-4f15-b1df-5b18ade3784b",
+              "name": "store_locale",
+              "value": "ar",
+              "type": "string"
+            },
+            {
+              "id": "b8a6283f-d47a-4b91-804f-f284c1206011",
+              "name": "tenant_id",
+              "value": "={{ $json.tenant_id }}",
+              "type": "string"
+            },
+            {
+              "id": "6d744f80-6212-4345-a775-da02fad412a1",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "b13396f9-7e23-405c-91e3-9ddaf774a79d",
+              "name": "merchant_prompt",
+              "value": "={{ $json.ai && $json.ai.prompt ? $json.ai.prompt : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "ede71521-94e5-45a4-b150-64432860c78e",
+              "name": "store_name",
+              "value": "={{ $json.store && $json.store.name ? $json.store.name : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "3bd28877-7f50-4e0d-9974-1cccef11d46e",
+              "name": "store_domain",
+              "value": "={{ $json.store && $json.store.domain ? $json.store.domain : '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b736cb8f-ff83-44e5-bc98-ba95340b8b25",
+      "name": "Store Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message }}",
+        "options": {
+          "systemMessage": "={{ $json.merchant_prompt }}\n\n---\nYou are a storefront AI assistant for {{ $json.store_name }}. ALWAYS respond in Arabic.\nCurrency: {{ $json.store_currency }}. Store domain: {{ $json.store_domain }}.\n\nTOOL USE:\n- Use search_products to find products by query, category, or price range.\n- Use get_product for details about ONE specific product.\n- Use search_orders / get_order for order-status questions.\n- Use find_customer when a customer gives a phone number.\n- Use get_coupons_and_offers when asked about discounts.\n- Use get_shipping_destinations for shipping questions.\n\nPRODUCT RECOMMENDATIONS — CRITICAL:\nWhen you recommend, list, or show products, you MUST return JSON in this exact shape:\n{\n  \"reply\": \"<short Arabic message, 1-2 sentences>\",\n  \"attachments\": [\n    { \"type\": \"product_card\", \"id\": <product_id>, \"name\": \"<name_ar>\",\n      \"price\": \"<price with currency>\", \"sale_price\": \"<discounted price with currency or null>\",\n      \"image_url\": \"<https image url from Zid>\", \"url\": \"<product page url>\" }\n  ]\n}\nMaximum 3 cards per reply. Always include image_url and url. Pull both from the tool response.\n\nWhen you are NOT recommending products, return JSON with only \"reply\" (omit attachments).\nNEVER reply outside this JSON envelope."
+        }
+      },
+      "id": "b60c2004-84a9-4a22-8cea-67b5fab0b241",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        80,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "0eb565ff-c610-4ccd-b930-2dc7f1375318",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -40,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Store Context').item.json.tenant_id }}-{{ $json.conversation_id || 'anon' }}",
+        "contextWindowLength": 10
+      },
+      "id": "fefe929d-2351-43dc-bb11-dc73dc5f30e8",
+      "name": "Window Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        120,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Get the merchant's static store configuration: store name, VAT settings, payment methods, shipping methods, and inventory locations. Call once per conversation if needed.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/managers/store",
+        "sendQuery": false,
+        "queryParameters": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "c109ecf9-ac10-40a6-b164-6638121586e8",
+      "name": "get_store_info",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        280,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Search or list products in the store. Use to recommend products to the customer. Supports filtering by name (q), category_id, price_min, price_max. Returns up to 20 products with id, name, price, sale_price, image_url, url. Use these fields to build product_card attachments.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/products",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "valueProvider": "modelOptional",
+              "description": "Optional search query (Arabic or English)"
+            },
+            {
+              "name": "category_id",
+              "valueProvider": "modelOptional",
+              "description": "Optional category filter"
+            },
+            {
+              "name": "page_size",
+              "valueProvider": "modelOptional",
+              "description": "Default 20, max 50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "c007cef9-dc05-45f2-86e4-5eb2fab7ab97",
+      "name": "search_products",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Get full details for a single product by ID including stock, variants, and full description. Use after search_products when the customer asks about a specific item.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/products/{id}",
+        "sendQuery": false,
+        "queryParameters": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "id",
+              "valueProvider": "modelRequired",
+              "description": "The id to fetch",
+              "type": "string"
+            }
+          ]
+        },
+        "optimizeResponse": true
+      },
+      "id": "a87a5bf8-ec73-4e92-a2af-53efe8da981b",
+      "name": "get_product",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Search orders. Use when a customer asks about their order status. Filter by phone, email, or order_number.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/orders",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "valueProvider": "modelRequired",
+              "description": "Customer phone"
+            },
+            {
+              "name": "email",
+              "valueProvider": "modelOptional",
+              "description": "Customer email"
+            },
+            {
+              "name": "order_number",
+              "valueProvider": "modelOptional",
+              "description": "Order number"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "c9bc9c7d-a813-462b-9925-094556e8e6c4",
+      "name": "search_orders",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Get full order details by ID: status, tracking, items, totals.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/orders/{id}",
+        "sendQuery": false,
+        "queryParameters": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "id",
+              "valueProvider": "modelRequired",
+              "description": "The id to fetch",
+              "type": "string"
+            }
+          ]
+        },
+        "optimizeResponse": true
+      },
+      "id": "80384291-a342-4b7a-ac75-8a59866215d0",
+      "name": "get_order",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Look up a customer by phone number. Returns customer profile and recent orders.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/customers/search/phone",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "valueProvider": "modelRequired",
+              "description": "Customer phone number with country code"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "e139b8da-d660-4f4b-a180-f55b5e68cc39",
+      "name": "find_customer",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        280,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "List or fetch abandoned carts. Pass cart_id to get a specific one, otherwise lists recent.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/abandoned-carts",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "cart_id",
+              "valueProvider": "modelOptional",
+              "description": "Optional specific cart id"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "8c4d46f6-bba8-4dbd-850c-dc4ede0627cc",
+      "name": "get_abandoned_cart",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "List currently active coupons and bundle offers in the store.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/coupons",
+        "sendQuery": false,
+        "queryParameters": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "7c8e4b2a-277d-4bef-95ee-3c06d29070fd",
+      "name": "get_coupons_and_offers",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "List supported shipping countries, or cities within a given country_id.",
+        "method": "GET",
+        "url": "https://api.zid.sa/v1/countries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "country_id",
+              "valueProvider": "modelOptional",
+              "description": "Optional — pass to list cities of that country instead"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Access-Token",
+              "value": "={{ $('Store Context').item.json.zid_access_token }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Store Context').item.json.zid_authorization }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "placeholderDefinitions": {},
+        "optimizeResponse": true
+      },
+      "id": "14dbcac4-aaa5-4714-9cb6-718661ac0bed",
+      "name": "get_shipping_destinations",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => { try { const o = $json.output; return typeof o === 'string' ? JSON.parse(o) : o; } catch(e) { return { reply: String($json.output || '') }; } })() }}",
+        "options": {}
+      },
+      "id": "85098a69-d5ee-444f-87b8-b2ad50ac9880",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        380,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Store Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_store_info": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_products": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_product": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_orders": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_order": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find_customer": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_abandoned_cart": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_coupons_and_offers": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_shipping_destinations": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateId": "fuqah-zid-v1"
+  }
+}
