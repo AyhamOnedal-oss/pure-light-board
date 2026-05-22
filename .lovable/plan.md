@@ -1,108 +1,29 @@
-# n8n Zid Workflow v1 (Static) + Product Image Cards
+# Plan: ship product cards in real widget (4.7.5 → 4.7.6) + expose n8n workflow
 
-Goal: ship a working n8n workflow now using **hardcoded Zid token + store context** (one test store), with 9 grouped tools covering all 18 endpoints you listed. AI Agent can return **rich product cards with photos** that the widget renders as image bubbles. Token rotation, multi-tenant, and caching come later.
+## 1. Patch the production widget
+Read `/mnt/documents/widget-4.7.5.js`, locate the chat-response handler and AI-message render path. Add surgical changes:
 
----
+- After parsing the edge-function reply, also read `attachments` array of `{type:"product_card", id, name, price, sale_price, image_url, url}`.
+- After appending the AI text bubble, if `attachments` exist, render a horizontal-scroll row of product cards beneath it: image, name, price (with sale_price strikethrough when present), and a button **"عرض المنتج"** linking to `url` (opens in new tab).
+- RTL-friendly, uses existing widget styling conventions (inline styles or existing CSS classes — no new external stylesheet).
+- Cap render at 5 cards; silently ignore unknown attachment types.
+- Bump internal version constant to `4.7.6`.
 
-## Part 1 — n8n workflow structure
+Outputs:
+- `/mnt/documents/widget-4.7.6.js` (new)
+- `/mnt/documents/widget.js` mirrored to 4.7.6
+- `/mnt/documents/widget-v4.7.6-notes.md` short changelog
+- Append 4.7.6 entry to `/mnt/documents/widget.changelog.md`
 
-```text
-Webhook (POST /fuqah-chat)
-   │
-   ▼
-Set "Store Context"  ← hardcoded: zid_token, store_id, currency, locale
-   │
-   ▼
-AI Agent (system message = $json.ai.prompt + product-card protocol)
-   ├── Tool 1: get_store_info
-   ├── Tool 2: search_products
-   ├── Tool 3: get_product
-   ├── Tool 4: search_orders
-   ├── Tool 5: get_order
-   ├── Tool 6: find_customer
-   ├── Tool 7: get_abandoned_cart
-   ├── Tool 8: get_coupons_and_offers
-   └── Tool 9: get_shipping_destinations
-   │
-   ▼
-Respond to Webhook  →  { reply, attachments[] }
-```
+## 2. Expose n8n workflow in Files view
+Copy `docs/n8n/fuqah-zid-workflow-v1.json` → `/mnt/documents/fuqah-zid-workflow-v1.json` so it appears alongside the widget files.
 
-Each tool is an **HTTP Request Tool** node with:
-- URL: `https://api.zid.sa/v1/<endpoint>`
-- Header: `Access-Token: {{ $('Store Context').item.json.zid_token }}`
-- Header: `Authorization: Bearer {{ $('Store Context').item.json.manager_token }}`
-- English description (better function-calling accuracy)
-- Input schema declared so the LLM passes correct params
-- Internal pagination (loop until `next === null`, cap 100 results)
-- Response trimming via a Function node before returning to the agent
+## 3. QA
+- grep patched widget for `attachments` handling and `4.7.6` version string.
+- Confirm file-size delta is sane (a few KB larger, not truncated).
+- No preview test — standalone JS loaded by Zid, not by this Lovable app.
 
----
-
-## Part 2 — Product image cards (the "push photos" feature)
-
-The AI doesn't literally send images — it returns a **structured response** the widget renders as image bubbles. Two layers:
-
-### 2a. AI output protocol
-
-Add to the AI Agent system message:
-
-```
-When recommending products, ALWAYS respond with this JSON shape:
-{
-  "reply": "<short Arabic text>",
-  "attachments": [
-    {
-      "type": "product_card",
-      "id": "<zid product id>",
-      "name": "<name_ar>",
-      "price": "<formatted with currency>",
-      "sale_price": "<or null>",
-      "image_url": "<https from Zid>",
-      "url": "<product page url>"
-    }
-  ]
-}
-Maximum 3 cards per reply. Pull image_url from search_products / get_product responses.
-```
-
-### 2b. Widget rendering
-
-`widget/src/app/utils/chatApi.ts` already returns `{ reply }`. Extend it to also surface `attachments[]`, then render product cards as a new message variant alongside existing text/`AttachmentBubble` bubbles.
-
-New component: `widget/src/app/components/ProductCardBubble.tsx`
-- Image (square, rounded), name, price (with strike-through if sale), "View" button → opens `url` in new tab
-- Stack of up to 3 cards under the AI text reply
-- RTL-aware, themed via existing ThemeSettingsContext
-
-`chat-ai` edge function: pass through `attachments` from n8n response unchanged.
-
----
-
-## Part 3 — What I'll build in this loop
-
-1. **n8n workflow JSON** (importable file at `docs/n8n/fuqah-zid-workflow-v1.json`) with all 9 tools wired, hardcoded token placeholders, English descriptions, response-trimming Function nodes, product-card system prompt.
-2. **`docs/n8n/README.md`** — import steps, where to paste the test-store token, expected payload shape, how to test each tool.
-3. **Widget changes**:
-   - Extend `SendMessageResult` with `attachments?: ProductCard[]`
-   - New `ProductCardBubble.tsx` component
-   - Update `ChatMessage.tsx` to render product cards under AI replies
-   - Theming via existing tokens (no custom colors)
-4. **`chat-ai` edge function**: forward `attachments` field from n8n → widget.
-
-Out of scope for v1 (deferred):
-- Supabase product cache + cron sync
-- `get-zid-token` edge function for live token rotation
-- Multi-tenant resolution in n8n (currently 1 hardcoded store)
-
----
-
-## Technical notes
-
-- **Tool descriptions in English** — function-calling accuracy drops ~15% with Arabic-only descriptions in BPE-tokenized models. Field labels in responses stay Arabic so the LLM quotes them verbatim.
-- **Pagination hidden from LLM** — each tool's sub-workflow loops `page=1..N` internally until `next` is null or 100 items collected. The LLM only sees the merged result.
-- **Field trimming is mandatory** — raw Zid product = ~6KB; trimmed = ~400B. Without trimming, one `search_products` call burns ~30K tokens.
-- **Product cards use Zid's CDN image URLs directly** — no proxying, no Supabase storage. Lazy-loaded in the widget.
-- **Backwards compatible** — if n8n returns plain `{ reply }` with no `attachments`, widget behaves exactly as today.
-
-Confirm and I'll build it.
+## Out of scope
+- No edits to `widget/src/...` React tree (not what ships).
+- No Supabase product cache, token-fetch function, or multi-tenant resolution.
+- `supabase/functions/chat-ai/index.ts` already forwards `attachments` from prior turn — no change.
