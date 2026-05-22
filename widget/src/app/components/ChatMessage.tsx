@@ -14,6 +14,7 @@ import type { Theme } from '../types/theme';
 import { FileIcon, Download, CheckCircle2, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { ChatInlineTicketForm } from './ChatInlineTicketForm';
 import { MessageTextWithLinks } from './MessageTextWithLinks';
+import { ProductCardBubble } from './ProductCardBubble';
 
 interface ChatMessageProps {
   message: Message;
@@ -241,6 +242,15 @@ export function ChatMessage({ message, storeIcon, theme, onTicketFormSubmit, mai
               <MessageTextWithLinks text={message.text} style={{ margin: 0 }} />
             )}
           </div>
+          {message.products && message.products.length > 0 && (
+            <div style={{ width: '100%', maxWidth: 360 }}>
+              <ProductCardBubble
+                products={message.products}
+                mainColor={mainColor}
+                isDarkMode={isDarkMode}
+              />
+            </div>
+          )}
           <MessageFeedback messageId={message.id} mainColor={mainColor} isDarkMode={isDarkMode} feedback={message.feedback} onFeedbackChange={onFeedbackChange} />
         </div>
       </div>

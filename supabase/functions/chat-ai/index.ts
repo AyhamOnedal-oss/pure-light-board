@@ -244,6 +244,9 @@ Deno.serve(async (req) => {
     const reply: string =
       aiData.reply ?? aiData.message ?? aiData.text ?? aiData.output ?? "";
 
+    // Pass through structured attachments (product cards, etc.) from n8n.
+    const attachments = Array.isArray(aiData.attachments) ? aiData.attachments : [];
+
     // Best-effort persistence (don't fail the response if this errors).
     // Insert sequentially with a small offset on the AI row so the dashboard
     // never shows the reply before the question when ordering by created_at.
@@ -273,7 +276,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return jsonResponse({ reply, tenant_id, conversation_id });
+    return jsonResponse({ reply, attachments, tenant_id, conversation_id });
   } catch (e) {
     console.error("chat-ai error", e);
     return jsonResponse({ error: "server_error" }, 500);
