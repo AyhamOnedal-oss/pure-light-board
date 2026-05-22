@@ -53,6 +53,8 @@ export interface Message {
   ticketFormSubmitted?: boolean;
   /** Parent conversation ID — links this message to a conversation session */
   conversationId?: string;
+  /** Optional product cards (rendered under the text bubble for AI messages) */
+  products?: import('../utils/chatApi').ProductCard[];
 }
 
 type ScreenView = 'chat' | 'rating' | 'ticket-form' | 'ticket-created';
@@ -143,7 +145,7 @@ export function ChatWidget() {
       sender: m.sender,
       text: m.text,
     }));
-    const { reply, rateLimited, error } = await sendMessage(conversationId, text, history);
+    const { reply, rateLimited, error, attachments } = await sendMessage(conversationId, text, history);
     setIsTyping(false);
 
     let responseText = reply;
@@ -159,6 +161,7 @@ export function ChatWidget() {
       sender: 'store',
       timestamp: new Date(),
       conversationId,
+      products: (attachments ?? []).filter((a) => a?.type === 'product_card'),
     };
     setMessages(prev => [...prev, response]);
   };
