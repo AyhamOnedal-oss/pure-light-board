@@ -1,71 +1,29 @@
-# n8n workflow v2 — credential-driven Zid tools (final)
+## Goal
 
-Rewrite to `fuqah-zid-workflow-v2.json`. AI never sees IDs/tokens/pagination — Supabase provides them, each tool node hard-wires them.
+Switch the AI chat from n8n's **test** webhook to the **production** webhook:
 
-## Flow
+- From: `https://n8n.srv1196634.hstgr.cloud/webhook-test/get_conversation`
+- To:   `https://n8n.srv1196634.hstgr.cloud/webhook/get_conversation`
 
-```text
-Webhook (POST /fuqah-chat)
-   → Supabase: Get zid_connections row by tenant_id (n8n-nodes-base.supabase)
-   → IF: is_active === true AND connection_status === 'connected'
-        ├── false → Respond: { reply: "المتجر غير متصل حالياً", attachments: [] }
-        └── true  → Set "Store Context"
-                     → AI Agent (Tools Agent, gpt-4o-mini, JSON envelope)
-                          ├── Window Memory (key = tenant_id + conversation_id)
-                          ├── 12 Zid HTTP tools (creds + pagination pre-filled)
-                     → Respond to Webhook { reply, attachments[] }
-```
+## Findings
 
-## Store Context (Set node) — values
+The URL is **not** hardcoded anywhere in the repo. The only consumer is:
 
-Pulled from the Supabase row:
-- `store_id` ← `{{ $json.store_id }}`
-- `store_uuid` ← `{{ $json.store_uuid }}`
-- `authorization_token` ← raw JWT (used as `Authorization: Bearer …`)
-- `manager_token` ← encrypted token (used as `Access-Token: …`)
-- `currency` = `SAR`, `locale` = `ar`
+- `supabase/functions/chat-ai/index.ts` (line 13) — `const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL")`
 
-Plus from `$('Webhook').item.json.body`: `tenant_id`, `conversation_id`, `message`, `history`, `store.*`, `ai.prompt`.
+The widget (`widget/src/app/utils/chatApi.ts`) calls the `chat-ai` edge function, which then POSTs to n8n. So the widget bundle does **not** need any code change and does **not** need to be re-uploaded to Hostinger for this switch.
 
-## Tool catalogue (all GET, credentials + page=1/page_size=20 pre-baked)
+## Steps
 
-| Tool | Endpoint | Model-exposed params |
-|---|---|---|
-| get_store_info | `/v1/managers/store` | — |
-| search_products | `/v1/products` | `q?`, `category_id?`, `price_min?`, `price_max?` |
-| get_product | `/v1/products/{id}` | `id` |
-| get_product_by_sku | `/v1/products/by-sku/{sku}` | `sku` |
-| list_categories | `/v1/categories` | — |
-| search_orders | `/v1/orders` | `phone?`, `email?`, `order_number?` |
-| get_order | `/v1/orders/{id}` | `id` |
-| find_customer_by_phone | `/v1/customers/search/phone` | `phone` |
-| list_abandoned_carts | `/v1/abandoned-carts` | `cart_id?` |
-| list_coupons | `/v1/coupons` | — |
-| list_shipping_countries | `/v1/countries` | — |
-| list_shipping_cities | `/v1/countries/{country_id}/cities` | `country_id` |
+1. **Hostinger / n8n** — make sure the workflow at `…/webhook/get_conversation` is **Active** (production endpoint only works when the workflow is activated; the `webhook-test/…` URL is what n8n shows while the editor is open).
+2. **Supabase secret** — update `N8N_WEBHOOK_URL` to:
+   ```
+   https://n8n.srv1196634.hstgr.cloud/webhook/get_conversation
+   ```
+   (Lovable Cloud → Backend → Edge Function Secrets, or `supabase secrets set N8N_WEBHOOK_URL=…`)
+3. **Verify** — send a test message from the storefront widget / TestChat; confirm a reply comes back and that the n8n production workflow shows a new execution (Executions tab, not the test panel).
+4. **Docs touch-up (optional)** — `docs/n8n/README.md` already says to paste the **production** webhook URL into `N8N_WEBHOOK_URL`; no edits required unless you want to add an explicit "do not use `/webhook-test/…`" warning.
 
-Every node sends these headers, hard-coded from Store Context:
-- `Authorization: Bearer {{ $('Store Context').item.json.authorization_token }}`
-- `Access-Token: {{ $('Store Context').item.json.manager_token }}`
-- `Store-Id: {{ $('Store Context').item.json.store_id }}`
-- `Accept-Language: ar`
-- `Accept: application/json`
+## Nothing to change in widget.js
 
-## AI Agent
-
-- Type: Tools Agent (`@n8n/n8n-nodes-langchain.agent` v1.7) — already correct per prior turn.
-- Model: gpt-4o-mini with `responseFormat: json_object`.
-- System prompt: keep v1 envelope (`{ reply, attachments: [product_card] }`, max 3 cards, always Arabic, no prose outside JSON). Adds merchant prompt from `ai.prompt` and store name/domain.
-- Memory: Window Memory with `sessionKey = {tenant_id}-{conversation_id}`, contextWindowLength 10. History from `body.history` is replayed into memory at run start via a small Code node before the agent.
-
-## Files
-
-- `/mnt/documents/fuqah-zid-workflow-v2.json`
-- `docs/n8n/fuqah-zid-workflow-v2.json`
-- `docs/n8n/README.md` — append v2 section (Supabase credential setup, import steps, IF-guard explanation)
-
-## Out of scope
-
-- Widget changes (4.7.6 already renders `attachments`).
-- Edge function changes.
-- Multi-page pagination, write tools, token refresh logic.
+`widget/dist/widget.js` on Hostinger is unaffected — re-uploading it is not needed for this switch.
