@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Save, Trash2, ToggleLeft, ToggleRight, RotateCcw } from 'lucide-react';
 import { supabase } from '../../../integrations/supabase/client';
 
-const DEFAULT_PROMPT = `أنت مساعد ذكاء اصطناعي لخدمة عملاء متجرنا الإلكتروني على منصة زد.
+const DEFAULT_PROMPT = `أنت مساعد ذكاء اصطناعي لخدمة عملاء متجرنا الإلكتروني.
 
  
 
