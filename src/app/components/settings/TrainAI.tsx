@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Save, Trash2, ToggleLeft, ToggleRight, RotateCcw } from 'lucide-react';
 import { supabase } from '../../../integrations/supabase/client';
