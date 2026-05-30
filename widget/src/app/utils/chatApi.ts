@@ -35,7 +35,7 @@ export interface ProductCard {
 }
 
 export type ChatAction = {
-  type: "offer_ticket" | "offer_close" | "none";
+  type: "offer_ticket" | "offer_close" | "offer_close_done" | "none";
   reason?: string;
 };
 
