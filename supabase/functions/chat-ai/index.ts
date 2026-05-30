@@ -355,20 +355,49 @@ Deno.serve(async (req) => {
     // Pass through structured attachments (product cards, etc.) from n8n.
     const attachments = Array.isArray(aiData.attachments) ? aiData.attachments : [];
 
-    // Classify whether to escalate to a ticket or offer to close.
-    const action = await classifyAction(
-      Array.isArray(history) ? history : [],
-      message,
-      reply,
+    // ── Hard end-of-conversation short-circuit ────────────────────────────
+    // If the previous AI message already asked "هل تحتاج أي مساعدة أخرى؟"
+    // and the user replied with a short negative, end gracefully and stop.
+    const histArr = Array.isArray(history) ? history : [];
+    const lastAiMsg = [...histArr].reverse().find(
+      (h: any) => h?.sender === "ai" || h?.sender === "store",
     );
-    const originalReply = reply;
-    if (action.type === "offer_ticket") {
-      reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
-    } else if (action.type === "offer_close") {
-      reply = "هل تحتاج أي مساعدة أخرى؟";
-    }
-    if (action.type !== "none") {
-      console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+    const prevAiText: string = lastAiMsg?.text ?? lastAiMsg?.body ?? "";
+    const prevWasCloseOffer = isCloseOfferText(prevAiText);
+    const prevWasTicketOffer = isTicketOfferText(prevAiText);
+
+    let action: { type: ActionType | "offer_close_done"; reason?: string } = { type: "none" };
+
+    if (prevWasCloseOffer && isShortNegative(message)) {
+      reply = "شكراً لتواصلك معنا 🌷 يومك سعيد.";
+      action = { type: "offer_close_done", reason: "user_declined_after_close_offer" };
+      console.log("chat-ai end-of-convo short-circuit fired");
+    } else {
+      // Classify whether to escalate to a ticket or offer to close.
+      const classified = await classifyAction(histArr, message, reply);
+      const originalReply = reply;
+
+      // Anti-loop guard: if classifier wants to re-stamp the same offer that
+      // was already asked in the previous AI turn, pass n8n's reply through.
+      const skipOverwrite =
+        (classified.type === "offer_close" && prevWasCloseOffer) ||
+        (classified.type === "offer_ticket" && prevWasTicketOffer);
+
+      if (!skipOverwrite) {
+        if (classified.type === "offer_ticket") {
+          reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
+        } else if (classified.type === "offer_close") {
+          reply = "هل تحتاج أي مساعدة أخرى؟";
+        }
+        action = classified;
+      } else {
+        console.log("chat-ai anti-loop: skipped re-overwrite for", classified.type);
+        action = { type: "none", reason: "anti_loop" };
+      }
+
+      if (action.type !== "none") {
+        console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+      }
     }
 
     // Best-effort persistence (don't fail the response if this errors).
