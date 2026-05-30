@@ -11,7 +11,70 @@ const supabase = createClient(
 );
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const RATE_LIMIT_PER_MIN = 30;
+
+type ActionType = "offer_ticket" | "offer_close" | "none";
+
+async function classifyAction(
+  history: Array<{ sender: string; text: string }>,
+  lastUserMessage: string,
+  reply: string,
+): Promise<{ type: ActionType; reason?: string }> {
+  if (!OPENAI_API_KEY) return { type: "none" };
+  const transcript = [
+    ...history.slice(-6).map((h) => `${h.sender}: ${h.text}`),
+    `customer: ${lastUserMessage}`,
+    `ai: ${reply}`,
+  ].join("\n");
+
+  const system = `You classify the state of an Arabic customer-service chat and return STRICT JSON only.
+Output schema: {"type":"offer_ticket"|"offer_close"|"none","reason":"short"}.
+
+Rules:
+- "offer_ticket": customer explicitly asks for a human agent / موظف / تذكرة, OR the assistant has failed to answer the same intent across the last 2-3 turns (repeated apologies, "لا أعرف", off-topic answers), OR the question is clearly out of scope for an e-commerce store assistant.
+- "offer_close": the last customer message is a thank-you or satisfaction signal (شكراً / تمام / خلاص / تم / ok / thanks) AND there is no open question remaining.
+- "none": otherwise.
+Return JSON only, no markdown.`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        temperature: 0,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: transcript },
+        ],
+      }),
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      console.log("classifier non-200", res.status);
+      return { type: "none" };
+    }
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw);
+    const t = parsed?.type;
+    if (t === "offer_ticket" || t === "offer_close" || t === "none") {
+      return { type: t, reason: parsed?.reason };
+    }
+    return { type: "none" };
+  } catch (e) {
+    console.log("classifier failed (non-fatal):", e);
+    return { type: "none" };
+  }
+}
 
 async function checkRateLimit(tenantId: string): Promise<boolean> {
   const windowStart = new Date();
@@ -243,11 +306,27 @@ Deno.serve(async (req) => {
     }
 
     const aiData = await n8nRes.json().catch(() => ({}));
-    const reply: string =
+    let reply: string =
       aiData.reply ?? aiData.message ?? aiData.text ?? aiData.output ?? "";
 
     // Pass through structured attachments (product cards, etc.) from n8n.
     const attachments = Array.isArray(aiData.attachments) ? aiData.attachments : [];
+
+    // Classify whether to escalate to a ticket or offer to close.
+    const action = await classifyAction(
+      Array.isArray(history) ? history : [],
+      message,
+      reply,
+    );
+    const originalReply = reply;
+    if (action.type === "offer_ticket") {
+      reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
+    } else if (action.type === "offer_close") {
+      reply = "هل تحتاج أي مساعدة أخرى؟";
+    }
+    if (action.type !== "none") {
+      console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+    }
 
     // Best-effort persistence (don't fail the response if this errors).
     // Insert sequentially with a small offset on the AI row so the dashboard
@@ -278,7 +357,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return jsonResponse({ reply, attachments, tenant_id, conversation_id });
+    return jsonResponse({ reply, attachments, action, tenant_id, conversation_id });
   } catch (e) {
     console.error("chat-ai error", e);
     return jsonResponse({ error: "server_error" }, 500);

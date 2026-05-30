@@ -34,12 +34,18 @@ export interface ProductCard {
   url?: string | null;
 }
 
+export type ChatAction = {
+  type: "offer_ticket" | "offer_close" | "none";
+  reason?: string;
+};
+
 export interface SendMessageResult {
   reply: string;
   rateLimited?: boolean;
   error?: string;
   conversationId?: string;
   attachments?: ProductCard[];
+  action?: ChatAction;
 }
 
 export async function sendMessage(
@@ -79,6 +85,7 @@ export async function sendMessage(
       reply: data.reply ?? "",
       conversationId: data.conversation_id,
       attachments: Array.isArray(data.attachments) ? data.attachments : [],
+      action: data.action && typeof data.action === "object" ? data.action : undefined,
     };
   } catch (err) {
     console.log("[FuqahChat] chat-ai threw:", err);

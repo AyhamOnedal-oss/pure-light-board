@@ -15,6 +15,7 @@ import { FileIcon, Download, CheckCircle2, ThumbsUp, ThumbsDown } from 'lucide-r
 import { ChatInlineTicketForm } from './ChatInlineTicketForm';
 import { MessageTextWithLinks } from './MessageTextWithLinks';
 import { ProductCardBubble } from './ProductCardBubble';
+import { QuickReplies } from './QuickReplies';
 
 interface ChatMessageProps {
   message: Message;
@@ -35,6 +36,8 @@ interface ChatMessageProps {
   };
   /** Called when the user toggles thumbs up/down on an agent message */
   onFeedbackChange?: (messageId: string, feedback: 'up' | 'down' | null) => void;
+  /** Quick-reply pick handler (نعم / لا) */
+  onQuickReplyPick?: (messageId: string, value: 'yes' | 'no') => void;
 }
 
 const AVATAR_SIZE = 32;
@@ -127,7 +130,7 @@ function AgentAvatar({ storeIcon }: { storeIcon?: string }) {
   );
 }
 
-export function ChatMessage({ message, storeIcon, theme, onTicketFormSubmit, mainColor, isDarkMode, modeColors, onFeedbackChange }: ChatMessageProps) {
+export function ChatMessage({ message, storeIcon, theme, onTicketFormSubmit, mainColor, isDarkMode, modeColors, onFeedbackChange, onQuickReplyPick }: ChatMessageProps) {
   const isStore = message.sender === 'store';
 
   // AI message bubbles use mainColor, user messages use mode colors
@@ -250,6 +253,15 @@ export function ChatMessage({ message, storeIcon, theme, onTicketFormSubmit, mai
                 isDarkMode={isDarkMode}
               />
             </div>
+          )}
+          {message.quickReplies && message.quickReplies.length > 0 && !message.quickReplyPicked && (
+            <QuickReplies
+              options={message.quickReplies}
+              onPick={(value) => onQuickReplyPick?.(message.id, value)}
+              theme={theme}
+              mainColor={mainColor}
+              isDarkMode={isDarkMode}
+            />
           )}
           <MessageFeedback messageId={message.id} mainColor={mainColor} isDarkMode={isDarkMode} feedback={message.feedback} onFeedbackChange={onFeedbackChange} />
         </div>
