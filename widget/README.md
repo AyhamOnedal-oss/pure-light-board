@@ -9,7 +9,7 @@ that gets uploaded to `https://widget.fuqah.net/widget.js`.
 Dashboard UI ──save──▶ Supabase: settings_chat_design
                               │
                               ├──▶ widget-config edge fn ──▶ widget.js on storefront (Salla / Zid)
-                              │     (60s edge cache)
+                              │     (host/CDN cache; purge after JS fixes)
                               │
                               └──▶ postMessage FUQAH_CONFIG_UPDATE ──▶ iframe live preview (instant)
 ```
@@ -30,6 +30,8 @@ bun run build    # outputs dist/widget.js
 ## Deploy
 
 Upload `widget/dist/widget.js` to whatever hosts `widget.fuqah.net` (Cloudflare R2, S3, etc.). Cache it short (5–15 min) so design tweaks propagate without forcing merchants to bust cache.
+
+After functional widget fixes, rebuild the standalone bundle and replace the hosted `widget.js`. If the CDN responds with a long cache header (for example `max-age=604800`), purge that file from the CDN; otherwise stores can keep running an older bundle even when the React source is fixed.
 
 ## Source of truth
 
