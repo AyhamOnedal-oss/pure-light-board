@@ -1,24 +1,32 @@
-## Plan
+## Goal
 
-1. **Patch the real widget entry path**
-   - Treat `widget/src/app/components/ChatWidget.tsx` as the source for the standalone `widget.js` bundle.
-   - Add the same escalation fallback there: if the AI reply text is the customer-service offer, render the inline phone form immediately even when `action.type` is missing.
-   - Add a local affirmative guard so if the user types “نعم” after that prompt, the widget opens the phone form locally and does not call `chat-ai` again.
+Fix the "نعم" customer-service escalation loop directly in your real production widget (the 151KB IIFE), and give you a downloadable `widget-4.7.7.js` you can upload to Hostinger.
 
-2. **Keep `ChatWindow.tsx` aligned**
-   - Keep the existing fix in the iframe/dashboard widget path so both runtime paths behave the same.
-   - Change the manual `triggerAutoTicket` helper to open the phone form, not the ticket-created screen.
+## File clarification
 
-3. **Generate/update the actual bundle**
-   - Run the widget build so `widget/dist/widget.js` is generated from the patched source.
-   - Confirm the built bundle contains the fallback strings and phone-form text.
+- **Hostinger 4.7.6** = your live widget = same as `/mnt/documents/widget.js` (151KB hand-written IIFE).
+- **`/mnt/documents/widget.js`** = the file I will patch. Output → `/mnt/documents/widget-4.7.7.js`.
+- **`widget/dist/widget.js`** = unrelated React/Vite bundle (428KB). Not deployed anywhere. Will be ignored from now on.
 
-4. **Document deployment requirement**
-   - The hosted `https://widget.fuqah.net/widget.js` is cached for 7 days right now, so code changes in the repo will not affect the store until the new `widget/dist/widget.js` is uploaded or the CDN cache is purged.
-   - I’ll update the widget docs or notes to make that explicit if needed.
+## Steps (build mode)
 
-## Technical details
+1. Read `/mnt/documents/widget.js` (the 4.7.6 IIFE) end-to-end and locate `pushAiMessage`, `doSend`, `handleInlineTicketSubmit`.
+2. Bump header to `Version: 4.7.7 (fix: customer-service escalation loop)`.
+3. Add helpers near the top of the IIFE:
+   - `normalizeAr(text)` — strip tashkeel, normalize alef/yeh/teh-marbuta, lowercase.
+   - `isTicketOfferText(text)` — matches "يتواصل معك أحد موظفي خدمة العملاء", "اكلم خدمة العملاء", etc.
+   - `isShortAffirmative(text)` — matches نعم / ايوه / تمام / اكيد / yes / ok.
+4. Patch `pushAiMessage`: if the assistant text is a ticket-offer AND `state.ticketCreated` is false AND no open `ticket-form` already exists, append an inline `ticket-form` bubble right after the text bubble.
+5. Patch `doSend`: before calling `sendToBackend`, if the last store message is a ticket offer AND the user's message is a short affirmative AND no open `ticket-form` exists, push a local `ticket-form` message (`state.ticketSource='inline'`), stop typing, re-render, and `return` — do **not** call the backend.
+6. Leave `handleInlineTicketSubmit`, `restCreateTicket`, ticket-created screen, styling, and config untouched.
+7. Write the patched file to `/mnt/documents/widget-4.7.7.js` and also overwrite `/mnt/documents/widget.js` so it stays the latest source of truth.
+8. Add a short `/mnt/documents/widget-v4.7.7-notes.md` matching your existing notes format.
 
-- The screenshot behavior strongly suggests the live `widget.js` bundle does not include the current React-source fix or is serving a cached older bundle.
-- The hosted bundle currently returns `Cache-Control: public, max-age=604800`, so we should build the corrected bundle and then deploy/purge it.
-- No backend schema changes are needed.
+## Deliverable
+
+A `<presentation-artifact>` link to `widget-4.7.7.js` in OTHER, just like the previous versions. You download it and upload to Hostinger, then purge the CDN cache for `widget.fuqah.net/widget.js` (current `max-age=604800`).
+
+## Out of scope
+
+- No changes to `widget/` React source, edge functions, or backend.
+- No upload to Hostinger (no credentials here — manual step on your side).
