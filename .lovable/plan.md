@@ -1,32 +1,34 @@
-## Goal
+## Problem
 
-Fix the "نعم" customer-service escalation loop directly in your real production widget (the 151KB IIFE), and give you a downloadable `widget-4.7.7.js` you can upload to Hostinger.
+When the AI asks "هل تحتاج مساعدة إضافية؟" and the user replies "لا", the bot replies again with another closing question ("تمام 👍 إذا احتجت شي... هل تحتاج مساعدة إضافية؟") instead of ending the conversation. This creates a soft loop and never triggers the rating screen.
 
-## File clarification
+## Fix (widget 4.7.8 — patch the real `/mnt/documents/widget.js`)
 
-- **Hostinger 4.7.6** = your live widget = same as `/mnt/documents/widget.js` (151KB hand-written IIFE).
-- **`/mnt/documents/widget.js`** = the file I will patch. Output → `/mnt/documents/widget-4.7.7.js`.
-- **`widget/dist/widget.js`** = unrelated React/Vite bundle (428KB). Not deployed anywhere. Will be ignored from now on.
+1. Bump header to `Version: 4.7.8 (fix: smart end on "لا" after close offer)`.
 
-## Steps (build mode)
+2. Add helpers next to the existing `isShortAffirmative` / `isTicketOfferText`:
+   - `isShortNegative(text)` — matches `لا / لأ / لا شكرا / مشكور / تمام شكرا / no / nope / nothing`.
+   - `isCloseOfferText(text)` — matches "هل تحتاج اي مساعده اخرى/أخرى/إضافية", "do you need any other help".
 
-1. Read `/mnt/documents/widget.js` (the 4.7.6 IIFE) end-to-end and locate `pushAiMessage`, `doSend`, `handleInlineTicketSubmit`.
-2. Bump header to `Version: 4.7.7 (fix: customer-service escalation loop)`.
-3. Add helpers near the top of the IIFE:
-   - `normalizeAr(text)` — strip tashkeel, normalize alef/yeh/teh-marbuta, lowercase.
-   - `isTicketOfferText(text)` — matches "يتواصل معك أحد موظفي خدمة العملاء", "اكلم خدمة العملاء", etc.
-   - `isShortAffirmative(text)` — matches نعم / ايوه / تمام / اكيد / yes / ok.
-4. Patch `pushAiMessage`: if the assistant text is a ticket-offer AND `state.ticketCreated` is false AND no open `ticket-form` already exists, append an inline `ticket-form` bubble right after the text bubble.
-5. Patch `doSend`: before calling `sendToBackend`, if the last store message is a ticket offer AND the user's message is a short affirmative AND no open `ticket-form` exists, push a local `ticket-form` message (`state.ticketSource='inline'`), stop typing, re-render, and `return` — do **not** call the backend.
-6. Leave `handleInlineTicketSubmit`, `restCreateTicket`, ticket-created screen, styling, and config untouched.
-7. Write the patched file to `/mnt/documents/widget-4.7.7.js` and also overwrite `/mnt/documents/widget.js` so it stays the latest source of truth.
-8. Add a short `/mnt/documents/widget-v4.7.7-notes.md` matching your existing notes format.
+3. Patch `doSend` (before calling `sendToBackend`):
+   - Find the last `store` message.
+   - If it is a close-offer AND user's text is a short negative AND no open `ticket-form` exists:
+     - Push one short farewell AI bubble: `"شكراً لتواصلك معنا 🌷 يومك سعيد."` (no further question, no quick replies).
+     - Mark conversation as ended (`state.conversationEnded = true`), stop typing, re-render.
+     - After ~600 ms open the existing rating screen (same path used by the X → "إنهاء المحادثة" flow).
+     - `return` — do NOT call the backend, so the model can't generate another loop reply.
+
+4. Patch `pushAiMessage` close-offer pass: keep the quick replies, but if `state.conversationEnded` is already true, suppress any further close-offer bubbles coming back from the backend.
+
+5. Leave ticket flow (4.7.7), inline form, styling, and config untouched.
+
+6. Write to `/mnt/documents/widget-4.7.8.js`, overwrite `/mnt/documents/widget.js`, add `/mnt/documents/widget-v4.7.8-notes.md`.
 
 ## Deliverable
 
-A `<presentation-artifact>` link to `widget-4.7.7.js` in OTHER, just like the previous versions. You download it and upload to Hostinger, then purge the CDN cache for `widget.fuqah.net/widget.js` (current `max-age=604800`).
+A `<presentation-artifact>` link to `widget-4.7.8.js` (OTHER). Upload to Hostinger as `widget.js` and purge the CDN cache for `widget.fuqah.net/widget.js`.
 
 ## Out of scope
 
-- No changes to `widget/` React source, edge functions, or backend.
-- No upload to Hostinger (no credentials here — manual step on your side).
+- No backend / edge function / n8n prompt changes.
+- No changes to the `widget/` React source.
