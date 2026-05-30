@@ -16,6 +16,46 @@ const RATE_LIMIT_PER_MIN = 30;
 
 type ActionType = "offer_ticket" | "offer_close" | "none";
 
+function normalizeAr(text: string): string {
+  return (text ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/[إأآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[.!؟?،,؛:]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function isCloseOfferText(text: string): boolean {
+  const n = normalizeAr(text);
+  return (
+    n.includes("هل تحتاج اي مساعده اخري") ||
+    n.includes("هل تحتاج اي مساعده اخرى") ||
+    n.includes("هل تحتاج مساعده اضافيه") ||
+    n.includes("هل تحتاج اي مساعده") ||
+    n.includes("do you need any other help") ||
+    n.includes("anything else")
+  );
+}
+
+function isTicketOfferText(text: string): boolean {
+  const n = normalizeAr(text);
+  return (
+    n.includes("يتواصل معك احد موظفي خدمه العملاء") ||
+    n.includes("اكلم خدمه العملاء") ||
+    (n.includes("customer service") && n.includes("contact"))
+  );
+}
+
+function isShortNegative(text: string): boolean {
+  const n = normalizeAr(text);
+  return /^(لا|لا شكرا|لاشكرا|لأ|مشكور|شكرا|شكرا لك|تمام شكرا|no|nope|nothing|that'?s all|im good|i'?m good)$/.test(n);
+}
+
 async function classifyAction(
   history: Array<{ sender: string; text: string }>,
   lastUserMessage: string,
@@ -35,6 +75,9 @@ Rules:
 - "offer_ticket": customer explicitly asks for a human agent / موظف / تذكرة, OR the assistant has failed to answer the same intent across the last 2-3 turns (repeated apologies, "لا أعرف", off-topic answers), OR the question is clearly out of scope for an e-commerce store assistant.
 - "offer_close": the last customer message is a thank-you or satisfaction signal (شكراً / تمام / خلاص / تم / ok / thanks) AND there is no open question remaining.
 - "none": otherwise.
+- NEVER return "offer_close" if the previous assistant turn already asked "هل تحتاج أي مساعدة أخرى؟" or any close-offer phrase.
+- NEVER return "offer_close" when the latest customer message is a negative reply (لا / لا شكرا / no / nope).
+- NEVER return "offer_ticket" if the previous assistant turn already offered to contact customer service.
 Return JSON only, no markdown.`;
 
   try {
@@ -312,20 +355,49 @@ Deno.serve(async (req) => {
     // Pass through structured attachments (product cards, etc.) from n8n.
     const attachments = Array.isArray(aiData.attachments) ? aiData.attachments : [];
 
-    // Classify whether to escalate to a ticket or offer to close.
-    const action = await classifyAction(
-      Array.isArray(history) ? history : [],
-      message,
-      reply,
+    // ── Hard end-of-conversation short-circuit ────────────────────────────
+    // If the previous AI message already asked "هل تحتاج أي مساعدة أخرى؟"
+    // and the user replied with a short negative, end gracefully and stop.
+    const histArr = Array.isArray(history) ? history : [];
+    const lastAiMsg = [...histArr].reverse().find(
+      (h: any) => h?.sender === "ai" || h?.sender === "store",
     );
-    const originalReply = reply;
-    if (action.type === "offer_ticket") {
-      reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
-    } else if (action.type === "offer_close") {
-      reply = "هل تحتاج أي مساعدة أخرى؟";
-    }
-    if (action.type !== "none") {
-      console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+    const prevAiText: string = lastAiMsg?.text ?? lastAiMsg?.body ?? "";
+    const prevWasCloseOffer = isCloseOfferText(prevAiText);
+    const prevWasTicketOffer = isTicketOfferText(prevAiText);
+
+    let action: { type: ActionType | "offer_close_done"; reason?: string } = { type: "none" };
+
+    if (prevWasCloseOffer && isShortNegative(message)) {
+      reply = "شكراً لتواصلك معنا 🌷 يومك سعيد.";
+      action = { type: "offer_close_done", reason: "user_declined_after_close_offer" };
+      console.log("chat-ai end-of-convo short-circuit fired");
+    } else {
+      // Classify whether to escalate to a ticket or offer to close.
+      const classified = await classifyAction(histArr, message, reply);
+      const originalReply = reply;
+
+      // Anti-loop guard: if classifier wants to re-stamp the same offer that
+      // was already asked in the previous AI turn, pass n8n's reply through.
+      const skipOverwrite =
+        (classified.type === "offer_close" && prevWasCloseOffer) ||
+        (classified.type === "offer_ticket" && prevWasTicketOffer);
+
+      if (!skipOverwrite) {
+        if (classified.type === "offer_ticket") {
+          reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
+        } else if (classified.type === "offer_close") {
+          reply = "هل تحتاج أي مساعدة أخرى؟";
+        }
+        action = classified;
+      } else {
+        console.log("chat-ai anti-loop: skipped re-overwrite for", classified.type);
+        action = { type: "none", reason: "anti_loop" };
+      }
+
+      if (action.type !== "none") {
+        console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+      }
     }
 
     // Best-effort persistence (don't fail the response if this errors).
