@@ -160,6 +160,8 @@ export function ChatWindow({
 
   // ── Message handlers ──────────────────────────────────────────────────────
   const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
+    const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'store');
+    const hasOpenTicketForm = messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted);
     const customerMsg: Message = {
       id: Date.now().toString(),
       text,
@@ -180,6 +182,25 @@ export function ChatWindow({
       trackEvent('attachment.uploaded', evCtx, {
         attachmentType: attachment.type, name: attachment.name, size: attachment.size,
       });
+    }
+
+    if (!attachment && lastAssistantMessage?.action === 'offer_ticket' && isShortAffirmative(text) && !hasOpenTicketForm) {
+      if (ticketCreated) {
+        injectTicketAlreadyExistsMessage();
+        return;
+      }
+      const ticketFormMsg: Message = {
+        id: `ticket-form-${Date.now()}`,
+        text: '',
+        sender: 'store',
+        timestamp: new Date(),
+        type: 'ticket-form',
+        ticketFormSubmitted: false,
+      };
+      ticketSourceRef.current = 'inline';
+      setMessages(prev => [...prev, ticketFormMsg]);
+      trackEvent('ticket.form_shown', evCtx, { source: 'inline', trigger: 'affirmative_guard' });
+      return;
     }
 
     /* ── TEST TRIGGER: typing "A" shows inline ticket form ── */
@@ -239,7 +260,46 @@ export function ChatWindow({
       text: replyText,
       sender: 'store',
       timestamp: new Date(),
+      quickReplies: result.action?.type === 'offer_close'
+        ? [
+            { label: 'نعم', value: 'yes' },
+            { label: 'لا', value: 'no' },
+          ]
+        : undefined,
+      action: result.action?.type === 'offer_close'
+        ? 'offer_close'
+        : result.action?.type === 'offer_ticket'
+          ? 'offer_ticket'
+          : undefined,
     };
+
+    if (result.action?.type === 'offer_ticket' && !result.rateLimited && !result.error) {
+      if (ticketCreated) {
+        setMessages(prev => [...prev, response]);
+        injectTicketAlreadyExistsMessage();
+      } else {
+        const ticketFormMsg: Message = {
+          id: `${response.id}-form`,
+          text: '',
+          sender: 'store',
+          timestamp: new Date(),
+          type: 'ticket-form',
+          ticketFormSubmitted: false,
+        };
+        ticketSourceRef.current = 'inline';
+        setMessages(prev => [...prev, response, ticketFormMsg]);
+        trackEvent('ticket.form_shown', evCtx, { source: 'inline' });
+      }
+      postMessage(evCtx, {
+        messageId: response.id,
+        sender: 'store',
+        text: response.text,
+        timestamp: response.timestamp.toISOString(),
+      });
+      trackEvent('message.received', evCtx);
+      return;
+    }
+
     setMessages(prev => [...prev, response]);
     postMessage(evCtx, {
       messageId: response.id,
