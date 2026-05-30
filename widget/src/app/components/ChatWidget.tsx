@@ -55,6 +55,14 @@ export interface Message {
   conversationId?: string;
   /** Optional product cards (rendered under the text bubble for AI messages) */
   products?: import('../utils/chatApi').ProductCard[];
+  /** Quick-reply chips rendered under an AI bubble (e.g. نعم / لا) */
+  quickReplies?: { label: string; value: 'yes' | 'no' }[];
+  /** Set to true once the user picked a quick reply, to hide the chips */
+  quickReplyPicked?: boolean;
+  /** Optional action flag attached to this AI message */
+  action?: 'offer_ticket' | 'offer_close';
+  /** Optional feedback state on agent message */
+  feedback?: 'up' | 'down' | null;
 }
 
 type ScreenView = 'chat' | 'rating' | 'ticket-form' | 'ticket-created';
@@ -145,7 +153,7 @@ export function ChatWidget() {
       sender: m.sender,
       text: m.text,
     }));
-    const { reply, rateLimited, error, attachments } = await sendMessage(conversationId, text, history);
+    const { reply, rateLimited, error, attachments, action } = await sendMessage(conversationId, text, history);
     setIsTyping(false);
 
     let responseText = reply;
@@ -155,6 +163,9 @@ export function ChatWidget() {
       responseText = 'عذراً، حدث خطأ مؤقت. الرجاء المحاولة مجدداً.';
     }
 
+    const isOfferClose = action?.type === 'offer_close';
+    const isOfferTicket = action?.type === 'offer_ticket';
+
     const response: Message = {
       id: (Date.now() + 1).toString(),
       text: responseText,
@@ -162,8 +173,55 @@ export function ChatWidget() {
       timestamp: new Date(),
       conversationId,
       products: (attachments ?? []).filter((a) => a?.type === 'product_card'),
+      quickReplies: isOfferClose
+        ? [
+            { label: 'نعم', value: 'yes' },
+            { label: 'لا', value: 'no' },
+          ]
+        : undefined,
+      action: isOfferClose ? 'offer_close' : isOfferTicket ? 'offer_ticket' : undefined,
     };
-    setMessages(prev => [...prev, response]);
+
+    if (isOfferTicket && !rateLimited && !error) {
+      // Append AI bubble + inline phone form as a second message.
+      const ticketForm: Message = {
+        id: `${response.id}-form`,
+        text: '',
+        sender: 'store',
+        timestamp: new Date(),
+        conversationId,
+        type: 'ticket-form',
+      };
+      ticketSourceRef.current = 'inline';
+      setMessages(prev => [...prev, response, ticketForm]);
+    } else {
+      setMessages(prev => [...prev, response]);
+    }
+  };
+
+  // ── Quick-reply handler (نعم / لا for "Do you need anything else?") ────────
+  const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {
+    setMessages(prev =>
+      prev.map(m => (m.id === messageId ? { ...m, quickReplyPicked: true } : m)),
+    );
+    if (value === 'no') {
+      setCurrentScreen('rating');
+    } else {
+      handleSendMessage('نعم');
+    }
+  };
+
+  // ── Inline ticket-form submit (from offer_ticket flow) ─────────────────────
+  const handleInlineTicketSubmit = (_phone: string, _dialCode: string) => {
+    // Mark the ticket-form message as submitted, then show the ticket screen.
+    setMessages(prev =>
+      prev.map(m =>
+        m.type === 'ticket-form' && !m.ticketFormSubmitted
+          ? { ...m, ticketFormSubmitted: true }
+          : m,
+      ),
+    );
+    setCurrentScreen('ticket-created');
   };
 
   // ── Download ────────────────────────────────────────────────────────────────
