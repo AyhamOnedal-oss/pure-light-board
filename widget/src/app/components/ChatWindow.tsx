@@ -572,9 +572,9 @@ export function ChatWindow({
     const w = window as typeof window & { __chatWidget?: Record<string, () => void> };
     w.__chatWidget = {
       ...w.__chatWidget,
-      triggerAutoTicket: () => setCurrentScreen('ticket-created'),
+      triggerAutoTicket: () => showInlineTicketForm('manual_trigger'),
     };
-  }, []);
+  });
 
   // ── Positioning ──────────────────────────────────────────────────────────
   // NOTE: Body scroll lock is handled by FloatingWidget. No additional lock needed here.
