@@ -185,6 +185,29 @@ export function ChatWindow({
 
   const evCtx = { storeId, conversationId, ticketId: ticketCreated ? ticketId : undefined };
 
+  const showInlineTicketForm = (trigger: string) => {
+    if (messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted)) return;
+    if (ticketCreated) {
+      injectTicketAlreadyExistsMessage();
+      return;
+    }
+    const ticketFormMsg: Message = {
+      id: `ticket-form-${Date.now()}`,
+      text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
+      sender: 'store',
+      timestamp: new Date(),
+      type: 'ticket-form',
+      ticketFormSubmitted: false,
+    };
+    ticketSourceRef.current = 'inline';
+    setMessages(prev => (
+      prev.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted)
+        ? prev
+        : [...prev, ticketFormMsg]
+    ));
+    trackEvent('ticket.form_shown', evCtx, { source: 'inline', trigger });
+  };
+
   // ── Message handlers ──────────────────────────────────────────────────────
   const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
     const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'store');
@@ -215,22 +238,7 @@ export function ChatWindow({
       || isTicketOfferPrompt(lastAssistantMessage?.text);
 
     if (!attachment && lastAssistantOfferedTicket && isShortAffirmative(text)) {
-      if (hasOpenTicketForm) return;
-      if (ticketCreated) {
-        injectTicketAlreadyExistsMessage();
-        return;
-      }
-      const ticketFormMsg: Message = {
-        id: `ticket-form-${Date.now()}`,
-        text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
-        sender: 'store',
-        timestamp: new Date(),
-        type: 'ticket-form',
-        ticketFormSubmitted: false,
-      };
-      ticketSourceRef.current = 'inline';
-      setMessages(prev => [...prev, ticketFormMsg]);
-      trackEvent('ticket.form_shown', evCtx, { source: 'inline', trigger: 'affirmative_guard' });
+      showInlineTicketForm(hasOpenTicketForm ? 'affirmative_guard_duplicate' : 'affirmative_guard');
       return;
     }
 
