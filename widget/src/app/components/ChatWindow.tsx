@@ -192,7 +192,7 @@ export function ChatWindow({
       }
       const ticketFormMsg: Message = {
         id: `ticket-form-${Date.now()}`,
-        text: '',
+        text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
         sender: 'store',
         timestamp: new Date(),
         type: 'ticket-form',
@@ -281,7 +281,7 @@ export function ChatWindow({
       } else {
         const ticketFormMsg: Message = {
           id: `${response.id}-form`,
-          text: '',
+          text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
           sender: 'store',
           timestamp: new Date(),
           type: 'ticket-form',
