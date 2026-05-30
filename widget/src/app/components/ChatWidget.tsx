@@ -86,6 +86,38 @@ function generateConversationId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function normalizeAssistantTriggerText(text?: string): string {
+  return (text ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[إأآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[.!؟?،,؛:]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function isShortAffirmative(text: string): boolean {
+  const normalized = normalizeAssistantTriggerText(text);
+  return /^(نعم|اي|اي نعم|ايه|ايوه|تمام|تم|اكيد|yes|yeah|yep|ok|okay)$/.test(normalized);
+}
+
+function isTicketOfferPrompt(text?: string): boolean {
+  const normalized = normalizeAssistantTriggerText(text);
+  return normalized.includes('يتواصل معك احد موظفي خدمه العملاء')
+    || normalized.includes('اكلم خدمه العملاء')
+    || (normalized.includes('customer service') && normalized.includes('contact'));
+}
+
+function isCloseOfferPrompt(text?: string): boolean {
+  const normalized = normalizeAssistantTriggerText(text);
+  return normalized.includes('هل تحتاج اي مساعده اخري')
+    || normalized.includes('هل تحتاج اي مساعده اخرى')
+    || normalized.includes('do you need any other help');
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatWidget() {
@@ -133,6 +165,8 @@ export function ChatWidget() {
   // ── Message handlers ────────────────────────────────────────────────────────
 
   const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
+    const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'store');
+    const hasOpenTicketForm = messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted);
     const newMessage: Message = {
       id: Date.now().toString(),
       text,
@@ -145,6 +179,25 @@ export function ChatWidget() {
 
     if (attachment && !text) {
       // Attachment-only — for now, no AI call
+      return;
+    }
+
+    const lastAssistantOfferedTicket = lastAssistantMessage?.action === 'offer_ticket'
+      || isTicketOfferPrompt(lastAssistantMessage?.text);
+
+    if (!attachment && lastAssistantOfferedTicket && isShortAffirmative(text)) {
+      if (hasOpenTicketForm) return;
+      const ticketForm: Message = {
+        id: `ticket-form-${Date.now()}`,
+        text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
+        sender: 'store',
+        timestamp: new Date(),
+        conversationId,
+        type: 'ticket-form',
+        ticketFormSubmitted: false,
+      };
+      ticketSourceRef.current = 'inline';
+      setMessages(prev => [...prev, ticketForm]);
       return;
     }
 
@@ -163,8 +216,8 @@ export function ChatWidget() {
       responseText = 'عذراً، حدث خطأ مؤقت. الرجاء المحاولة مجدداً.';
     }
 
-    const isOfferClose = action?.type === 'offer_close';
-    const isOfferTicket = action?.type === 'offer_ticket';
+    const isOfferClose = action?.type === 'offer_close' || isCloseOfferPrompt(responseText);
+    const isOfferTicket = action?.type === 'offer_ticket' || isTicketOfferPrompt(responseText);
 
     const response: Message = {
       id: (Date.now() + 1).toString(),
@@ -186,11 +239,12 @@ export function ChatWidget() {
       // Append AI bubble + inline phone form as a second message.
       const ticketForm: Message = {
         id: `${response.id}-form`,
-        text: '',
+        text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
         sender: 'store',
         timestamp: new Date(),
         conversationId,
         type: 'ticket-form',
+        ticketFormSubmitted: false,
       };
       ticketSourceRef.current = 'inline';
       setMessages(prev => [...prev, response, ticketForm]);
