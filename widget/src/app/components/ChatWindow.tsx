@@ -310,6 +310,16 @@ export function ChatWindow({
     trackEvent('message.received', evCtx);
   };
 
+  const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {
+    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, quickReplyPicked: true } : m)));
+    if (value === 'no') {
+      closeConversation(evCtx, 'manual');
+      setCurrentScreen('rating');
+      return;
+    }
+    handleSendMessage('نعم');
+  };
+
   /** Helper: injects a system message into chat indicating ticket already exists */
   const injectTicketAlreadyExistsMessage = () => {
     setMessages(prev => [
