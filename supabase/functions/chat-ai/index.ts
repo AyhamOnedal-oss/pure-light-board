@@ -306,11 +306,27 @@ Deno.serve(async (req) => {
     }
 
     const aiData = await n8nRes.json().catch(() => ({}));
-    const reply: string =
+    let reply: string =
       aiData.reply ?? aiData.message ?? aiData.text ?? aiData.output ?? "";
 
     // Pass through structured attachments (product cards, etc.) from n8n.
     const attachments = Array.isArray(aiData.attachments) ? aiData.attachments : [];
+
+    // Classify whether to escalate to a ticket or offer to close.
+    const action = await classifyAction(
+      Array.isArray(history) ? history : [],
+      message,
+      reply,
+    );
+    const originalReply = reply;
+    if (action.type === "offer_ticket") {
+      reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
+    } else if (action.type === "offer_close") {
+      reply = "هل تحتاج أي مساعدة أخرى؟";
+    }
+    if (action.type !== "none") {
+      console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+    }
 
     // Best-effort persistence (don't fail the response if this errors).
     // Insert sequentially with a small offset on the AI row so the dashboard
@@ -341,7 +357,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return jsonResponse({ reply, attachments, tenant_id, conversation_id });
+    return jsonResponse({ reply, attachments, action, tenant_id, conversation_id });
   } catch (e) {
     console.error("chat-ai error", e);
     return jsonResponse({ error: "server_error" }, 500);
