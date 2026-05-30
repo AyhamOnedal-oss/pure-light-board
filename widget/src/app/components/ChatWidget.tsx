@@ -361,6 +361,8 @@ export function ChatWidget() {
                     message={message}
                     storeIcon={STORE_CONFIG.icon}
                     theme={currentTheme}
+                    onTicketFormSubmit={handleInlineTicketSubmit}
+                    onQuickReplyPick={handleQuickReplyPick}
                   />
                 ))
               )}
