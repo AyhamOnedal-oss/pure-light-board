@@ -1,29 +1,34 @@
-## Goal
+## Findings from the uploaded widget file
 
-Switch the AI chat from n8n's **test** webhook to the **production** webhook:
+- `widget (17).js` contains **no n8n URL at all** — neither production nor test.
+- The widget only POSTs to the Supabase Edge Function:
+  - `https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/chat-ai`
+  - See `sendToBackend()` at lines 2372–2408.
+- The n8n URL is used **only inside the `chat-ai` edge function**, via the `N8N_WEBHOOK_URL` secret. The widget itself never knows about n8n.
 
-- From: `https://n8n.srv1196634.hstgr.cloud/webhook-test/get_conversation`
-- To:   `https://n8n.srv1196634.hstgr.cloud/webhook/get_conversation`
+So the test URL you're seeing is not coming from this JS file.
 
-## Findings
+## Likely real cause
 
-The URL is **not** hardcoded anywhere in the repo. The only consumer is:
+1. **The n8n workflow is not Active.** The production URL `/webhook/get_conversation` only works when the workflow's Active toggle is on. While inactive, n8n only exposes `/webhook-test/get_conversation` (and only for one execution after clicking "Execute workflow").
+2. **n8n editor always displays the Test URL** on the Webhook node card — that's UI, not what your backend is actually calling.
+3. **The `N8N_WEBHOOK_URL` secret may still be the test value** in the runtime environment, or `chat-ai` hasn't picked up the new value yet.
 
-- `supabase/functions/chat-ai/index.ts` (line 13) — `const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL")`
+## Verification plan (no widget changes needed)
 
-The widget (`widget/src/app/utils/chatApi.ts`) calls the `chat-ai` edge function, which then POSTs to n8n. So the widget bundle does **not** need any code change and does **not** need to be re-uploaded to Hostinger for this switch.
-
-## Steps
-
-1. **Hostinger / n8n** — make sure the workflow at `…/webhook/get_conversation` is **Active** (production endpoint only works when the workflow is activated; the `webhook-test/…` URL is what n8n shows while the editor is open).
-2. **Supabase secret** — update `N8N_WEBHOOK_URL` to:
-   ```
+1. **Check the secret** — confirm `N8N_WEBHOOK_URL` in Supabase equals exactly:
+   ```text
    https://n8n.srv1196634.hstgr.cloud/webhook/get_conversation
    ```
-   (Lovable Cloud → Backend → Edge Function Secrets, or `supabase secrets set N8N_WEBHOOK_URL=…`)
-3. **Verify** — send a test message from the storefront widget / TestChat; confirm a reply comes back and that the n8n production workflow shows a new execution (Executions tab, not the test panel).
-4. **Docs touch-up (optional)** — `docs/n8n/README.md` already says to paste the **production** webhook URL into `N8N_WEBHOOK_URL`; no edits required unless you want to add an explicit "do not use `/webhook-test/…`" warning.
+2. **Call `chat-ai` directly** with a minimal payload to reproduce the failure outside the widget.
+3. **Read `chat-ai` edge function logs** for the `n8n error <status>` line. A 404 confirms the n8n workflow is not Active or path/method mismatched.
+4. **Add a one-line safe log** in `chat-ai` that prints whether the configured URL contains `/webhook-test/` vs `/webhook/`, then redeploy and retry. This proves which URL the function is actually hitting.
+5. **If logs show production URL + 404** → fix lives entirely in n8n:
+   - Open the workflow with Webhook path `get_conversation`
+   - Toggle **Active** on
+   - Confirm Method `POST`, Path `get_conversation` (no slash, no spaces)
 
-## Nothing to change in widget.js
+## What does NOT need to change
 
-`widget/dist/widget.js` on Hostinger is unaffected — re-uploading it is not needed for this switch.
+- `widget.js` on Hostinger — it never references n8n.
+- Any frontend code in this repo.

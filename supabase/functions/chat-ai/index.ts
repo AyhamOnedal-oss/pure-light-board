@@ -200,6 +200,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "n8n_not_configured" }, 503);
     }
 
+    console.log("n8n webhook kind:", N8N_WEBHOOK_URL.includes("/webhook-test/") ? "TEST" : N8N_WEBHOOK_URL.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
+
     const n8nRes = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
