@@ -1,37 +1,24 @@
-## Problem
+## Plan
 
-`chat-ai` is correctly returning `action.type = "offer_ticket"` (confirmed in edge function logs), but the live widget uses `ChatWindow.tsx`, not `ChatWidget.tsx`. `ChatWindow.tsx` ignores `result.action`, so every reply is rendered as plain text. When the customer answers "اي نعم", it's sent back to the AI, which classifies it again as `offer_ticket` and the same "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟" string loops — the phone form never appears.
+1. **Patch the real widget entry path**
+   - Treat `widget/src/app/components/ChatWidget.tsx` as the source for the standalone `widget.js` bundle.
+   - Add the same escalation fallback there: if the AI reply text is the customer-service offer, render the inline phone form immediately even when `action.type` is missing.
+   - Add a local affirmative guard so if the user types “نعم” after that prompt, the widget opens the phone form locally and does not call `chat-ai` again.
 
-`ChatWidget.tsx` already has the correct logic but it isn't the component mounted in production.
+2. **Keep `ChatWindow.tsx` aligned**
+   - Keep the existing fix in the iframe/dashboard widget path so both runtime paths behave the same.
+   - Change the manual `triggerAutoTicket` helper to open the phone form, not the ticket-created screen.
 
-## Fix
+3. **Generate/update the actual bundle**
+   - Run the widget build so `widget/dist/widget.js` is generated from the patched source.
+   - Confirm the built bundle contains the fallback strings and phone-form text.
 
-Port the `action` handling from `ChatWidget.tsx` into `ChatWindow.tsx`.
+4. **Document deployment requirement**
+   - The hosted `https://widget.fuqah.net/widget.js` is cached for 7 days right now, so code changes in the repo will not affect the store until the new `widget/dist/widget.js` is uploaded or the CDN cache is purged.
+   - I’ll update the widget docs or notes to make that explicit if needed.
 
-1. In `handleSendMessage` (ChatWindow.tsx), after `sendBackendMessage` returns:
-   - If `result.action?.type === "offer_ticket"`: append the AI text bubble, then append a second message with `type: 'ticket-form'` so `ChatInlineTicketForm` renders directly under the bubble. Set `ticketSourceRef.current = 'inline'` and fire `trackEvent('ticket.form_shown', evCtx, { source: 'inline' })`. If `ticketCreated` is already true, append the "تم إنشاء تذكرة مسبقاً" success message instead.
-   - If `result.action?.type === "offer_close"`: append the AI text bubble with `quickReplies: [{label:'نعم',value:'yes'},{label:'لا',value:'no'}]`.
+## Technical details
 
-2. Add `handleQuickReplyPick(messageId, value)`:
-   - Mark that message `quickReplyPicked: true`.
-   - `no` → `setCurrentScreen('rating')` (and fire `closeConversation(evCtx, 'manual')`).
-   - `yes` → call `handleSendMessage('نعم')`.
-
-3. Pass `onQuickReplyPick={handleQuickReplyPick}` to `<ChatMessage>` in the render loop. `ChatMessage` and `QuickReplies` already support this.
-
-4. Safety guard against the loop: in `handleSendMessage`, before calling the backend, if the last assistant message has `action === 'offer_ticket'` and the user's text is a short affirmative (نعم / اي / ايوه / تمام / yes / ok), skip the backend call and just append the inline `ticket-form` message locally.
-
-## Files changed
-
-- `widget/src/app/components/ChatWindow.tsx` (only file).
-- Optionally tighten `Message.action` typing if needed — already declared in `ChatWidget.tsx`.
-
-No backend or edge function changes — `chat-ai` is already returning the correct flag.
-
-## Validation
-
-1. Type "احكي مع موظف" → AI bubble "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟" appears, immediately followed by the phone+country inline form.
-2. Submitting the phone creates a ticket and shows the ticket-created screen (existing `handleInlineTicketSubmit` path).
-3. If the user instead types "اي نعم", the phone form opens locally (no AI loop).
-4. Saying "شكراً" → AI bubble + نعم/لا chips; tapping لا opens the rating screen.
-5. Normal Q&A turns unchanged.
+- The screenshot behavior strongly suggests the live `widget.js` bundle does not include the current React-source fix or is serving a cached older bundle.
+- The hosted bundle currently returns `Cache-Control: public, max-age=604800`, so we should build the corrected bundle and then deploy/purge it.
+- No backend schema changes are needed.
