@@ -81,6 +81,11 @@ function generateTicketId(): string {
   return '#TKT-' + Math.floor(10000 + Math.random() * 90000);
 }
 
+function isShortAffirmative(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/[.!؟?،,]/g, '').replace(/\s+/g, ' ');
+  return /^(نعم|اي|اي نعم|إي|إي نعم|ايه|ايوه|أيوه|تمام|تم|اكيد|أكيد|yes|yeah|yep|ok|okay)$/.test(normalized);
+}
+
 export function ChatWindow({
   theme, position, onClose, onReturnToChat,
   storeName, storeLogo, storeIcon, storeId, conversationId, onConversationIdChange,
@@ -155,6 +160,8 @@ export function ChatWindow({
 
   // ── Message handlers ──────────────────────────────────────────────────────
   const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
+    const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'store');
+    const hasOpenTicketForm = messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted);
     const customerMsg: Message = {
       id: Date.now().toString(),
       text,
@@ -175,6 +182,26 @@ export function ChatWindow({
       trackEvent('attachment.uploaded', evCtx, {
         attachmentType: attachment.type, name: attachment.name, size: attachment.size,
       });
+    }
+
+    if (!attachment && lastAssistantMessage?.action === 'offer_ticket' && isShortAffirmative(text)) {
+      if (hasOpenTicketForm) return;
+      if (ticketCreated) {
+        injectTicketAlreadyExistsMessage();
+        return;
+      }
+      const ticketFormMsg: Message = {
+        id: `ticket-form-${Date.now()}`,
+        text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
+        sender: 'store',
+        timestamp: new Date(),
+        type: 'ticket-form',
+        ticketFormSubmitted: false,
+      };
+      ticketSourceRef.current = 'inline';
+      setMessages(prev => [...prev, ticketFormMsg]);
+      trackEvent('ticket.form_shown', evCtx, { source: 'inline', trigger: 'affirmative_guard' });
+      return;
     }
 
     /* ── TEST TRIGGER: typing "A" shows inline ticket form ── */
@@ -234,7 +261,46 @@ export function ChatWindow({
       text: replyText,
       sender: 'store',
       timestamp: new Date(),
+      quickReplies: result.action?.type === 'offer_close'
+        ? [
+            { label: 'نعم', value: 'yes' },
+            { label: 'لا', value: 'no' },
+          ]
+        : undefined,
+      action: result.action?.type === 'offer_close'
+        ? 'offer_close'
+        : result.action?.type === 'offer_ticket'
+          ? 'offer_ticket'
+          : undefined,
     };
+
+    if (result.action?.type === 'offer_ticket' && !result.rateLimited && !result.error) {
+      if (ticketCreated) {
+        setMessages(prev => [...prev, response]);
+        injectTicketAlreadyExistsMessage();
+      } else {
+        const ticketFormMsg: Message = {
+          id: `${response.id}-form`,
+          text: 'يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:',
+          sender: 'store',
+          timestamp: new Date(),
+          type: 'ticket-form',
+          ticketFormSubmitted: false,
+        };
+        ticketSourceRef.current = 'inline';
+        setMessages(prev => [...prev, response, ticketFormMsg]);
+        trackEvent('ticket.form_shown', evCtx, { source: 'inline' });
+      }
+      postMessage(evCtx, {
+        messageId: response.id,
+        sender: 'store',
+        text: response.text,
+        timestamp: response.timestamp.toISOString(),
+      });
+      trackEvent('message.received', evCtx);
+      return;
+    }
+
     setMessages(prev => [...prev, response]);
     postMessage(evCtx, {
       messageId: response.id,
@@ -243,6 +309,16 @@ export function ChatWindow({
       timestamp: response.timestamp.toISOString(),
     });
     trackEvent('message.received', evCtx);
+  };
+
+  const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {
+    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, quickReplyPicked: true } : m)));
+    if (value === 'no') {
+      closeConversation(evCtx, 'manual');
+      setCurrentScreen('rating');
+      return;
+    }
+    handleSendMessage('نعم');
   };
 
   /** Helper: injects a system message into chat indicating ticket already exists */
@@ -611,6 +687,7 @@ export function ChatWindow({
                       mainColor={mainColor}
                       isDarkMode={isDarkMode}
                       modeColors={modeColors}
+                      onQuickReplyPick={handleQuickReplyPick}
                       onFeedbackChange={(id, fb) => {
                         setMessages(prev => prev.map(m => (m.id === id ? { ...m, feedback: fb } : m)));
                         postFeedback(evCtx, id, fb);

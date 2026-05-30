@@ -1,87 +1,37 @@
-# Smart Escalation & Closure — handled in `chat-ai`
+## Problem
 
-Move the decision logic out of n8n and into the `chat-ai` edge function. n8n keeps answering questions; `chat-ai` decides whether to attach an escalation/closure flag to the response. The widget only renders.
+`chat-ai` is correctly returning `action.type = "offer_ticket"` (confirmed in edge function logs), but the live widget uses `ChatWindow.tsx`, not `ChatWidget.tsx`. `ChatWindow.tsx` ignores `result.action`, so every reply is rendered as plain text. When the customer answers "اي نعم", it's sent back to the AI, which classifies it again as `offer_ticket` and the same "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟" string loops — the phone form never appears.
 
-## Flow
+`ChatWidget.tsx` already has the correct logic but it isn't the component mounted in production.
 
-```text
-widget ──► chat-ai ──► n8n (reply)
-                │
-                └──► OpenAI classifier (gpt-4o-mini) ──► action flag
-                                                          │
-widget ◄──── { reply, attachments, action } ◄─────────────┘
-```
+## Fix
 
-After n8n returns the normal `reply`, `chat-ai` runs a tiny second OpenAI call (using the already-configured `OPENAI_API_KEY`) that inspects the last ~6 turns plus the new reply and outputs strict JSON:
+Port the `action` handling from `ChatWidget.tsx` into `ChatWindow.tsx`.
 
-```json
-{ "type": "offer_ticket" | "offer_close" | "none", "reason": "short" }
-```
+1. In `handleSendMessage` (ChatWindow.tsx), after `sendBackendMessage` returns:
+   - If `result.action?.type === "offer_ticket"`: append the AI text bubble, then append a second message with `type: 'ticket-form'` so `ChatInlineTicketForm` renders directly under the bubble. Set `ticketSourceRef.current = 'inline'` and fire `trackEvent('ticket.form_shown', evCtx, { source: 'inline' })`. If `ticketCreated` is already true, append the "تم إنشاء تذكرة مسبقاً" success message instead.
+   - If `result.action?.type === "offer_close"`: append the AI text bubble with `quickReplies: [{label:'نعم',value:'yes'},{label:'لا',value:'no'}]`.
 
-Trigger rules baked into the classifier prompt (Arabic + English aware):
-- `offer_ticket` — user explicitly asks for human / موظف / تذكرة, OR the assistant has failed to answer the same intent across the last 2–3 turns, OR question is clearly out of scope.
-- `offer_close` — last user message is a thank-you / satisfaction signal ("شكراً", "تمام", "خلاص") and no open question remains.
-- `none` — otherwise.
+2. Add `handleQuickReplyPick(messageId, value)`:
+   - Mark that message `quickReplyPicked: true`.
+   - `no` → `setCurrentScreen('rating')` (and fire `closeConversation(evCtx, 'manual')`).
+   - `yes` → call `handleSendMessage('نعم')`.
 
-If the classifier call fails or returns invalid JSON, default to `none` (never block the reply).
+3. Pass `onQuickReplyPick={handleQuickReplyPick}` to `<ChatMessage>` in the render loop. `ChatMessage` and `QuickReplies` already support this.
 
-## chat-ai response contract
+4. Safety guard against the loop: in `handleSendMessage`, before calling the backend, if the last assistant message has `action === 'offer_ticket'` and the user's text is a short affirmative (نعم / اي / ايوه / تمام / yes / ok), skip the backend call and just append the inline `ticket-form` message locally.
 
-```json
-{
-  "reply": "…",
-  "attachments": [...],
-  "action": { "type": "offer_ticket" | "offer_close" | "none", "reason": "…" },
-  "tenant_id": "…",
-  "conversation_id": "…"
-}
-```
+## Files changed
 
-When `action.type === "offer_ticket"` and the classifier didn't already phrase it, `chat-ai` overrides `reply` with: **"هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟"**
-When `action.type === "offer_close"`, it overrides `reply` with: **"هل تحتاج أي مساعدة أخرى؟"**
-(Original n8n reply is preserved in logs for debugging.)
+- `widget/src/app/components/ChatWindow.tsx` (only file).
+- Optionally tighten `Message.action` typing if needed — already declared in `ChatWidget.tsx`.
 
-## Widget behavior
-
-`widget/src/app/components/ChatWidget.tsx` `handleSendMessage` branches on `action.type`:
-
-- `offer_ticket` → append the AI text bubble, then append a second message with `type: 'ticket-form'` that renders **`ChatInlineTicketForm`** directly under the bubble (the phone+country box the user is asking for — reuses existing component). On submit, mark `ticketFormSubmitted`, then `setCurrentScreen('ticket-created')`.
-- `offer_close` → append the AI text bubble plus quick-reply chips `نعم` / `لا`.
-  - `لا` → `setCurrentScreen('rating')`.
-  - `نعم` → send "نعم" as a normal user turn and continue.
-- `none` / missing → normal render.
-
-Quick-reply chips: small new themed component `QuickReplies.tsx` rendered by `ChatMessage` when `message.quickReplies` is set.
-
-## Files to change
-
-- `supabase/functions/chat-ai/index.ts`
-  After receiving `aiData` from n8n, call a new helper `classifyAction(history, lastUserMessage, reply)` that hits OpenAI Chat Completions with `response_format: { type: "json_object" }`. Wrap in try/catch with a 4s timeout — on failure return `{ type: "none" }`. Apply `reply` override for `offer_ticket` / `offer_close`. Include `action` in the JSON response. Persist the (possibly overridden) `reply` as today.
-
-- `widget/src/app/utils/chatApi.ts`
-  Extend `SendMessageResult` with `action?: { type: 'offer_ticket' | 'offer_close' | 'none'; reason?: string }` and surface it from the JSON body.
-
-- `widget/src/app/components/ChatWidget.tsx`
-  Extend `Message` with optional `quickReplies?: { label: string; value: 'yes' | 'no' }[]`. Branch on `action.type` after the assistant message is appended. Wire chip handlers (`onPickYes`, `onPickNo`) and inline-form submit (already supported via `type: 'ticket-form'`).
-
-- `widget/src/app/components/ChatMessage.tsx`
-  Render `<QuickReplies>` under assistant bubbles when `message.quickReplies` is set. Keep existing `ticket-form` path unchanged.
-
-- `widget/src/app/components/QuickReplies.tsx` (new)
-  Two themed pill buttons (نعم / لا) calling `onPick(value)`.
-
-- `docs/n8n/README.md`
-  One short note: classification now lives in `chat-ai`; n8n only needs to return `reply` (and optional `attachments`). No workflow change required.
-
-## What is not changed
-
-- No DB migrations, no new edge functions, no new secrets (uses existing `OPENAI_API_KEY`).
-- n8n workflow stays as-is.
-- Existing manual X-button → confirm modal → ticket/rating fallback remains.
+No backend or edge function changes — `chat-ai` is already returning the correct flag.
 
 ## Validation
 
-1. Three vague/unanswered turns → `action.type=offer_ticket` → phone box renders under the AI bubble → submit → ticket-created screen.
-2. User sends "شكراً" → `action.type=offer_close` → نعم/لا chips render → tap لا → rating screen.
-3. Normal Q&A → no chips, no form, unchanged.
-4. Force OpenAI failure (bad key) → reply still delivered, `action.type=none`.
+1. Type "احكي مع موظف" → AI bubble "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟" appears, immediately followed by the phone+country inline form.
+2. Submitting the phone creates a ticket and shows the ticket-created screen (existing `handleInlineTicketSubmit` path).
+3. If the user instead types "اي نعم", the phone form opens locally (no AI loop).
+4. Saying "شكراً" → AI bubble + نعم/لا chips; tapping لا opens the rating screen.
+5. Normal Q&A turns unchanged.
