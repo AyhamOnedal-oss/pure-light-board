@@ -11,7 +11,6 @@ const supabase = createClient(
 );
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const RATE_LIMIT_PER_MIN = 30;
 
 type ActionType = "offer_ticket" | "offer_close" | "none";
@@ -56,67 +55,65 @@ function isShortNegative(text: string): boolean {
   return /^(لا|لا شكرا|لاشكرا|لأ|مشكور|شكرا|شكرا لك|تمام شكرا|no|nope|nothing|that'?s all|im good|i'?m good)$/.test(n);
 }
 
-async function classifyAction(
-  history: Array<{ sender: string; text: string }>,
-  lastUserMessage: string,
-  reply: string,
-): Promise<{ type: ActionType; reason?: string }> {
-  if (!OPENAI_API_KEY) return { type: "none" };
-  const transcript = [
-    ...history.slice(-6).map((h) => `${h.sender}: ${h.text}`),
-    `customer: ${lastUserMessage}`,
-    `ai: ${reply}`,
-  ].join("\n");
+// Extracts the n8n agent envelope from whatever shape the webhook returns.
+// Supports: direct object, { output: {...} }, arrays of either, and the
+// parser sometimes returning a JSON string. Falls back to { reply: <text> }.
+function extractEnvelope(raw: unknown): {
+  reply: string;
+  next_action: ActionType;
+  next_action_reason: string;
+  attempt_state: string;
+  consecutive_failures: number;
+  attachments: unknown[];
+} {
+  const fallback = (reply = "") => ({
+    reply,
+    next_action: "none" as ActionType,
+    next_action_reason: "",
+    attempt_state: "",
+    consecutive_failures: 0,
+    attachments: [],
+  });
 
-  const system = `You classify the state of an Arabic customer-service chat and return STRICT JSON only.
-Output schema: {"type":"offer_ticket"|"offer_close"|"none","reason":"short"}.
+  let node: any = raw;
+  if (Array.isArray(node)) node = node[0];
+  if (!node) return fallback();
 
-Rules:
-- "offer_ticket": customer explicitly asks for a human agent / موظف / تذكرة, OR the assistant has failed to answer the same intent across the last 2-3 turns (repeated apologies, "لا أعرف", off-topic answers), OR the question is clearly out of scope for an e-commerce store assistant.
-- "offer_close": the last customer message is a thank-you or satisfaction signal (شكراً / تمام / خلاص / تم / ok / thanks) AND there is no open question remaining.
-- "none": otherwise.
-- NEVER return "offer_close" if the previous assistant turn already asked "هل تحتاج أي مساعدة أخرى؟" or any close-offer phrase.
-- NEVER return "offer_close" when the latest customer message is a negative reply (لا / لا شكرا / no / nope).
-- NEVER return "offer_ticket" if the previous assistant turn already offered to contact customer service.
-Return JSON only, no markdown.`;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        temperature: 0,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: transcript },
-        ],
-      }),
-    });
-    clearTimeout(timeout);
-    if (!res.ok) {
-      console.log("classifier non-200", res.status);
-      return { type: "none" };
+  // Unwrap common LangChain wrappers.
+  for (const key of ["output", "json", "data"]) {
+    if (node && typeof node === "object" && key in node && node[key] != null) {
+      // If output is a string that looks like JSON, parse it.
+      if (typeof node[key] === "string") {
+        const s = node[key].trim();
+        if (s.startsWith("{") || s.startsWith("[")) {
+          try { node = JSON.parse(s); break; } catch { /* fall through */ }
+        }
+      } else if (typeof node[key] === "object") {
+        node = node[key];
+        break;
+      }
     }
-    const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw);
-    const t = parsed?.type;
-    if (t === "offer_ticket" || t === "offer_close" || t === "none") {
-      return { type: t, reason: parsed?.reason };
-    }
-    return { type: "none" };
-  } catch (e) {
-    console.log("classifier failed (non-fatal):", e);
-    return { type: "none" };
   }
+  if (Array.isArray(node)) node = node[0];
+
+  if (!node || typeof node !== "object") {
+    return fallback(typeof raw === "string" ? raw : "");
+  }
+
+  const reply =
+    node.reply ?? node.message ?? node.text ?? node.output ?? "";
+  const na = node.next_action;
+  const next_action: ActionType =
+    na === "offer_ticket" || na === "offer_close" || na === "none" ? na : "none";
+
+  return {
+    reply: typeof reply === "string" ? reply : String(reply ?? ""),
+    next_action,
+    next_action_reason: String(node.next_action_reason ?? ""),
+    attempt_state: String(node.attempt_state ?? ""),
+    consecutive_failures: Number(node.consecutive_failures ?? 0) || 0,
+    attachments: Array.isArray(node.attachments) ? node.attachments : [],
+  };
 }
 
 async function checkRateLimit(tenantId: string): Promise<boolean> {
@@ -348,12 +345,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "ai_upstream_error", status: n8nRes.status }, 502);
     }
 
-    const aiData = await n8nRes.json().catch(() => ({}));
-    let reply: string =
-      aiData.reply ?? aiData.message ?? aiData.text ?? aiData.output ?? "";
-
-    // Pass through structured attachments (product cards, etc.) from n8n.
-    const attachments = Array.isArray(aiData.attachments) ? aiData.attachments : [];
+    const rawText = await n8nRes.text();
+    let aiData: unknown;
+    try { aiData = JSON.parse(rawText); } catch { aiData = rawText; }
+    const env = extractEnvelope(aiData);
+    let reply: string = env.reply;
+    const attachments = env.attachments;
+    console.log("n8n envelope:", {
+      next_action: env.next_action,
+      next_action_reason: env.next_action_reason,
+      attempt_state: env.attempt_state,
+      consecutive_failures: env.consecutive_failures,
+      has_reply: !!reply,
+    });
 
     // ── Hard end-of-conversation short-circuit ────────────────────────────
     // If the previous AI message already asked "هل تحتاج أي مساعدة أخرى؟"
@@ -373,30 +377,20 @@ Deno.serve(async (req) => {
       action = { type: "offer_close_done", reason: "user_declined_after_close_offer" };
       console.log("chat-ai end-of-convo short-circuit fired");
     } else {
-      // Classify whether to escalate to a ticket or offer to close.
-      const classified = await classifyAction(histArr, message, reply);
-      const originalReply = reply;
+      // Trust the n8n agent's structured decision.
+      // Anti-loop guard: if the agent wants to re-offer something the previous
+      // AI turn already offered, downgrade to "none" so we don't spam the user.
+      const wantsTicket = env.next_action === "offer_ticket";
+      const wantsClose = env.next_action === "offer_close";
+      const isLoop =
+        (wantsClose && prevWasCloseOffer) ||
+        (wantsTicket && prevWasTicketOffer);
 
-      // Anti-loop guard: if classifier wants to re-stamp the same offer that
-      // was already asked in the previous AI turn, pass n8n's reply through.
-      const skipOverwrite =
-        (classified.type === "offer_close" && prevWasCloseOffer) ||
-        (classified.type === "offer_ticket" && prevWasTicketOffer);
-
-      if (!skipOverwrite) {
-        if (classified.type === "offer_ticket") {
-          reply = "هل ترغب أن يتواصل معك أحد موظفي خدمة العملاء؟";
-        } else if (classified.type === "offer_close") {
-          reply = "هل تحتاج أي مساعدة أخرى؟";
-        }
-        action = classified;
-      } else {
-        console.log("chat-ai anti-loop: skipped re-overwrite for", classified.type);
+      if (isLoop) {
+        console.log("chat-ai anti-loop: dropped", env.next_action);
         action = { type: "none", reason: "anti_loop" };
-      }
-
-      if (action.type !== "none") {
-        console.log("chat-ai action:", action.type, "| original reply:", originalReply);
+      } else if (wantsTicket || wantsClose) {
+        action = { type: env.next_action, reason: env.next_action_reason };
       }
     }
 
