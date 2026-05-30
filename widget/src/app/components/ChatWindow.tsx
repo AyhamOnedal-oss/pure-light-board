@@ -686,6 +686,7 @@ export function ChatWindow({
                       mainColor={mainColor}
                       isDarkMode={isDarkMode}
                       modeColors={modeColors}
+                      onQuickReplyPick={handleQuickReplyPick}
                       onFeedbackChange={(id, fb) => {
                         setMessages(prev => prev.map(m => (m.id === id ? { ...m, feedback: fb } : m)));
                         postFeedback(evCtx, id, fb);
