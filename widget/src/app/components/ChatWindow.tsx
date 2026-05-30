@@ -82,8 +82,35 @@ function generateTicketId(): string {
 }
 
 function isShortAffirmative(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/[.!؟?،,]/g, '').replace(/\s+/g, ' ');
+  const normalized = normalizeAssistantTriggerText(text);
   return /^(نعم|اي|اي نعم|إي|إي نعم|ايه|ايوه|أيوه|تمام|تم|اكيد|أكيد|yes|yeah|yep|ok|okay)$/.test(normalized);
+}
+
+function normalizeAssistantTriggerText(text?: string): string {
+  return (text ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[إأآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[.!؟?،,؛:]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function isTicketOfferPrompt(text?: string): boolean {
+  const normalized = normalizeAssistantTriggerText(text);
+  return normalized.includes('يتواصل معك احد موظفي خدمه العملاء')
+    || normalized.includes('اكلم خدمه العملاء')
+    || (normalized.includes('customer service') && normalized.includes('contact'));
+}
+
+function isCloseOfferPrompt(text?: string): boolean {
+  const normalized = normalizeAssistantTriggerText(text);
+  return normalized.includes('هل تحتاج اي مساعده اخري')
+    || normalized.includes('هل تحتاج اي مساعده اخرى')
+    || normalized.includes('do you need any other help');
 }
 
 export function ChatWindow({
@@ -184,7 +211,10 @@ export function ChatWindow({
       });
     }
 
-    if (!attachment && lastAssistantMessage?.action === 'offer_ticket' && isShortAffirmative(text)) {
+    const lastAssistantOfferedTicket = lastAssistantMessage?.action === 'offer_ticket'
+      || isTicketOfferPrompt(lastAssistantMessage?.text);
+
+    if (!attachment && lastAssistantOfferedTicket && isShortAffirmative(text)) {
       if (hasOpenTicketForm) return;
       if (ticketCreated) {
         injectTicketAlreadyExistsMessage();
@@ -256,25 +286,28 @@ export function ChatWindow({
         : result.error
           ? 'تعذّر الاتصال بالخادم، يرجى المحاولة مرة أخرى.'
           : 'شكراً لتواصلك معنا! سنقوم بالرد عليك قريباً.');
+    const isOfferTicket = result.action?.type === 'offer_ticket' || isTicketOfferPrompt(replyText);
+    const isOfferClose = result.action?.type === 'offer_close' || isCloseOfferPrompt(replyText);
+
     const response: Message = {
       id: (Date.now() + 1).toString(),
       text: replyText,
       sender: 'store',
       timestamp: new Date(),
-      quickReplies: result.action?.type === 'offer_close'
+      quickReplies: isOfferClose
         ? [
             { label: 'نعم', value: 'yes' },
             { label: 'لا', value: 'no' },
           ]
         : undefined,
-      action: result.action?.type === 'offer_close'
+      action: isOfferClose
         ? 'offer_close'
-        : result.action?.type === 'offer_ticket'
+        : isOfferTicket
           ? 'offer_ticket'
           : undefined,
     };
 
-    if (result.action?.type === 'offer_ticket' && !result.rateLimited && !result.error) {
+    if (isOfferTicket && !result.rateLimited && !result.error) {
       if (ticketCreated) {
         setMessages(prev => [...prev, response]);
         injectTicketAlreadyExistsMessage();
