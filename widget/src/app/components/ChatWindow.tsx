@@ -81,6 +81,11 @@ function generateTicketId(): string {
   return '#TKT-' + Math.floor(10000 + Math.random() * 90000);
 }
 
+function isShortAffirmative(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/[.!؟?،,]/g, '');
+  return /^(نعم|اي|إي|ايه|ايوه|أيوه|تمام|تم|اكيد|أكيد|yes|yeah|yep|ok|okay)$/.test(normalized);
+}
+
 export function ChatWindow({
   theme, position, onClose, onReturnToChat,
   storeName, storeLogo, storeIcon, storeId, conversationId, onConversationIdChange,
