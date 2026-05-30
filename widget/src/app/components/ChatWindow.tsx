@@ -82,8 +82,8 @@ function generateTicketId(): string {
 }
 
 function isShortAffirmative(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/[.!؟?،,]/g, '');
-  return /^(نعم|اي|إي|ايه|ايوه|أيوه|تمام|تم|اكيد|أكيد|yes|yeah|yep|ok|okay)$/.test(normalized);
+  const normalized = text.trim().toLowerCase().replace(/[.!؟?،,]/g, '').replace(/\s+/g, ' ');
+  return /^(نعم|اي|اي نعم|إي|إي نعم|ايه|ايوه|أيوه|تمام|تم|اكيد|أكيد|yes|yeah|yep|ok|okay)$/.test(normalized);
 }
 
 export function ChatWindow({
@@ -184,7 +184,8 @@ export function ChatWindow({
       });
     }
 
-    if (!attachment && lastAssistantMessage?.action === 'offer_ticket' && isShortAffirmative(text) && !hasOpenTicketForm) {
+    if (!attachment && lastAssistantMessage?.action === 'offer_ticket' && isShortAffirmative(text)) {
+      if (hasOpenTicketForm) return;
       if (ticketCreated) {
         injectTicketAlreadyExistsMessage();
         return;
