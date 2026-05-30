@@ -1,22 +1,14 @@
 /**
- * CountryFlag — Real 4:3 SVG flags via `country-flag-icons`.
+ * CountryFlag — dependency-free flag chip for the standalone widget bundle.
  *
- * Rendered inside a fixed-size <span> so flex parents with `items-stretch`
- * cannot deform the flag. Bundled, no network calls.
+ * The deployed `widget.js` must build as a single file, so avoid importing the
+ * optional `country-flag-icons` package here. Emoji flags keep the selector
+ * visible and remove a fragile runtime/build dependency.
  */
-import SA from 'country-flag-icons/react/3x2/SA';
-import AE from 'country-flag-icons/react/3x2/AE';
-import KW from 'country-flag-icons/react/3x2/KW';
-import QA from 'country-flag-icons/react/3x2/QA';
-import BH from 'country-flag-icons/react/3x2/BH';
-import OM from 'country-flag-icons/react/3x2/OM';
-import YE from 'country-flag-icons/react/3x2/YE';
-import IQ from 'country-flag-icons/react/3x2/IQ';
-import JO from 'country-flag-icons/react/3x2/JO';
-import EG from 'country-flag-icons/react/3x2/EG';
 
-const MAP: Record<string, React.ComponentType<{ title?: string; style?: React.CSSProperties }>> = {
-  SA, AE, KW, QA, BH, OM, YE, IQ, JO, EG,
+const FLAG_EMOJI: Record<string, string> = {
+  SA: '🇸🇦', AE: '🇦🇪', KW: '🇰🇼', QA: '🇶🇦', BH: '🇧🇭', OM: '🇴🇲',
+  YE: '🇾🇪', IQ: '🇮🇶', JO: '🇯🇴', EG: '🇪🇬',
 };
 
 interface CountryFlagProps {
@@ -28,7 +20,7 @@ interface CountryFlagProps {
 }
 
 export function CountryFlag({ code, size = 20, className }: CountryFlagProps) {
-  const Flag = MAP[code];
+  const flag = FLAG_EMOJI[code];
   const w = size;
   const h = Math.round((size * 2) / 3); // 3:2 aspect
   return (
@@ -50,8 +42,10 @@ export function CountryFlag({ code, size = 20, className }: CountryFlagProps) {
         lineHeight: 0,
       }}
     >
-      {Flag ? (
-        <Flag title={code} style={{ width: '100%', height: '100%', display: 'block' }} />
+      {flag ? (
+        <span aria-hidden="true" style={{ fontSize: `${Math.round(size * 0.72)}px`, lineHeight: 1 }}>
+          {flag}
+        </span>
       ) : (
         <span style={{ fontSize: '10px', color: '#6b7280' }}>{code}</span>
       )}
