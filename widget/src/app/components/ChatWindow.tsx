@@ -106,13 +106,6 @@ function isTicketOfferPrompt(text?: string): boolean {
     || (normalized.includes('customer service') && normalized.includes('contact'));
 }
 
-function isCloseOfferPrompt(text?: string): boolean {
-  const normalized = normalizeAssistantTriggerText(text);
-  return normalized.includes('هل تحتاج اي مساعده اخري')
-    || normalized.includes('هل تحتاج اي مساعده اخرى')
-    || normalized.includes('do you need any other help');
-}
-
 export function ChatWindow({
   theme, position, onClose, onReturnToChat,
   storeName, storeLogo, storeIcon, storeId, conversationId, onConversationIdChange,
