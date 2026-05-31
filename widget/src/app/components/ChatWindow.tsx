@@ -406,7 +406,21 @@ export function ChatWindow({
           : m,
       ),
     );
-    setCurrentScreen('ticket-created');
+    // Inject bot confirmation message inline, then auto-transition to rating.
+    setTimeout(() => {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `ticket-confirm-${Date.now()}`,
+          text: 'تم استلام رقمك ✅ سيتواصل معك أحد موظفي خدمة العملاء في أقرب وقت. شكراً لك 🌷',
+          sender: 'store' as const,
+          timestamp: new Date(),
+        },
+      ]);
+    }, 400);
+    setTimeout(() => {
+      setCurrentScreen('rating');
+    }, 5000);
   };
 
   // ── Download chat ─────────────────────────────────────────────────────────
