@@ -28,8 +28,11 @@ function estimateCost(model: string, promptTokens: number, completionTokens: num
   return (promptTokens / 1_000_000) * p.input + (completionTokens / 1_000_000) * p.output;
 }
 
-type ClassifierVerdict = {
-  intent: "offer_ticket" | "offer_close" | "continue";
+type ReplyIntent = "offer_ticket" | "offer_close" | "continue";
+type UserIntent = "end_conversation" | "request_ticket" | "normal";
+
+type ClassifierVerdict<I extends string = ReplyIntent> = {
+  intent: I;
   confidence: number;
   model: string;
   prompt_tokens: number;
@@ -41,10 +44,10 @@ type ClassifierVerdict = {
   error?: string;
 };
 
-async function callOpenAIClassifier(
+async function callOpenAI(
   model: string,
-  reply: string,
-  lastUserMessage: string,
+  systemPrompt: string,
+  userPrompt: string,
   signal: AbortSignal,
 ): Promise<Response> {
   return fetch("https://api.openai.com/v1/chat/completions", {
@@ -59,32 +62,37 @@ async function callOpenAIClassifier(
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content:
-            "You classify a customer-support AI reply (Arabic or English). " +
-            "Return strict JSON: {\"intent\":\"offer_ticket\"|\"offer_close\"|\"continue\",\"confidence\":0-1}. " +
-            "offer_ticket = reply offers/suggests connecting the user with a human agent, customer service, or raising a support ticket. " +
-            "offer_close = reply is wrapping up and asking if the user needs anything else. " +
-            "continue = anything else (normal answer, info, clarification, product help).",
-        },
-        {
-          role: "user",
-          content:
-            `Last user message: ${lastUserMessage}\n\nAI reply: ${reply}\n\nReturn JSON only.`,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt   },
       ],
     }),
   });
 }
 
-async function classifyIntent(
-  reply: string,
-  lastUserMessage: string,
-): Promise<ClassifierVerdict> {
+const REPLY_SYS_PROMPT =
+  "You classify a customer-support AI reply (Arabic or English). " +
+  "Return strict JSON: {\"intent\":\"offer_ticket\"|\"offer_close\"|\"continue\",\"confidence\":0-1}. " +
+  "offer_ticket = reply offers/suggests connecting the user with a human agent, customer service, or raising a support ticket. " +
+  "offer_close = reply is wrapping up and asking if the user needs anything else. " +
+  "continue = anything else (normal answer, info, clarification, product help).";
+
+const USER_SYS_PROMPT =
+  "You classify the LATEST customer message in a support chat (Arabic or English). " +
+  "Return strict JSON: {\"intent\":\"end_conversation\"|\"request_ticket\"|\"normal\",\"confidence\":0-1}. " +
+  "end_conversation = the customer signals they're done: short negatives or farewells like \"لا شكراً\", \"شكراً\", \"تمام شكراً\", \"خلاص\", \"كفاية\", \"بس كذا\", \"يعطيك العافية\", \"مع السلامه\", \"no thanks\", \"that's all\", \"i'm good\", \"bye\". " +
+  "request_ticket = the customer explicitly asks to escalate to a human/support/ticket: \"أبي تذكرة\", \"افتح لي تذكرة\", \"كلموني\", \"اتصلوا فيني\", \"أبي أكلم خدمة العملاء\", \"موظف\", \"raise a ticket\", \"talk to support\", \"contact me\", \"speak to a human\". " +
+  "normal = anything else: questions, requests for info, product questions, complaints that do NOT explicitly ask for a ticket, greetings, ambiguous messages. " +
+  "Be conservative: only use end_conversation or request_ticket when the signal is clear.";
+
+async function runClassifier<I extends string>(
+  systemPrompt: string,
+  userPrompt: string,
+  defaultIntent: I,
+  allowedIntents: readonly I[],
+): Promise<ClassifierVerdict<I>> {
   const started = Date.now();
-  const base: ClassifierVerdict = {
-    intent: "continue",
+  const base: ClassifierVerdict<I> = {
+    intent: defaultIntent,
     confidence: 0,
     model: CLASSIFIER_MODEL_PRIMARY,
     prompt_tokens: 0,
@@ -100,11 +108,10 @@ async function classifyIntent(
   const timer = setTimeout(() => ctrl.abort(), CLASSIFIER_TIMEOUT_MS);
   try {
     let model = CLASSIFIER_MODEL_PRIMARY;
-    let res = await callOpenAIClassifier(model, reply, lastUserMessage, ctrl.signal);
+    let res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
     if (res.status === 404 || res.status === 400) {
-      // Fallback if the nano model id isn't enabled on this account.
       model = CLASSIFIER_MODEL_FALLBACK;
-      res = await callOpenAIClassifier(model, reply, lastUserMessage, ctrl.signal);
+      res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
     }
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
@@ -114,10 +121,9 @@ async function classifyIntent(
     const content: string = data?.choices?.[0]?.message?.content ?? "{}";
     let parsed: { intent?: string; confidence?: number } = {};
     try { parsed = JSON.parse(content); } catch { /* leave empty */ }
-    const intent =
-      parsed.intent === "offer_ticket" || parsed.intent === "offer_close"
-        ? parsed.intent
-        : "continue";
+    const intent: I = (allowedIntents as readonly string[]).includes(parsed.intent ?? "")
+      ? (parsed.intent as I)
+      : defaultIntent;
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
     const pt = Number(data?.usage?.prompt_tokens ?? 0) || 0;
     const ct = Number(data?.usage?.completion_tokens ?? 0) || 0;
@@ -139,49 +145,27 @@ async function classifyIntent(
     clearTimeout(timer);
   }
 }
+
+function classifyReplyIntent(reply: string, lastUserMessage: string) {
+  return runClassifier<ReplyIntent>(
+    REPLY_SYS_PROMPT,
+    `Last user message: ${lastUserMessage}\n\nAI reply: ${reply}\n\nReturn JSON only.`,
+    "continue",
+    ["offer_ticket", "offer_close", "continue"] as const,
+  );
+}
+
+function classifyUserIntent(message: string) {
+  return runClassifier<UserIntent>(
+    USER_SYS_PROMPT,
+    `Customer message: ${message}\n\nReturn JSON only.`,
+    "normal",
+    ["end_conversation", "request_ticket", "normal"] as const,
+  );
+}
 const RATE_LIMIT_PER_MIN = 30;
 
-type ActionType = "offer_ticket" | "offer_close" | "none";
-
-function normalizeAr(text: string): string {
-  return (text ?? "")
-    .toString()
-    .trim()
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u064B-\u065F\u0670]/g, "")
-    .replace(/[إأآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/[.!؟?،,؛:]/g, "")
-    .replace(/\s+/g, " ");
-}
-
-function isCloseOfferText(text: string): boolean {
-  const n = normalizeAr(text);
-  return (
-    n.includes("هل تحتاج اي مساعده اخري") ||
-    n.includes("هل تحتاج اي مساعده اخرى") ||
-    n.includes("هل تحتاج مساعده اضافيه") ||
-    n.includes("هل تحتاج اي مساعده") ||
-    n.includes("do you need any other help") ||
-    n.includes("anything else")
-  );
-}
-
-function isTicketOfferText(text: string): boolean {
-  const n = normalizeAr(text);
-  return (
-    n.includes("يتواصل معك احد موظفي خدمه العملاء") ||
-    n.includes("اكلم خدمه العملاء") ||
-    (n.includes("customer service") && n.includes("contact"))
-  );
-}
-
-function isShortNegative(text: string): boolean {
-  const n = normalizeAr(text);
-  return /^(لا|لا شكرا|لاشكرا|لأ|مشكور|شكرا|شكرا لك|تمام شكرا|no|nope|nothing|that'?s all|im good|i'?m good)$/.test(n);
-}
+type ActionType = "offer_ticket" | "offer_close" | "offer_close_done" | "none";
 
 // Extracts the n8n agent envelope from whatever shape the webhook returns.
 // Supports: direct object, { output: {...} }, arrays of either, and the

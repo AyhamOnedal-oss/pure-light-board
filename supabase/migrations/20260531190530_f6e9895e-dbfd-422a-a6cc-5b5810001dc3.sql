@@ -1,0 +1,1 @@
+ALTER TABLE public.ai_classifier_usage ADD COLUMN IF NOT EXISTS stage text;
