@@ -3,8 +3,9 @@
  * Supports Dark Mode via isDarkMode prop.
  */
 
+import { useEffect } from 'react';
 import type { Theme } from '../types/theme';
-import { CheckCircle2, Clock, Tag, ArrowRight, Download } from 'lucide-react';
+import { CheckCircle2, Clock, Tag, ArrowRight, Download, Star } from 'lucide-react';
 
 interface TicketCreatedScreenProps {
   theme: Theme;
@@ -23,6 +24,13 @@ export function TicketCreatedScreen({
   onClose, onBackToChat, onDownload,
   isDarkMode = false, mainColor,
 }: TicketCreatedScreenProps) {
+  // Auto-advance to the rating screen after a short pause so the user can
+  // rate the AI's handoff. onClose is wired by the parent to setCurrentScreen('rating').
+  useEffect(() => {
+    const t = setTimeout(() => { onClose(); }, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
   const isWhiteTheme = theme.background === '#FFFFFF';
   const isBlackTheme = theme.id === 'black';
   const accentColor = mainColor || ((isWhiteTheme || isBlackTheme) ? '#000000' : theme.background);
@@ -162,7 +170,7 @@ export function TicketCreatedScreen({
       >
         <button
           onClick={onClose}
-          className="w-full py-3 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mb-2.5"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mb-2.5"
           style={{
             background: accentColor,
             color: accentText,
@@ -170,7 +178,8 @@ export function TicketCreatedScreen({
             fontWeight: 700,
           }}
         >
-          حسناً، شكراً لك
+          <Star className="w-4 h-4" />
+          تقييم تجربتك
         </button>
 
         <button
