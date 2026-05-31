@@ -751,6 +751,62 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_classifier_usage: {
+        Row: {
+          completion_tokens: number
+          confidence: number
+          conversation_id: string | null
+          cost_usd: number
+          created_at: string
+          id: string
+          intent: string
+          latency_ms: number
+          model: string
+          prompt_tokens: number
+          source: string
+          tenant_id: string
+          total_tokens: number
+        }
+        Insert: {
+          completion_tokens?: number
+          confidence?: number
+          conversation_id?: string | null
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          intent: string
+          latency_ms?: number
+          model: string
+          prompt_tokens?: number
+          source: string
+          tenant_id: string
+          total_tokens?: number
+        }
+        Update: {
+          completion_tokens?: number
+          confidence?: number
+          conversation_id?: string | null
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          intent?: string
+          latency_ms?: number
+          model?: string
+          prompt_tokens?: number
+          source?: string
+          tenant_id?: string
+          total_tokens?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_classifier_usage_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "settings_workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       auth_tenant_members: {
         Row: {
           created_at: string
