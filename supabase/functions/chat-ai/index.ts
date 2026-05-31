@@ -12,19 +12,17 @@ const supabase = createClient(
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-const CLASSIFIER_MODEL_PRIMARY = "gpt-5.4-nano";
-const CLASSIFIER_MODEL_FALLBACK = "gpt-5-nano";
-const CLASSIFIER_TIMEOUT_MS = 800;
-const CLASSIFIER_MIN_CONFIDENCE = 0.6;
+const CLASSIFIER_MODEL = "gpt-4.1-nano";
+const CLASSIFIER_TIMEOUT_MS = 3000;
+const CLASSIFIER_MIN_CONFIDENCE = 0.5;
 
-// USD per 1M tokens. Update when official pricing is published.
+// USD per 1M tokens. Update when official pricing changes.
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-5.4-nano": { input: 0.05, output: 0.40 },
-  "gpt-5-nano":   { input: 0.05, output: 0.40 },
+  "gpt-4.1-nano": { input: 0.10, output: 0.40 },
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
-  const p = MODEL_PRICING[model] ?? { input: 0.05, output: 0.40 };
+  const p = MODEL_PRICING[model] ?? { input: 0.10, output: 0.40 };
   return (promptTokens / 1_000_000) * p.input + (completionTokens / 1_000_000) * p.output;
 }
 
@@ -94,7 +92,7 @@ async function runClassifier<I extends string>(
   const base: ClassifierVerdict<I> = {
     intent: defaultIntent,
     confidence: 0,
-    model: CLASSIFIER_MODEL_PRIMARY,
+    model: CLASSIFIER_MODEL,
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: 0,
@@ -107,15 +105,12 @@ async function runClassifier<I extends string>(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), CLASSIFIER_TIMEOUT_MS);
   try {
-    let model = CLASSIFIER_MODEL_PRIMARY;
-    let res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
-    if (res.status === 404 || res.status === 400) {
-      model = CLASSIFIER_MODEL_FALLBACK;
-      res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
-    }
+    const model = CLASSIFIER_MODEL;
+    const res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      return { ...base, model, ms: Date.now() - started, error: `http_${res.status}:${txt.slice(0, 120)}` };
+      console.error("classifier_http_error", { status: res.status, body: txt });
+      return { ...base, model, ms: Date.now() - started, error: `http_${res.status}:${txt.slice(0, 200)}` };
     }
     const data = await res.json();
     const content: string = data?.choices?.[0]?.message?.content ?? "{}";
