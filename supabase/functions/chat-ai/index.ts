@@ -351,7 +351,7 @@ Deno.serve(async (req) => {
           tenant_id,
           conversation_id,
           stage,
-          model: v?.model ?? CLASSIFIER_MODEL_PRIMARY,
+          model: v?.model ?? CLASSIFIER_MODEL,
           intent: v?.intent ?? decidedIntent,
           confidence: v?.confidence ?? 0,
           source,
