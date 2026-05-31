@@ -92,7 +92,7 @@ async function runClassifier<I extends string>(
   const base: ClassifierVerdict<I> = {
     intent: defaultIntent,
     confidence: 0,
-    model: CLASSIFIER_MODEL_PRIMARY,
+    model: CLASSIFIER_MODEL,
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: 0,
@@ -105,15 +105,12 @@ async function runClassifier<I extends string>(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), CLASSIFIER_TIMEOUT_MS);
   try {
-    let model = CLASSIFIER_MODEL_PRIMARY;
-    let res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
-    if (res.status === 404 || res.status === 400) {
-      model = CLASSIFIER_MODEL_FALLBACK;
-      res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
-    }
+    const model = CLASSIFIER_MODEL;
+    const res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      return { ...base, model, ms: Date.now() - started, error: `http_${res.status}:${txt.slice(0, 120)}` };
+      console.error("classifier_http_error", { status: res.status, body: txt });
+      return { ...base, model, ms: Date.now() - started, error: `http_${res.status}:${txt.slice(0, 200)}` };
     }
     const data = await res.json();
     const content: string = data?.choices?.[0]?.message?.content ?? "{}";
