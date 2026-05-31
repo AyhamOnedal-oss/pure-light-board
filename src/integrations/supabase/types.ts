@@ -764,6 +764,7 @@ export type Database = {
           model: string
           prompt_tokens: number
           source: string
+          stage: string | null
           tenant_id: string
           total_tokens: number
         }
@@ -779,6 +780,7 @@ export type Database = {
           model: string
           prompt_tokens?: number
           source: string
+          stage?: string | null
           tenant_id: string
           total_tokens?: number
         }
@@ -794,6 +796,7 @@ export type Database = {
           model?: string
           prompt_tokens?: number
           source?: string
+          stage?: string | null
           tenant_id?: string
           total_tokens?: number
         }

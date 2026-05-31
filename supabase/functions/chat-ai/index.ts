@@ -28,8 +28,11 @@ function estimateCost(model: string, promptTokens: number, completionTokens: num
   return (promptTokens / 1_000_000) * p.input + (completionTokens / 1_000_000) * p.output;
 }
 
-type ClassifierVerdict = {
-  intent: "offer_ticket" | "offer_close" | "continue";
+type ReplyIntent = "offer_ticket" | "offer_close" | "continue";
+type UserIntent = "end_conversation" | "request_ticket" | "normal";
+
+type ClassifierVerdict<I extends string = ReplyIntent> = {
+  intent: I;
   confidence: number;
   model: string;
   prompt_tokens: number;
@@ -41,10 +44,10 @@ type ClassifierVerdict = {
   error?: string;
 };
 
-async function callOpenAIClassifier(
+async function callOpenAI(
   model: string,
-  reply: string,
-  lastUserMessage: string,
+  systemPrompt: string,
+  userPrompt: string,
   signal: AbortSignal,
 ): Promise<Response> {
   return fetch("https://api.openai.com/v1/chat/completions", {
@@ -59,32 +62,37 @@ async function callOpenAIClassifier(
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content:
-            "You classify a customer-support AI reply (Arabic or English). " +
-            "Return strict JSON: {\"intent\":\"offer_ticket\"|\"offer_close\"|\"continue\",\"confidence\":0-1}. " +
-            "offer_ticket = reply offers/suggests connecting the user with a human agent, customer service, or raising a support ticket. " +
-            "offer_close = reply is wrapping up and asking if the user needs anything else. " +
-            "continue = anything else (normal answer, info, clarification, product help).",
-        },
-        {
-          role: "user",
-          content:
-            `Last user message: ${lastUserMessage}\n\nAI reply: ${reply}\n\nReturn JSON only.`,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt   },
       ],
     }),
   });
 }
 
-async function classifyIntent(
-  reply: string,
-  lastUserMessage: string,
-): Promise<ClassifierVerdict> {
+const REPLY_SYS_PROMPT =
+  "You classify a customer-support AI reply (Arabic or English). " +
+  "Return strict JSON: {\"intent\":\"offer_ticket\"|\"offer_close\"|\"continue\",\"confidence\":0-1}. " +
+  "offer_ticket = reply offers/suggests connecting the user with a human agent, customer service, or raising a support ticket. " +
+  "offer_close = reply is wrapping up and asking if the user needs anything else. " +
+  "continue = anything else (normal answer, info, clarification, product help).";
+
+const USER_SYS_PROMPT =
+  "You classify the LATEST customer message in a support chat (Arabic or English). " +
+  "Return strict JSON: {\"intent\":\"end_conversation\"|\"request_ticket\"|\"normal\",\"confidence\":0-1}. " +
+  "end_conversation = the customer signals they're done: short negatives or farewells like \"لا شكراً\", \"شكراً\", \"تمام شكراً\", \"خلاص\", \"كفاية\", \"بس كذا\", \"يعطيك العافية\", \"مع السلامه\", \"no thanks\", \"that's all\", \"i'm good\", \"bye\". " +
+  "request_ticket = the customer explicitly asks to escalate to a human/support/ticket: \"أبي تذكرة\", \"افتح لي تذكرة\", \"كلموني\", \"اتصلوا فيني\", \"أبي أكلم خدمة العملاء\", \"موظف\", \"raise a ticket\", \"talk to support\", \"contact me\", \"speak to a human\". " +
+  "normal = anything else: questions, requests for info, product questions, complaints that do NOT explicitly ask for a ticket, greetings, ambiguous messages. " +
+  "Be conservative: only use end_conversation or request_ticket when the signal is clear.";
+
+async function runClassifier<I extends string>(
+  systemPrompt: string,
+  userPrompt: string,
+  defaultIntent: I,
+  allowedIntents: readonly I[],
+): Promise<ClassifierVerdict<I>> {
   const started = Date.now();
-  const base: ClassifierVerdict = {
-    intent: "continue",
+  const base: ClassifierVerdict<I> = {
+    intent: defaultIntent,
     confidence: 0,
     model: CLASSIFIER_MODEL_PRIMARY,
     prompt_tokens: 0,
@@ -100,11 +108,10 @@ async function classifyIntent(
   const timer = setTimeout(() => ctrl.abort(), CLASSIFIER_TIMEOUT_MS);
   try {
     let model = CLASSIFIER_MODEL_PRIMARY;
-    let res = await callOpenAIClassifier(model, reply, lastUserMessage, ctrl.signal);
+    let res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
     if (res.status === 404 || res.status === 400) {
-      // Fallback if the nano model id isn't enabled on this account.
       model = CLASSIFIER_MODEL_FALLBACK;
-      res = await callOpenAIClassifier(model, reply, lastUserMessage, ctrl.signal);
+      res = await callOpenAI(model, systemPrompt, userPrompt, ctrl.signal);
     }
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
@@ -114,10 +121,9 @@ async function classifyIntent(
     const content: string = data?.choices?.[0]?.message?.content ?? "{}";
     let parsed: { intent?: string; confidence?: number } = {};
     try { parsed = JSON.parse(content); } catch { /* leave empty */ }
-    const intent =
-      parsed.intent === "offer_ticket" || parsed.intent === "offer_close"
-        ? parsed.intent
-        : "continue";
+    const intent: I = (allowedIntents as readonly string[]).includes(parsed.intent ?? "")
+      ? (parsed.intent as I)
+      : defaultIntent;
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
     const pt = Number(data?.usage?.prompt_tokens ?? 0) || 0;
     const ct = Number(data?.usage?.completion_tokens ?? 0) || 0;
@@ -139,49 +145,27 @@ async function classifyIntent(
     clearTimeout(timer);
   }
 }
+
+function classifyReplyIntent(reply: string, lastUserMessage: string) {
+  return runClassifier<ReplyIntent>(
+    REPLY_SYS_PROMPT,
+    `Last user message: ${lastUserMessage}\n\nAI reply: ${reply}\n\nReturn JSON only.`,
+    "continue",
+    ["offer_ticket", "offer_close", "continue"] as const,
+  );
+}
+
+function classifyUserIntent(message: string) {
+  return runClassifier<UserIntent>(
+    USER_SYS_PROMPT,
+    `Customer message: ${message}\n\nReturn JSON only.`,
+    "normal",
+    ["end_conversation", "request_ticket", "normal"] as const,
+  );
+}
 const RATE_LIMIT_PER_MIN = 30;
 
-type ActionType = "offer_ticket" | "offer_close" | "none";
-
-function normalizeAr(text: string): string {
-  return (text ?? "")
-    .toString()
-    .trim()
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u064B-\u065F\u0670]/g, "")
-    .replace(/[إأآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/[.!؟?،,؛:]/g, "")
-    .replace(/\s+/g, " ");
-}
-
-function isCloseOfferText(text: string): boolean {
-  const n = normalizeAr(text);
-  return (
-    n.includes("هل تحتاج اي مساعده اخري") ||
-    n.includes("هل تحتاج اي مساعده اخرى") ||
-    n.includes("هل تحتاج مساعده اضافيه") ||
-    n.includes("هل تحتاج اي مساعده") ||
-    n.includes("do you need any other help") ||
-    n.includes("anything else")
-  );
-}
-
-function isTicketOfferText(text: string): boolean {
-  const n = normalizeAr(text);
-  return (
-    n.includes("يتواصل معك احد موظفي خدمه العملاء") ||
-    n.includes("اكلم خدمه العملاء") ||
-    (n.includes("customer service") && n.includes("contact"))
-  );
-}
-
-function isShortNegative(text: string): boolean {
-  const n = normalizeAr(text);
-  return /^(لا|لا شكرا|لاشكرا|لأ|مشكور|شكرا|شكرا لك|تمام شكرا|no|nope|nothing|that'?s all|im good|i'?m good)$/.test(n);
-}
+type ActionType = "offer_ticket" | "offer_close" | "offer_close_done" | "none";
 
 // Extracts the n8n agent envelope from whatever shape the webhook returns.
 // Supports: direct object, { output: {...} }, arrays of either, and the
@@ -360,6 +344,102 @@ Deno.serve(async (req) => {
       console.log("conversation upsert failed (non-fatal):", e);
     }
 
+    // ── Helper: log a classifier verdict (best-effort) ────────────────────
+    const logClassifier = async (
+      stage: "user_intent" | "reply_intent",
+      v: ClassifierVerdict<string> | null,
+      decidedIntent: string,
+      source: string,
+    ) => {
+      try {
+        await supabase.from("ai_classifier_usage").insert({
+          tenant_id,
+          conversation_id,
+          stage,
+          model: v?.model ?? CLASSIFIER_MODEL_PRIMARY,
+          intent: v?.intent ?? decidedIntent,
+          confidence: v?.confidence ?? 0,
+          source,
+          prompt_tokens: v?.prompt_tokens ?? 0,
+          completion_tokens: v?.completion_tokens ?? 0,
+          total_tokens: v?.total_tokens ?? 0,
+          cost_usd: v?.cost_usd ?? 0,
+          latency_ms: v?.ms ?? 0,
+        });
+      } catch (e) {
+        console.log("classifier usage insert failed (non-fatal):", e);
+      }
+    };
+
+    // ── Helper: persist user + AI messages (best-effort) ──────────────────
+    const persistMessages = async (userText: string, aiText: string) => {
+      if (!conversation_id) return;
+      try {
+        const nowMs = Date.now();
+        await supabase.from("conversations_messages").insert({
+          tenant_id,
+          conversation_id,
+          sender: "customer",
+          kind: "text",
+          body: userText,
+          word_count: userText.split(/\s+/).length,
+          created_at: new Date(nowMs).toISOString(),
+        });
+        await supabase.from("conversations_messages").insert({
+          tenant_id,
+          conversation_id,
+          sender: "ai",
+          kind: "text",
+          body: aiText,
+          word_count: aiText.split(/\s+/).length,
+          created_at: new Date(nowMs + 50).toISOString(),
+        });
+      } catch (e) {
+        console.log("persist failed (non-fatal):", e);
+      }
+    };
+
+    // ── Stage 1: classify the USER message before doing anything heavy ────
+    // Detects clear end-of-conversation or explicit ticket requests and
+    // short-circuits the response without calling n8n.
+    const userVerdict = await classifyUserIntent(message);
+    const userIntent =
+      userVerdict.ok && userVerdict.confidence >= CLASSIFIER_MIN_CONFIDENCE
+        ? userVerdict.intent
+        : "normal";
+    console.log("user_intent", {
+      intent: userVerdict.intent,
+      confidence: userVerdict.confidence,
+      decided: userIntent,
+      ms: userVerdict.ms,
+      error: userVerdict.error,
+    });
+
+    if (userIntent === "end_conversation") {
+      const reply = "شكراً لتواصلك معنا 🌷 يومك سعيد.";
+      const action = { type: "offer_close_done" as ActionType, reason: "user_end_conversation" };
+      await logClassifier("user_intent", userVerdict, userIntent, "classifier");
+      await persistMessages(message, reply);
+      return jsonResponse({ reply, attachments: [], action, tenant_id, conversation_id });
+    }
+
+    if (userIntent === "request_ticket") {
+      const reply = "تمام، يرجى إدخال رقم هاتفك ليتم فتح تذكرة دعم لك:";
+      const action = { type: "offer_ticket" as ActionType, reason: "user_request_ticket" };
+      await logClassifier("user_intent", userVerdict, userIntent, "classifier");
+      await persistMessages(message, reply);
+      return jsonResponse({ reply, attachments: [], action, tenant_id, conversation_id });
+    }
+
+    // Log the user-intent verdict even when it was "normal" so we can see
+    // confidence distributions and tune the threshold.
+    await logClassifier(
+      "user_intent",
+      userVerdict,
+      userIntent,
+      userVerdict.ok ? (userIntent === "normal" ? "classifier" : "low_confidence") : "fallback",
+    );
+
     // Load merchant context for n8n
     const [{ data: workspace }, { data: training }] = await Promise.all([
       supabase
@@ -488,7 +568,7 @@ Deno.serve(async (req) => {
     // failed and the agent emitted free-form text), treat the raw body as the
     // reply with next_action="none" instead of bubbling an error.
     const env = extractEnvelope(aiData);
-    let reply: string = env.reply;
+    const reply: string = env.reply;
     const attachments = env.attachments;
     console.log("n8n envelope:", {
       next_action: env.next_action,
@@ -498,119 +578,44 @@ Deno.serve(async (req) => {
       has_reply: !!reply,
     });
 
-    // ── Hard end-of-conversation short-circuit ────────────────────────────
-    // If the previous AI message already asked "هل تحتاج أي مساعدة أخرى؟"
-    // and the user replied with a short negative, end gracefully and stop.
-    const histArr = Array.isArray(history) ? history : [];
-    const lastAiMsg = [...histArr].reverse().find(
-      (h: any) => h?.sender === "ai" || h?.sender === "store",
-    );
-    const prevAiText: string = lastAiMsg?.text ?? lastAiMsg?.body ?? "";
-    const prevWasCloseOffer = isCloseOfferText(prevAiText);
-    const prevWasTicketOffer = isTicketOfferText(prevAiText);
+    // ── Stage 2: classify the AI reply ────────────────────────────────────
+    // Drives offer_ticket / offer_close when the AI naturally escalates or
+    // wraps up. n8n's next_action is logged for comparison but not trusted.
+    let action: { type: ActionType; reason?: string } = { type: "none" };
+    let decidedIntent: "offer_ticket" | "offer_close" | "none" = "none";
+    let source: "classifier" | "low_confidence" | "fallback" = "fallback";
+    let replyVerdict: ClassifierVerdict<ReplyIntent> | null = null;
 
-    let action: { type: ActionType | "offer_close_done"; reason?: string } = { type: "none" };
-
-    if (prevWasCloseOffer && isShortNegative(message)) {
-      reply = "شكراً لتواصلك معنا 🌷 يومك سعيد.";
-      action = { type: "offer_close_done", reason: "user_declined_after_close_offer" };
-      console.log("chat-ai end-of-convo short-circuit fired");
-    } else {
-      // Pure Option 1: always call the GPT-5.4-nano classifier on the current
-      // AI reply. n8n's next_action is logged for comparison but not trusted.
-      let decidedIntent: "offer_ticket" | "offer_close" | "none" = "none";
-      let source: "classifier" | "low_confidence" | "anti_loop" | "fallback" = "fallback";
-      let verdict: ClassifierVerdict | null = null;
-
-      if (reply && reply.trim().length > 0) {
-        verdict = await classifyIntent(reply, message);
-        if (
-          verdict.ok &&
-          verdict.confidence >= CLASSIFIER_MIN_CONFIDENCE &&
-          verdict.intent !== "continue"
-        ) {
-          decidedIntent = verdict.intent;
-          source = "classifier";
-        } else if (verdict.ok) {
-          source = "low_confidence";
-        }
-      }
-
-      // Anti-loop guard: don't re-offer what the previous AI turn already offered.
-      const isLoop =
-        (decidedIntent === "offer_close" && prevWasCloseOffer) ||
-        (decidedIntent === "offer_ticket" && prevWasTicketOffer);
-      if (isLoop) {
-        console.log("chat-ai anti-loop: dropped", decidedIntent);
-        decidedIntent = "none";
-        source = "anti_loop";
-      }
-
-      if (decidedIntent !== "none") {
-        action = { type: decidedIntent, reason: source };
-      }
-
-      console.log("classifier", {
-        intent: verdict?.intent ?? decidedIntent,
-        confidence: verdict?.confidence ?? null,
-        source,
-        model: verdict?.model ?? null,
-        prompt_tokens: verdict?.prompt_tokens ?? 0,
-        completion_tokens: verdict?.completion_tokens ?? 0,
-        cost_usd: verdict?.cost_usd ?? 0,
-        ms: verdict?.ms ?? 0,
-        n8n_next_action: env.next_action,
-        error: verdict?.error,
-      });
-
-      // Best-effort usage log for the admin dashboard.
-      try {
-        await supabase.from("ai_classifier_usage").insert({
-          tenant_id,
-          conversation_id,
-          model: verdict?.model ?? CLASSIFIER_MODEL_PRIMARY,
-          intent: verdict?.intent ?? decidedIntent,
-          confidence: verdict?.confidence ?? 0,
-          source,
-          prompt_tokens: verdict?.prompt_tokens ?? 0,
-          completion_tokens: verdict?.completion_tokens ?? 0,
-          total_tokens: verdict?.total_tokens ?? 0,
-          cost_usd: verdict?.cost_usd ?? 0,
-          latency_ms: verdict?.ms ?? 0,
-        });
-      } catch (e) {
-        console.log("classifier usage insert failed (non-fatal):", e);
+    if (reply && reply.trim().length > 0) {
+      replyVerdict = await classifyReplyIntent(reply, message);
+      if (
+        replyVerdict.ok &&
+        replyVerdict.confidence >= CLASSIFIER_MIN_CONFIDENCE &&
+        replyVerdict.intent !== "continue"
+      ) {
+        decidedIntent = replyVerdict.intent;
+        source = "classifier";
+      } else if (replyVerdict.ok) {
+        source = "low_confidence";
       }
     }
 
-    // Best-effort persistence (don't fail the response if this errors).
-    // Insert sequentially with a small offset on the AI row so the dashboard
-    // never shows the reply before the question when ordering by created_at.
-    if (conversation_id) {
-      try {
-        const nowMs = Date.now();
-        await supabase.from("conversations_messages").insert({
-          tenant_id,
-          conversation_id,
-          sender: "customer",
-          kind: "text",
-          body: message,
-          word_count: message.split(/\s+/).length,
-          created_at: new Date(nowMs).toISOString(),
-        });
-        await supabase.from("conversations_messages").insert({
-          tenant_id,
-          conversation_id,
-          sender: "ai",
-          kind: "text",
-          body: reply,
-          word_count: reply.split(/\s+/).length,
-          created_at: new Date(nowMs + 50).toISOString(),
-        });
-      } catch (e) {
-        console.log("persist failed (non-fatal):", e);
-      }
+    if (decidedIntent !== "none") {
+      action = { type: decidedIntent, reason: source };
     }
+
+    console.log("reply_intent", {
+      intent: replyVerdict?.intent ?? decidedIntent,
+      confidence: replyVerdict?.confidence ?? null,
+      source,
+      ms: replyVerdict?.ms ?? 0,
+      n8n_next_action: env.next_action,
+      error: replyVerdict?.error,
+    });
+
+    await logClassifier("reply_intent", replyVerdict, decidedIntent, source);
+
+    await persistMessages(message, reply);
 
     return jsonResponse({ reply, attachments, action, tenant_id, conversation_id });
   } catch (e) {
