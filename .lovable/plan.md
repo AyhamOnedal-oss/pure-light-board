@@ -1,37 +1,45 @@
+
 ## Goal
-Fix two flow issues without ever showing a star rating again, and simplify close-detection.
+n8n returns only message text. The `chat-ai` Supabase edge function is the single brain: it gets n8n's reply, classifies the exchange using **OpenAI `gpt-4o-mini` directly** (not Lovable AI), and returns to the widget what to do. Widget does zero text detection.
 
-## Changes
+## chat-ai response contract
+```json
+{ "reply": "string", "intent": "continue" | "offer_ticket" | "closed" }
+```
 
-### 1. `widget-4.7.14-hostinger.js` → bump to `widget-4.7.15-hostinger.js`
+## chat-ai edge function (`supabase/functions/chat-ai/index.ts`)
+1. Receive user message + conversation history as today.
+2. Call n8n webhook (existing logic), extract `output` → `reply`.
+3. Call OpenAI directly:
+   - Endpoint: `https://api.openai.com/v1/chat/completions`
+   - Auth: `Authorization: Bearer ${Deno.env.get("OPENAI_API_KEY")}`
+   - Model: `gpt-4o-mini`
+   - `response_format: { type: "json_object" }`
+   - System prompt (Arabic + English aware) instructs it to classify the exchange into exactly one of:
+     - `offer_ticket` — user explicitly asks for human/support/ticket/شكوى/تواصل معكم، OR the AI reply offers to escalate / open a ticket / connect to customer service.
+     - `closed` — user clearly ended chat (لا/خلاص/كفاية/لا شكراً/no/that's all) after AI asked "هل تحتاج مساعدة أخرى؟"-style, OR AI reply is a farewell (شكراً لتواصلك، يومك سعيد، في أمان الله، goodbye…).
+     - `continue` — otherwise.
+   - Input to classifier: last user message, AI reply, last 4 turns of history.
+4. On classifier failure/timeout: default `intent: "continue"` (never block the chat).
+5. Return `{ reply, intent }` JSON with CORS headers. Remove any `action.type` / `offer_close_done` fields.
 
-**a. Kill the rating screen entirely**
-- Remove/short-circuit the function that renders the star rating (`showRating` / equivalent).
-- After ticket creation: just keep the ticket-number card visible (with its existing print/copy actions) and disable the input with a small "تم إنهاء المحادثة" footer. No rating, no auto-close, no stars.
-- After a normal conversation close (no ticket): same thing — show a simple "تم إنهاء المحادثة — شكراً لتواصلك معنا" end-state, disable input. No stars.
-
-**b. Simplify close detection (remove conflict with backend)**
-- Stop reading `action.type === "offer_close_done"` from the chat-ai response on the widget side. Ignore that field for ending the conversation.
-- Keep only two client-side triggers:
-  1. **User short-negative reply** to a "هل تحتاج مساعدة أخرى؟" offer — detect Arabic/English negatives (`لا`, `لا شكراً`, `كفاية`, `خلاص`, `no`, `nope`, `that's all`, etc.) when the previous AI message was a close-offer (`isCloseOfferText`). → end immediately.
-  2. **AI farewell text** — `isCloseDoneReply()` matches `شكراً لتواصلك معنا`, `يومك سعيد`, `في أمان الله`, `سعدنا بخدمتك`, `نتمنى لك يوماً سعيداً`, English equivalents. → end after **2s** delay.
-- Both paths call the same `endConversation()` helper which:
-  - Sets `state.conversationEnded = true`
-  - Disables the composer
-  - Appends the end-state footer
-  - **Does NOT** call rating UI
-- Guard: if `state.ticketCreated === true`, skip the farewell-detection auto-end (ticket card already ended the convo).
-
-**c. File output**
-- Save as `/mnt/documents/widget-4.7.15-hostinger.js` AND overwrite `/mnt/documents/widget.js` with the same bytes.
-- Verify size stays ~155 KB (Hostinger bundle, not the 400 KB React bundle).
-
-### 2. `supabase/functions/chat-ai/index.ts`
-- Leave the classifier as-is; the widget will simply ignore `offer_close_done` going forward. No redeploy needed for this change unless you want me to also strip the action from the response — I'll leave it untouched to avoid breaking anything else.
+## Widget changes (`/mnt/documents/widget-4.7.16-hostinger.js`, ~150 KB)
+1. Remove all client-side text detection: `isCloseOfferText`, `isCloseDoneReply`, short-negative matcher, `offer_close_done` handling, ticket-text heuristics, `window.__fqLastAction`.
+2. `sendToBackend` callback now receives `{ reply, intent }`. Render the reply bubble, then branch on `intent`:
+   - `continue` → nothing extra.
+   - `offer_ticket` → render the existing inline phone/ticket form below the bubble.
+   - `closed` → after 2s:
+     - if `state.ticketCreated === true` → keep ticket-number/print card visible, disable composer with "تم إنهاء المحادثة" placeholder, **no rating**.
+     - else → switch to `renderRatingScreen()` (rating restored only for the no-ticket close path).
+3. Ticket creation success (`restCreateTicket`): set `state.ticketCreated = true`, immediately render the ticket-number screen with print/download + "إنهاء المحادثة" button. Do not bounce back to chat. Do not show rating.
+4. Bump version header to 4.7.16.
+5. Write `/mnt/documents/widget-4.7.16-hostinger.js` AND overwrite `/mnt/documents/widget.js` with the same ~150 KB Hostinger bundle. Verify byte size (~150 KB, not 400 KB) before delivering.
 
 ## Out of scope
-- No changes to ticket creation logic, classifier prompt, or backend models.
-- No changes to the React preview widget (only the Hostinger bundle the user actually ships).
+- n8n workflow stays as-is (message text only).
+- No DB schema, no React preview widget, no ticket logic changes beyond the post-create screen.
 
-## Deliverable
-A new `widget-4.7.15-hostinger.js` (~155 KB) replacing `widget.js`, ready to upload to widget.fuqah.net.
+## Files touched
+- `supabase/functions/chat-ai/index.ts` — n8n call + OpenAI classifier + new response shape.
+- `/mnt/documents/widget-4.7.16-hostinger.js` (new).
+- `/mnt/documents/widget.js` (overwritten).
