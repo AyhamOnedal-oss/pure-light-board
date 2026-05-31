@@ -11,6 +11,134 @@ const supabase = createClient(
 );
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const CLASSIFIER_MODEL_PRIMARY = "gpt-5.4-nano";
+const CLASSIFIER_MODEL_FALLBACK = "gpt-5-nano";
+const CLASSIFIER_TIMEOUT_MS = 800;
+const CLASSIFIER_MIN_CONFIDENCE = 0.6;
+
+// USD per 1M tokens. Update when official pricing is published.
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "gpt-5.4-nano": { input: 0.05, output: 0.40 },
+  "gpt-5-nano":   { input: 0.05, output: 0.40 },
+};
+
+function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
+  const p = MODEL_PRICING[model] ?? { input: 0.05, output: 0.40 };
+  return (promptTokens / 1_000_000) * p.input + (completionTokens / 1_000_000) * p.output;
+}
+
+type ClassifierVerdict = {
+  intent: "offer_ticket" | "offer_close" | "continue";
+  confidence: number;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  ms: number;
+  ok: boolean;
+  error?: string;
+};
+
+async function callOpenAIClassifier(
+  model: string,
+  reply: string,
+  lastUserMessage: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  return fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You classify a customer-support AI reply (Arabic or English). " +
+            "Return strict JSON: {\"intent\":\"offer_ticket\"|\"offer_close\"|\"continue\",\"confidence\":0-1}. " +
+            "offer_ticket = reply offers/suggests connecting the user with a human agent, customer service, or raising a support ticket. " +
+            "offer_close = reply is wrapping up and asking if the user needs anything else. " +
+            "continue = anything else (normal answer, info, clarification, product help).",
+        },
+        {
+          role: "user",
+          content:
+            `Last user message: ${lastUserMessage}\n\nAI reply: ${reply}\n\nReturn JSON only.`,
+        },
+      ],
+    }),
+  });
+}
+
+async function classifyIntent(
+  reply: string,
+  lastUserMessage: string,
+): Promise<ClassifierVerdict> {
+  const started = Date.now();
+  const base: ClassifierVerdict = {
+    intent: "continue",
+    confidence: 0,
+    model: CLASSIFIER_MODEL_PRIMARY,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    cost_usd: 0,
+    ms: 0,
+    ok: false,
+  };
+  if (!OPENAI_API_KEY) return { ...base, ms: Date.now() - started, error: "no_openai_key" };
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CLASSIFIER_TIMEOUT_MS);
+  try {
+    let model = CLASSIFIER_MODEL_PRIMARY;
+    let res = await callOpenAIClassifier(model, reply, lastUserMessage, ctrl.signal);
+    if (res.status === 404 || res.status === 400) {
+      // Fallback if the nano model id isn't enabled on this account.
+      model = CLASSIFIER_MODEL_FALLBACK;
+      res = await callOpenAIClassifier(model, reply, lastUserMessage, ctrl.signal);
+    }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      return { ...base, model, ms: Date.now() - started, error: `http_${res.status}:${txt.slice(0, 120)}` };
+    }
+    const data = await res.json();
+    const content: string = data?.choices?.[0]?.message?.content ?? "{}";
+    let parsed: { intent?: string; confidence?: number } = {};
+    try { parsed = JSON.parse(content); } catch { /* leave empty */ }
+    const intent =
+      parsed.intent === "offer_ticket" || parsed.intent === "offer_close"
+        ? parsed.intent
+        : "continue";
+    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
+    const pt = Number(data?.usage?.prompt_tokens ?? 0) || 0;
+    const ct = Number(data?.usage?.completion_tokens ?? 0) || 0;
+    const tt = Number(data?.usage?.total_tokens ?? pt + ct) || pt + ct;
+    return {
+      intent,
+      confidence,
+      model,
+      prompt_tokens: pt,
+      completion_tokens: ct,
+      total_tokens: tt,
+      cost_usd: estimateCost(model, pt, ct),
+      ms: Date.now() - started,
+      ok: true,
+    };
+  } catch (e) {
+    return { ...base, ms: Date.now() - started, error: String(e?.message ?? e) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const RATE_LIMIT_PER_MIN = 30;
 
 type ActionType = "offer_ticket" | "offer_close" | "none";
@@ -388,20 +516,78 @@ Deno.serve(async (req) => {
       action = { type: "offer_close_done", reason: "user_declined_after_close_offer" };
       console.log("chat-ai end-of-convo short-circuit fired");
     } else {
-      // Trust the n8n agent's structured decision.
-      // Anti-loop guard: if the agent wants to re-offer something the previous
-      // AI turn already offered, downgrade to "none" so we don't spam the user.
-      const wantsTicket = env.next_action === "offer_ticket";
-      const wantsClose = env.next_action === "offer_close";
-      const isLoop =
-        (wantsClose && prevWasCloseOffer) ||
-        (wantsTicket && prevWasTicketOffer);
+      // Hybrid decision: regex fast-path (free) → GPT-5.4-nano classifier fallback.
+      // n8n's next_action is logged but no longer trusted.
+      const regexTicket = isTicketOfferText(reply);
+      const regexClose = isCloseOfferText(reply);
 
+      let decidedIntent: "offer_ticket" | "offer_close" | "none" = "none";
+      let source: "regex" | "classifier" | "anti_loop" | "fallback" = "fallback";
+      let verdict: ClassifierVerdict | null = null;
+
+      if (regexTicket) {
+        decidedIntent = "offer_ticket";
+        source = "regex";
+      } else if (regexClose) {
+        decidedIntent = "offer_close";
+        source = "regex";
+      } else if (reply && reply.trim().length > 0) {
+        verdict = await classifyIntent(reply, message);
+        if (
+          verdict.ok &&
+          verdict.confidence >= CLASSIFIER_MIN_CONFIDENCE &&
+          verdict.intent !== "continue"
+        ) {
+          decidedIntent = verdict.intent;
+          source = "classifier";
+        }
+      }
+
+      // Anti-loop guard: don't re-offer what the previous AI turn already offered.
+      const isLoop =
+        (decidedIntent === "offer_close" && prevWasCloseOffer) ||
+        (decidedIntent === "offer_ticket" && prevWasTicketOffer);
       if (isLoop) {
-        console.log("chat-ai anti-loop: dropped", env.next_action);
-        action = { type: "none", reason: "anti_loop" };
-      } else if (wantsTicket || wantsClose) {
-        action = { type: env.next_action, reason: env.next_action_reason };
+        console.log("chat-ai anti-loop: dropped", decidedIntent);
+        decidedIntent = "none";
+        source = "anti_loop";
+      }
+
+      if (decidedIntent !== "none") {
+        action = { type: decidedIntent, reason: source };
+      }
+
+      console.log("classifier", {
+        intent: verdict?.intent ?? decidedIntent,
+        confidence: verdict?.confidence ?? null,
+        source,
+        model: verdict?.model ?? null,
+        prompt_tokens: verdict?.prompt_tokens ?? 0,
+        completion_tokens: verdict?.completion_tokens ?? 0,
+        cost_usd: verdict?.cost_usd ?? 0,
+        ms: verdict?.ms ?? 0,
+        regex_hit: regexTicket || regexClose,
+        n8n_next_action: env.next_action,
+        error: verdict?.error,
+      });
+
+      // Best-effort usage log for the admin dashboard.
+      try {
+        await supabase.from("ai_classifier_usage").insert({
+          tenant_id,
+          conversation_id,
+          model: verdict?.model ?? "regex",
+          intent: verdict?.intent ?? decidedIntent,
+          confidence: verdict?.confidence ?? (source === "regex" ? 1 : 0),
+          source,
+          prompt_tokens: verdict?.prompt_tokens ?? 0,
+          completion_tokens: verdict?.completion_tokens ?? 0,
+          total_tokens: verdict?.total_tokens ?? 0,
+          cost_usd: verdict?.cost_usd ?? 0,
+          latency_ms: verdict?.ms ?? 0,
+        });
+      } catch (e) {
+        console.log("classifier usage insert failed (non-fatal):", e);
       }
     }
 
