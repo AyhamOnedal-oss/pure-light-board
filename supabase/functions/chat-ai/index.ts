@@ -12,19 +12,17 @@ const supabase = createClient(
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-const CLASSIFIER_MODEL_PRIMARY = "gpt-5.4-nano";
-const CLASSIFIER_MODEL_FALLBACK = "gpt-5-nano";
-const CLASSIFIER_TIMEOUT_MS = 800;
-const CLASSIFIER_MIN_CONFIDENCE = 0.6;
+const CLASSIFIER_MODEL = "gpt-4.1-nano";
+const CLASSIFIER_TIMEOUT_MS = 3000;
+const CLASSIFIER_MIN_CONFIDENCE = 0.5;
 
-// USD per 1M tokens. Update when official pricing is published.
+// USD per 1M tokens. Update when official pricing changes.
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-5.4-nano": { input: 0.05, output: 0.40 },
-  "gpt-5-nano":   { input: 0.05, output: 0.40 },
+  "gpt-4.1-nano": { input: 0.10, output: 0.40 },
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
-  const p = MODEL_PRICING[model] ?? { input: 0.05, output: 0.40 };
+  const p = MODEL_PRICING[model] ?? { input: 0.10, output: 0.40 };
   return (promptTokens / 1_000_000) * p.input + (completionTokens / 1_000_000) * p.output;
 }
 
