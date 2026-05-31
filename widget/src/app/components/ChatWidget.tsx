@@ -118,6 +118,13 @@ function isCloseOfferPrompt(text?: string): boolean {
     || normalized.includes('do you need any other help');
 }
 
+function isCloseDoneReply(text?: string): boolean {
+  const normalized = normalizeAssistantTriggerText(text);
+  return normalized.includes('شكرا لتواصلك معنا')
+    || normalized.includes('يومك سعيد')
+    || normalized.includes('في امان الله');
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatWidget() {
@@ -218,7 +225,8 @@ export function ChatWidget() {
 
     const isOfferClose = action?.type === 'offer_close' || isCloseOfferPrompt(responseText);
     const isOfferTicket = action?.type === 'offer_ticket' || isTicketOfferPrompt(responseText);
-    const isCloseDone = action?.type === 'offer_close_done';
+    const isCloseDone = action?.type === 'offer_close_done'
+      || (!isOfferTicket && !isOfferClose && isCloseDoneReply(responseText));
 
     const response: Message = {
       id: (Date.now() + 1).toString(),
