@@ -342,12 +342,23 @@ Deno.serve(async (req) => {
     if (!n8nRes.ok) {
       const text = await n8nRes.text();
       console.error("n8n error", n8nRes.status, text);
-      return jsonResponse({ error: "ai_upstream_error", status: n8nRes.status }, 502);
+      // Soft fallback: never surface a hard error to the widget — return a
+      // friendly retry reply with HTTP 200 so the chat stays usable.
+      return jsonResponse({
+        reply: "لحظة من فضلك… حصل خلل بسيط، حاول مرة ثانية 🌷",
+        attachments: [],
+        action: { type: "none", reason: "upstream_error" },
+        tenant_id,
+        conversation_id,
+      });
     }
 
     const rawText = await n8nRes.text();
     let aiData: unknown;
     try { aiData = JSON.parse(rawText); } catch { aiData = rawText; }
+    // Tolerant parser: if n8n returned non-JSON text (e.g. structured parser
+    // failed and the agent emitted free-form text), treat the raw body as the
+    // reply with next_action="none" instead of bubbling an error.
     const env = extractEnvelope(aiData);
     let reply: string = env.reply;
     const attachments = env.attachments;
