@@ -516,22 +516,13 @@ Deno.serve(async (req) => {
       action = { type: "offer_close_done", reason: "user_declined_after_close_offer" };
       console.log("chat-ai end-of-convo short-circuit fired");
     } else {
-      // Hybrid decision: regex fast-path (free) → GPT-5.4-nano classifier fallback.
-      // n8n's next_action is logged but no longer trusted.
-      const regexTicket = isTicketOfferText(reply);
-      const regexClose = isCloseOfferText(reply);
-
+      // Pure Option 1: always call the GPT-5.4-nano classifier on the current
+      // AI reply. n8n's next_action is logged for comparison but not trusted.
       let decidedIntent: "offer_ticket" | "offer_close" | "none" = "none";
-      let source: "regex" | "classifier" | "anti_loop" | "fallback" = "fallback";
+      let source: "classifier" | "low_confidence" | "anti_loop" | "fallback" = "fallback";
       let verdict: ClassifierVerdict | null = null;
 
-      if (regexTicket) {
-        decidedIntent = "offer_ticket";
-        source = "regex";
-      } else if (regexClose) {
-        decidedIntent = "offer_close";
-        source = "regex";
-      } else if (reply && reply.trim().length > 0) {
+      if (reply && reply.trim().length > 0) {
         verdict = await classifyIntent(reply, message);
         if (
           verdict.ok &&
@@ -540,6 +531,8 @@ Deno.serve(async (req) => {
         ) {
           decidedIntent = verdict.intent;
           source = "classifier";
+        } else if (verdict.ok) {
+          source = "low_confidence";
         }
       }
 
@@ -566,7 +559,6 @@ Deno.serve(async (req) => {
         completion_tokens: verdict?.completion_tokens ?? 0,
         cost_usd: verdict?.cost_usd ?? 0,
         ms: verdict?.ms ?? 0,
-        regex_hit: regexTicket || regexClose,
         n8n_next_action: env.next_action,
         error: verdict?.error,
       });
@@ -576,9 +568,9 @@ Deno.serve(async (req) => {
         await supabase.from("ai_classifier_usage").insert({
           tenant_id,
           conversation_id,
-          model: verdict?.model ?? "regex",
+          model: verdict?.model ?? CLASSIFIER_MODEL_PRIMARY,
           intent: verdict?.intent ?? decidedIntent,
-          confidence: verdict?.confidence ?? (source === "regex" ? 1 : 0),
+          confidence: verdict?.confidence ?? 0,
           source,
           prompt_tokens: verdict?.prompt_tokens ?? 0,
           completion_tokens: verdict?.completion_tokens ?? 0,
