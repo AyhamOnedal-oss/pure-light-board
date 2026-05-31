@@ -12,12 +12,13 @@ const supabase = createClient(
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-const CLASSIFIER_MODEL = "gpt-4.1-nano";
-const CLASSIFIER_TIMEOUT_MS = 3000;
+const CLASSIFIER_MODEL = "gpt-4o-mini";
+const CLASSIFIER_TIMEOUT_MS = 3500;
 const CLASSIFIER_MIN_CONFIDENCE = 0.5;
 
 // USD per 1M tokens. Update when official pricing changes.
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "gpt-4o-mini":  { input: 0.15, output: 0.60 },
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
 };
 
