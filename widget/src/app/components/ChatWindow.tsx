@@ -294,20 +294,15 @@ export function ChatWindow({
         : result.error
           ? 'تعذّر الاتصال بالخادم، يرجى المحاولة مرة أخرى.'
           : 'شكراً لتواصلك معنا! سنقوم بالرد عليك قريباً.');
-    const isOfferTicket = result.action?.type === 'offer_ticket' || isTicketOfferPrompt(replyText);
-    const isOfferClose = result.action?.type === 'offer_close' || isCloseOfferPrompt(replyText);
+    // Widget reacts only to the structured action envelope. No regex guessing.
+    const isOfferTicket = result.action?.type === 'offer_ticket';
+    const isOfferClose = result.action?.type === 'offer_close';
 
     const response: Message = {
       id: (Date.now() + 1).toString(),
       text: replyText,
       sender: 'store',
       timestamp: new Date(),
-      quickReplies: isOfferClose
-        ? [
-            { label: 'نعم', value: 'yes' },
-            { label: 'لا', value: 'no' },
-          ]
-        : undefined,
       action: isOfferClose
         ? 'offer_close'
         : isOfferTicket
@@ -350,6 +345,15 @@ export function ChatWindow({
       timestamp: response.timestamp.toISOString(),
     });
     trackEvent('message.received', evCtx);
+
+    // Flow A — smart close: after the AI's farewell, auto-transition to the
+    // rating screen without asking "هل تبغى شي ثاني؟".
+    if (isOfferClose) {
+      setTimeout(() => {
+        closeConversation(evCtx, 'ai');
+        setCurrentScreen('rating');
+      }, 1200);
+    }
   };
 
   const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {
