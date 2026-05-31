@@ -1,61 +1,90 @@
-# Plan: Option C — n8n owns escalation decision
+# Smart end + smart ticket via strict intent envelope
 
-The updated n8n workflow you pasted already does the right thing: AI Agent uses a Structured Output Parser that emits `{ reply, next_action, next_action_reason, attempt_state, consecutive_failures }`. The remaining work is in `chat-ai`.
+## Why the current build breaks (root cause)
 
-## n8n side — small fixes only
+1. The n8n AI agent answered `"عطني رقم جوالك..."` as plain text in `reply` instead of emitting `next_action: "offer_ticket"` and letting the widget render its native phone-input box.
+2. The user typed the phone → it went as a normal chat turn to n8n → the Structured Output Parser failed on free-form numeric text → n8n returned non-2xx → widget showed `"عذراً، حدث خطأ مؤقت"`.
+3. Same pattern for closing: the agent writes goodbye text instead of emitting `offer_close`, so the rating screen never fires.
 
-1. **Wrap the response.** Today `Respond to Webhook1` uses `allIncomingItems`, which returns an array. `chat-ai` expects an object with a `reply` field. Set the node to **Respond With → JSON**, body:
-  ```
-   ={{ $json.output }}
-  ```
-   so the webhook returns the parser's object directly: `{ reply, next_action, ... }`.
-2. **Tighten the system prompt rule for `consecutive_failures`.** The agent currently has 20-turn memory but no explicit instruction to scan it. Add one line:
-  > Before answering, look at    your last 5 assistant turns in memory. Count how many ended in apology or "ما عندي هذي المعلومة". That number is `consecutive_failures`. Reset to 0 the moment any tool call returns useful data.
-3. **No other n8n changes.** Tools, sticky notes, model, memory all stay as is.
+The bug is not in `chat-ai` or the widget. The n8n agent is doing UI work in text instead of delegating to the widget through a strict envelope.
 
-## `supabase/functions/chat-ai/index.ts`
+## Chosen approach
 
-1. **Delete `classifyAction()**` (lines ~59–120) and the second OpenAI call entirely.
-2. **Parse the n8n envelope:**
-  ```ts
-   const aiData = await n8nRes.json().catch(() => ({}));
-   const reply = aiData.reply ?? aiData.message ?? aiData.text ?? aiData.output ?? "";
-   const nextAction = aiData.next_action;          // "offer_ticket" | "offer_close" | "none"
-   const nextActionReason = aiData.next_action_reason ?? "";
-   const attemptState = aiData.attempt_state;
-   const consecutiveFailures = Number(aiData.consecutive_failures ?? 0);
-  ```
-   If `aiData` is a bare string or missing `reply`, fall back to `{ reply: rawText, next_action: "none" }`.
-3. **Map to existing action shape consumed by widget:**
-  ```ts
-   let action: { type: "offer_ticket" | "offer_close" | "offer_close_done" | "none"; reason?: string } =
-     { type: nextAction === "offer_ticket" || nextAction === "offer_close" ? nextAction : "none",
-       reason: nextActionReason };
-  ```
-4. **Keep the v4.7.9 `offer_close_done` short-circuit** (user said "لا/no" after a previous close offer). It's deterministic and free.
-5. **Keep the anti-loop guard:** if `nextAction === "offer_ticket"` and the previous AI turn already offered a ticket, downgrade to `none` (prevents repeat asks). Same for `offer_close`. This is the only post-processing we keep.
-6. **Log** `next_action`, `next_action_reason`, `consecutive_failures`, `attempt_state` for observability — replaces today's classifier log.
+Strict intent envelope. The AI agent has exactly **two responsibilities**:
+- Write a short conversational `reply`.
+- Pick `next_action` from a fixed enum: `"none" | "offer_ticket" | "offer_close"`.
 
-## Widget
+The widget owns every UI affordance. Phone numbers never reach n8n.
 
-No changes. `chatApi.ts` already reads `action.type`.
+Per your answers:
+- **Flow A (close)**: short "يعطيك العافية" message → widget jumps **directly** to RatingScreen (no نعم/لا confirmation).
+- **Flow B (ticket)**: phone goes directly to `/tickets`; n8n never sees it. After "تم إنشاء التذكرة #..." success card, widget **auto-transitions to RatingScreen** so the user can rate the AI's handling of the escalation.
 
-## Cost / latency
+## How the new conversation flows
 
-- One LLM call per turn (was two). ~35% cheaper, ~600–900ms faster.
-- Token overhead from the structured envelope is ~30 output tokens — negligible.
+### Flow A — smart close (auto-rating)
+```
+user: "تمام يعطيك العافية"
+  → n8n emits { reply: "في خدمتك 🌷", next_action: "offer_close" }
+  → widget renders the reply
+  → ~1.2s later: closeConversation(reason='ai_request') + setCurrentScreen('rating')
+  → no نعم/لا
+```
 
-## Validation
+### Flow B — smart escalation to ticket (with rating after)
+```
+user can't be helped (2 consecutive tool failures OR explicit "أبغى أكلم بشري")
+  → n8n emits { reply: "خل أرفع لك تذكرة دعم 🌷", next_action: "offer_ticket" }
+  → widget renders reply + inline phone-input box
+  → user types phone → widget POSTs straight to /widget-events (event: ticket.created)
+    (n8n is NOT called this turn — no parser failure, no عذراً)
+  → widget shows TicketCreatedScreen ("تم إنشاء التذكرة #TKT-123")
+  → after ~2s (or on user tap "تم"), widget auto-transitions to RatingScreen
+    so the user rates the AI's handling of the handoff
+  → rating submit → conversation already closed by widget-events ticket.created handler
+```
 
-1. Re-import the n8n workflow with the `Respond to Webhook` fix.
-2. `supabase--curl_edge_functions /chat-ai` test cases:
-  - `"وين طلبي"` turn 1 → expect normal reply, `action.type === "none"`.
-  - Two unanswerable turns in a row → expect `offer_ticket` on the 3rd, with `consecutive_failures >= 2` in logs.
-  - `"ابغى اكلم موظف"` → immediate `offer_ticket`.
-  - Successful answer → user says "لا شكراً" → `offer_close_done`.
-3. Tail `chat-ai` logs to confirm `next_action_reason` looks sensible.
+### Flow C — guard against premature endings
+- If `offer_close` arrives but the user's last 2 turns contain unresolved questions → `chat-ai` downgrades to `none`.
+- If `offer_ticket` was already shown and form is still open → downgrade duplicate to `none`.
 
-## Out of scope
+## Technical changes
 
-- Widget UI, ticket creation flow, classify-conversation function.
-- Any regex or keyword matching (explicitly rejected).
+### 1. `supabase/functions/chat-ai/index.ts`
+- **Tolerant parser**: if n8n returns 200 with invalid JSON, treat raw text as `{ reply: rawText, action: { type: "none" } }`. Kills the عذراً from screenshot.
+- **Soft 5xx fallback**: on n8n error, return `{ reply: "لحظة من فضلك… حصل خلل بسيط 🌷", action: { type: "none" } }` with HTTP 200.
+- Anti-loop guards: dedupe consecutive `offer_ticket` / `offer_close`.
+- Pass `last_assistant_action` and `consecutive_tool_failures` to n8n in webhook body.
+
+### 2. n8n workflow — system prompt + Respond node
+Strict JSON system prompt (Arabic) forbidding the AI from ever requesting a phone or asking "هل تحتاج مساعدة أخرى؟" in `reply`. Only `next_action` triggers UI.
+- `offer_ticket` when: user requested human OR `consecutive_tool_failures >= 2`.
+- `offer_close` when: user thanked/said goodbye with no new question, OR 2 productive replies with no follow-up.
+- Otherwise `none`.
+
+Respond to Webhook node → "Respond With: JSON", body `={{ $json.output }}`.
+
+### 3. Widget (`widget/src/app/components/ChatWindow.tsx`)
+- **Remove regex fallbacks** (`isTicketOfferPrompt`, `isCloseOfferPrompt`). Widget reacts only to `action.type`.
+- **`offer_close` handler**: render reply → after ~1.2s call `closeConversation(reason='ai_request')` and `setCurrentScreen('rating')`. No confirmation chips.
+- **`offer_ticket` handler**: render reply + inline phone form (existing `ChatInlineTicketForm`).
+- **TicketCreatedScreen → Rating bridge** *(new per your feedback)*: after the ticket-created success card is shown for ~2s (or on user tap "تم"), call `setCurrentScreen('rating')`. The conversation is already closed by `widget-events` on `ticket.created`, so the rating just needs the existing conversation id. RatingScreen's "تخطي وإغلاق" still works the same.
+
+### 4. No DB migration needed.
+
+## Files touched
+
+- `supabase/functions/chat-ai/index.ts` — tolerant parser, soft 5xx fallback, pass action/failure context to n8n.
+- `widget/src/app/components/ChatWindow.tsx` — drop regex fallbacks; `offer_close` → auto-rating; after `TicketCreatedScreen` → auto-rating.
+- `widget/src/app/components/TicketCreatedScreen.tsx` (light edit) — add `onContinueToRating?: () => void` and auto-fire it after a short delay; primary CTA becomes "تقييم التجربة".
+- n8n workflow — system prompt rewrite + Respond node returns `$json.output` as JSON. (Patch text provided for you to paste in n8n.)
+
+## Why this fixes everything
+
+| Issue | Cause | Fix |
+|---|---|---|
+| Phone shown as text instead of box | Agent wrote UI in `reply` | Prompt forbids it; widget renders box on `offer_ticket` |
+| عذراً after typing phone | Parser failed on numeric reply | Phone bypasses n8n entirely; tolerant parser as safety net |
+| Box not always showing | Widget guessed from Arabic regex | Only `action.type` triggers UI |
+| No auto-rating after thanks | Agent only said goodbye in text | `offer_close` → auto-rating |
+| No rating after ticket created | Flow stopped at TicketCreatedScreen | Auto-transition to RatingScreen after success card |
