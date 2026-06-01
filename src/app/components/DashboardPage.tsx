@@ -118,13 +118,15 @@ export function DashboardPage() {
     return () => { document.body.style.overflow = ''; };
   }, [openInsight, feedbackConvo]);
 
+  // TODO: replace these mock day-over-day growth values with real
+  // today-vs-yesterday deltas from `dashboard_usage_daily`.
   const kpis = [
-    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', growth: metrics.growth.conversations },
-    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', growth: metrics.growth.completionRate },
-    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', growth: metrics.growth.ticketsTotal },
-    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', growth: metrics.growth.wordsUsed },
-    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', growth: metrics.growth.widgetClicks },
-    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', growth: metrics.growth.avgResponseSeconds },
+    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', growth: 12.4 },
+    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', growth: 3.1 },
+    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', growth: -5.8 },
+    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', growth: 22.7 },
+    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', growth: 8.9 },
+    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', growth: -4.2 },
   ];
 
   const classificationLabels: Record<string, { en: string; ar: string; color: string }> = {
