@@ -1,26 +1,21 @@
-Edit the uploaded `widget-4.7.16-hostinger (1).js` (the real 150KB Hostinger build, not the React bundle) to add multi-line message splitting, and return the patched file as `widget-4.7.17-hostinger.js`.
+## Problem
 
-## What changes
+In `widget-4.7.17-hostinger.js`, the multi-line split logic is in place, but only the first line bubble appears for the user. Root cause: the second line is only pushed to `state.messages` *after* the first backend response returns (inside `onDone → next()`). If anything during the first round-trip changes UI state — `intent === 'closed'` triggering `renderRatingScreen()`, `intent === 'offer_ticket'` injecting a ticket form, an error in `pushAiMessage`, a thrown callback, or the user closing — the queue can stop before the second customer bubble is ever rendered. Result: the second line is silently dropped, exactly matching the screenshot.
 
-In the widget script, only the `doSend()` function (around line 1500) changes. Everything else stays identical.
+## Fix (only in `/mnt/documents/widget-4.7.18-hostinger.js`)
 
-New behavior:
-- Take the textarea value and split it on `\n`.
-- Trim each line, drop empty lines.
-- If 0 lines and no attachment: do nothing (same as today).
-- If 1 line (or attachment only): send as a single message (same as today).
-- If 2+ lines: send each line as its own customer message, sequentially. The attachment is attached to the first line only. The next line is only sent after the previous one's AI reply comes back, so order is preserved both in the widget UI and in the dashboard.
+1. **Render all customer bubbles immediately**, before any network call. Loop through `lines`, push each as a `customer` message into `state.messages` (attachment only on the first), call `renderMessages()` once. The widget instantly shows every line as its own bubble, matching the dashboard view (each row is a separate `messages` row keyed by `sender='customer'`).
+2. **Then send sequentially** to `chat-ai` in a queue, one request per line, so the AI sees them as ordered separate messages and the conversation history stays clean.
+3. **Queue resilience**: `next()` always runs after the previous request — both on success and failure — so a single bad response cannot strand the remaining lines. Intent handling (ticket form, closed/rating) only runs for the **last** line's response, not intermediate ones, so the rating/ticket UI does not pop up mid-batch.
+4. Keep current input handling (desktop Enter = send, Shift+Enter = newline, mobile Enter = newline). Empty lines from extra blank separators are dropped as before.
+5. Bump header to `Version: 4.7.18 (Hostinger embed: render all lines as separate bubbles, then send sequentially)`.
+6. No changes to `sendToBackend`, ticket flow, rating flow, dashboard, edge functions, React widget, or any other code path.
 
-Also bump the header version comment from `4.7.16` to `4.7.17` with a note about multi-line splitting.
+## Deliverable
 
-## Technical detail
-
-- Extract the existing single-send logic into a helper `sendOne(text, att, onDone)` that pushes the customer message, calls `sendToBackend`, then runs `onDone` after the AI reply is appended.
-- `doSend()` clears the textarea/attachment UI immediately, then either calls `sendOne` once or iterates a queue calling `sendOne(line, att-on-first-only, next)`.
-- No changes to `sendToBackend`, ticket flow, rating flow, typing indicator, keydown handler, or any other code path.
-- Output file written to `/mnt/documents/widget-4.7.17-hostinger.js` and delivered as a download artifact.
+`/mnt/documents/widget-4.7.18-hostinger.js` — the only file to upload to Hostinger. The previous `widget-4.7.17-hostinger.js` stays in place for rollback.
 
 ## Out of scope
 
-- No changes to the React app, dashboard, or `chat-ai` edge function.
-- No changes to the Lovable project source — this only patches the standalone Hostinger embed JS you uploaded.
+- No changes to `widget/src/app/components/ChatInput.tsx` (React widget) — that file already splits correctly and is not what Hostinger serves.
+- No backend / `chat-ai` / dashboard changes. Dashboard already renders each `messages` row separately, so once the widget sends one row per line the dashboard will show them as separate messages automatically.
