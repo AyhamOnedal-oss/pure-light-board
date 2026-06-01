@@ -1,36 +1,28 @@
-## Problem
+## Goal
+When the user types a message containing line breaks (Shift+Enter) in the widget, each non-empty line should be sent as its own message — visible as separate bubbles in the widget AND stored as separate messages in the dashboard / backend. Today the whole multi-line text is sent as one message.
 
-When a ticket is created (either via inline phone form from `offer_ticket` intent, or via the "رفع تذكرة" modal form), the Hostinger widget currently:
-- Pushes a "تم استلام رقمك ✅..." chat bubble
-- After 5s (inline) or 0s (form), calls `endConversationNoRating()` which just disables the textarea
+## Scope
+Frontend widget only (`widget/`). No backend / Supabase changes — the existing `chat-ai` edge function already records one message per call, so simply calling it once per line gives separate rows in the dashboard automatically.
 
-It never opens the existing `renderTicketCreatedScreen()` panel (image 2: ticket number `#TKT-…`, status "مفتوحة", "خلال 24 ساعة", "تحميل التذكرة" button). That screen already exists in the bundle but is unreachable in v4.7.16.
+## Changes
 
-## Fix (widget only — `/mnt/documents/widget-4.7.16-hostinger.js`, mirrored to `widget.js`)
+### 1. `widget/src/app/components/ChatInput.tsx`
+- In `doSend`, split `message.trim()` on `\n`, trim each line, drop empties.
+- If there is no attachment and 2+ lines: call `onSendMessage(line)` for each line sequentially (no attachment on the extra lines).
+- If there is an attachment: attach it to the first line only; remaining lines go as plain text messages.
+- Single-line case: behaves exactly as today.
+- Clear input/attachment and reset textarea height once after dispatching all lines.
 
-1. **Persist server ticket number.** In both ticket-success callbacks (`handleInlineTicketSubmit` and `renderCreateTicketScreen`'s submit), set:
-   ```
-   state.ticketId = '#' + (row.display_code || ('TKT-' + row.number));
-   ```
-   instead of leaving the random local id.
+### 2. `widget/src/app/components/ChatWidget.tsx`
+- `handleSendMessage` becomes serialized so consecutive calls don't race: await the previous call's AI response before sending the next line (so the dashboard/AI sees them in order, and the typing indicator behaves correctly per line).
+  - Implement with a small in-component promise queue (`pendingRef.current = pendingRef.current.then(() => actuallySend(text, attachment))`).
+- No change to message shape; each line is just another customer message + its AI reply, exactly like today.
 
-2. **Route to the ticket screen after success.**
-   - `handleInlineTicketSubmit` success path: keep the inline "تم استلام رقمك ✅" confirmation bubble in the transcript, then after ~1.2s call `renderTicketCreatedScreen()` instead of `endConversationNoRating()`. Drop the 5s timeout.
-   - `renderCreateTicketScreen` submit success path: call `renderTicketCreatedScreen()` directly (no chat bubble, no `renderChatScreen()`).
+### Out of scope
+- No edits to `chat-ai`, dashboard `ConversationsPage`, or the loader. Each call already lands as its own row, so the dashboard splits automatically.
+- No change to how the AI agent receives history — it still gets the last 10 messages per call.
 
-3. **Stop auto-closing the ticket screen.** Remove the `setTimeout(...3500ms → endConversationNoRating)` inside `renderTicketCreatedScreen()`. The screen stays until the user taps the close/X. End the conversation (disable input) only when they leave the screen via the close button — change those handlers to call `endConversationNoRating()` then `closeChat()`, and remove the auto-timeout.
-
-4. **`closed` intent still works.** When backend returns `intent: "closed"` and `state.ticketCreated === true`, keep current behaviour: switch to `renderTicketCreatedScreen()` (so the user sees the ticket card on the way out) instead of just disabling input.
-
-5. **Bump build comment** to note "v4.7.16 — ticket-created screen shown after ticket success". No version number change (still 4.7.16).
-
-6. Overwrite `/mnt/documents/widget.js` with the updated bundle.
-
-## Out of scope
-- `chat-ai` edge function (already correct).
-- React widget under `widget/` (already has `TicketCreatedScreen.tsx`).
-- n8n / DB / styles.
-
-## Files changed
-- `/mnt/documents/widget-4.7.16-hostinger.js`
-- `/mnt/documents/widget.js`
+## Technical notes
+- Empty lines (e.g. user pressing Shift+Enter twice) are skipped to avoid blank bubbles.
+- Sequential dispatch keeps `isTyping` accurate and avoids hitting rate limits in a burst.
+- After this change, the widget JS bundle must be rebuilt (`cd widget && bun run build`) and re-uploaded to `widget.fuqah.net/widget.js` — this is a manual deploy step the user already follows for the 150 KB bundle.
