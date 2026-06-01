@@ -12,7 +12,6 @@ import {
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   TooltipProps
 } from 'recharts';
-import { RecentActivityTable } from './dashboard/RecentActivityTable';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 
 function formatNumber(n: number): string {
