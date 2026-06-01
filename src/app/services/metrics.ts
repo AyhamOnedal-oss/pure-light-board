@@ -20,6 +20,7 @@ export interface DashboardMetrics {
   csat: { 1: number; 2: number; 3: number; 4: number; 5: number; total: number; avg: number };
   completionRate: number; // 0..1
   classification: Record<string, number>;
+  feedback: { positive: number; negative: number; total: number };
 }
 
 export const EMPTY_METRICS: DashboardMetrics = {
@@ -35,6 +36,7 @@ export const EMPTY_METRICS: DashboardMetrics = {
   csat: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, total: 0, avg: 0 },
   completionRate: 0,
   classification: {},
+  feedback: { positive: 0, negative: 0, total: 0 },
 };
 
 async function count(table: string, build: (q: any) => any): Promise<number> {
@@ -63,6 +65,7 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     msgRows,
     csatRows,
     usageRows,
+    feedbackRows,
   ] = await Promise.all([
     count('conversations_main', (q) => q.eq('tenant_id', tenantId)),
     count('conversations_messages', (q) => q.eq('tenant_id', tenantId).eq('sender', 'customer')),
@@ -95,6 +98,12 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
       .from('dashboard_usage_daily')
       .select('clicks')
       .eq('tenant_id', tenantId),
+    supabase
+      .from('conversations_messages')
+      .select('feedback')
+      .eq('tenant_id', tenantId)
+      .in('sender', ['ai', 'agent'])
+      .not('feedback', 'is', null),
   ]);
 
   const wordsUsed = (wordsRows.data ?? []).reduce(
@@ -157,6 +166,16 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
   }
   csat.avg = csat.total > 0 ? sum / csat.total : 0;
 
+  // Feedback (thumbs up/down on AI messages)
+  let positive = 0;
+  let negative = 0;
+  for (const r of feedbackRows.data ?? []) {
+    const v = (r as any).feedback as string;
+    if (v === 'positive') positive++;
+    else if (v === 'negative') negative++;
+  }
+  const feedback = { positive, negative, total: positive + negative };
+
   return {
     conversations,
     messagesIn,
@@ -170,5 +189,6 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     csat,
     completionRate,
     classification,
+    feedback,
   };
 }
