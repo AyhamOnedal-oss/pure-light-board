@@ -141,6 +141,9 @@ export function ChatWidget() {
   /** Tracks how the current ticket was created: 'inline' or 'form' */
   const ticketSourceRef = useRef<'inline' | 'form'>('form');
 
+  /** Serializes send calls so multi-line sends are processed in order. */
+  const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
+
   // ── Auto-scroll refs ────────────────────────────────────────────────────────
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -171,7 +174,7 @@ export function ChatWidget() {
 
   // ── Message handlers ────────────────────────────────────────────────────────
 
-  const handleSendMessage = async (text: string, attachment?: MessageAttachment) => {
+  const sendOne = async (text: string, attachment?: MessageAttachment) => {
     const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'store');
     const hasOpenTicketForm = messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted);
     const newMessage: Message = {
