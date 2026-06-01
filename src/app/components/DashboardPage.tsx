@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AnimatedValue } from './AnimatedNumber';
 import {
   MessageSquare, CheckCircle, Ticket, FileText, MousePointerClick,
-  Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, X,
+  Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, TrendingDown, X,
   Check, Trash2, CircleHelp, Clock, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import {
@@ -118,15 +118,13 @@ export function DashboardPage() {
     return () => { document.body.style.overflow = ''; };
   }, [openInsight, feedbackConvo]);
 
-  const totalMessages = metrics.messagesIn + metrics.messagesOut;
   const kpis = [
-    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8' },
-    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981' },
-    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b' },
-    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6' },
-    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD' },
-    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899' },
-    { icon: MessageSquare, label: t('Messages', 'الرسائل'), value: formatNumber(totalMessages), color: '#0ea5e9' },
+    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', growth: metrics.growth.conversations },
+    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', growth: metrics.growth.completionRate },
+    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', growth: metrics.growth.ticketsTotal },
+    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', growth: metrics.growth.wordsUsed },
+    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', growth: metrics.growth.widgetClicks },
+    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', growth: metrics.growth.avgResponseSeconds },
   ];
 
   const classificationLabels: Record<string, { en: string; ar: string; color: string }> = {
@@ -230,10 +228,22 @@ export function DashboardPage() {
                 className="text-[22px] text-foreground"
                 style={{ fontWeight: 700 }}
               />
-              <span className="text-[11px] flex items-center gap-1 text-green-500" style={{ fontWeight: 600 }}>
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                {t('Live', 'مباشر')}
-              </span>
+              {(() => {
+                const g = kpi.growth;
+                if (g == null) {
+                  return <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>—</span>;
+                }
+                const up = g >= 0;
+                const Icon = up ? TrendingUp : TrendingDown;
+                const color = up ? 'text-green-500' : 'text-red-500';
+                const sign = up ? '+' : '';
+                return (
+                  <span className={`text-[11px] flex items-center gap-1 ${color}`} style={{ fontWeight: 600 }}>
+                    <Icon className="w-3 h-3" />
+                    {sign}{g.toFixed(1)}%
+                  </span>
+                );
+              })()}
             </div>
           </motion.div>
         ))}

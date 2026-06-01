@@ -21,6 +21,19 @@ export interface DashboardMetrics {
   completionRate: number; // 0..1
   classification: Record<string, number>;
   feedback: { positive: number; negative: number; total: number };
+  /**
+   * Growth % per KPI comparing the last 7 days against the previous 7 days.
+   * Positive number = up, negative = down, null = no prior data to compare.
+   */
+  growth: {
+    conversations: number | null;
+    completionRate: number | null;
+    ticketsTotal: number | null;
+    wordsUsed: number | null;
+    widgetClicks: number | null;
+    avgResponseSeconds: number | null;
+    messages: number | null;
+  };
 }
 
 export const EMPTY_METRICS: DashboardMetrics = {
@@ -37,6 +50,15 @@ export const EMPTY_METRICS: DashboardMetrics = {
   completionRate: 0,
   classification: {},
   feedback: { positive: 0, negative: 0, total: 0 },
+  growth: {
+    conversations: null,
+    completionRate: null,
+    ticketsTotal: null,
+    wordsUsed: null,
+    widgetClicks: null,
+    avgResponseSeconds: null,
+    messages: null,
+  },
 };
 
 async function count(table: string, build: (q: any) => any): Promise<number> {
@@ -53,6 +75,14 @@ async function count(table: string, build: (q: any) => any): Promise<number> {
 export async function fetchDashboardMetrics(tenantId: string): Promise<DashboardMetrics> {
   if (!tenantId) return EMPTY_METRICS;
 
+  // 14-day window used for growth comparisons (last 7d vs prior 7d).
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const start14 = new Date(now - 14 * day).toISOString();
+  const start7 = new Date(now - 7 * day).toISOString();
+  const start14Date = start14.slice(0, 10);
+  const start7Date = start7.slice(0, 10);
+
   const [
     conversations,
     messagesIn,
@@ -66,6 +96,8 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     csatRows,
     usageRows,
     feedbackRows,
+    usageTrendRows,
+    ticketTrendRows,
   ] = await Promise.all([
     count('conversations_main', (q) => q.eq('tenant_id', tenantId)),
     count('conversations_messages', (q) => q.eq('tenant_id', tenantId).eq('sender', 'customer')),
@@ -104,6 +136,16 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
       .eq('tenant_id', tenantId)
       .in('sender', ['ai', 'agent'])
       .not('feedback', 'is', null),
+    supabase
+      .from('dashboard_usage_daily')
+      .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
+      .eq('tenant_id', tenantId)
+      .gte('day', start14Date),
+    supabase
+      .from('tickets_main')
+      .select('created_at')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', start14),
   ]);
 
   const wordsUsed = (wordsRows.data ?? []).reduce(
@@ -176,6 +218,55 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
   }
   const feedback = { positive, negative, total: positive + negative };
 
+  // ---- Growth: last 7 days vs prior 7 days ----
+  const pct = (cur: number, prev: number): number | null => {
+    if (prev <= 0) return cur > 0 ? 100 : null;
+    return ((cur - prev) / prev) * 100;
+  };
+  const sums = {
+    cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+    prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+  };
+  for (const r of usageTrendRows.data ?? []) {
+    const d = (r as any).day as string;
+    const bucket = d >= start7Date ? sums.cur : sums.prev;
+    bucket.opened += (r as any).conversations_opened ?? 0;
+    bucket.resolved += (r as any).conversations_resolved ?? 0;
+    bucket.msgs += ((r as any).messages_in ?? 0) + ((r as any).messages_out ?? 0);
+    bucket.words += (r as any).ai_words_used ?? 0;
+    bucket.clicks += (r as any).clicks ?? 0;
+    const rs = (r as any).avg_response_seconds ?? 0;
+    if (rs > 0) {
+      bucket.respSum += rs;
+      bucket.respDays += 1;
+    }
+  }
+  let curTickets = 0;
+  let prevTickets = 0;
+  for (const r of ticketTrendRows.data ?? []) {
+    const t = (r as any).created_at as string;
+    if (t >= start7) curTickets++;
+    else prevTickets++;
+  }
+  const curRate = sums.cur.opened > 0 ? sums.cur.resolved / sums.cur.opened : 0;
+  const prevRate = sums.prev.opened > 0 ? sums.prev.resolved / sums.prev.opened : 0;
+  const curResp = sums.cur.respDays > 0 ? sums.cur.respSum / sums.cur.respDays : 0;
+  const prevResp = sums.prev.respDays > 0 ? sums.prev.respSum / sums.prev.respDays : 0;
+  // For response time, "down" (faster) is good — invert the sign so green = improvement.
+  const respGrowthRaw = pct(curResp, prevResp);
+  const respGrowth = respGrowthRaw == null ? null : -respGrowthRaw;
+
+  const growth = {
+    conversations: pct(sums.cur.opened, sums.prev.opened),
+    completionRate:
+      prevRate <= 0 ? (curRate > 0 ? 100 : null) : ((curRate - prevRate) / prevRate) * 100,
+    ticketsTotal: pct(curTickets, prevTickets),
+    wordsUsed: pct(sums.cur.words, sums.prev.words),
+    widgetClicks: pct(sums.cur.clicks, sums.prev.clicks),
+    avgResponseSeconds: respGrowth,
+    messages: pct(sums.cur.msgs, sums.prev.msgs),
+  };
+
   return {
     conversations,
     messagesIn,
@@ -190,5 +281,6 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     completionRate,
     classification,
     feedback,
+    growth,
   };
 }
