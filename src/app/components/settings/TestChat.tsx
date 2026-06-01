@@ -102,7 +102,7 @@ export function TestChat() {
       </div>
 
       {/* Orange usage warning */}
-      <div className="px-4 py-2.5 rounded-xl bg-orange-500/8 border border-orange-500/15">
+      <div className="px-4 py-2.5 rounded-xl bg-orange-500/8 border border-orange-500/15 inline-flex w-fit max-w-full">
         <p className="text-[12px] text-orange-500" style={{ fontWeight: 600 }}>
           ⚠️ {t(
             'Words used in this test are counted as input and output usage.',
