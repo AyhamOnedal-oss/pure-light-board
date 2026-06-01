@@ -228,10 +228,22 @@ export function DashboardPage() {
                 className="text-[22px] text-foreground"
                 style={{ fontWeight: 700 }}
               />
-              <span className="text-[11px] flex items-center gap-1 text-green-500" style={{ fontWeight: 600 }}>
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                {t('Live', 'مباشر')}
-              </span>
+              {(() => {
+                const g = kpi.growth;
+                if (g == null) {
+                  return <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>—</span>;
+                }
+                const up = g >= 0;
+                const Icon = up ? TrendingUp : TrendingDown;
+                const color = up ? 'text-green-500' : 'text-red-500';
+                const sign = up ? '+' : '';
+                return (
+                  <span className={`text-[11px] flex items-center gap-1 ${color}`} style={{ fontWeight: 600 }}>
+                    <Icon className="w-3 h-3" />
+                    {sign}{g.toFixed(1)}%
+                  </span>
+                );
+              })()}
             </div>
           </motion.div>
         ))}
