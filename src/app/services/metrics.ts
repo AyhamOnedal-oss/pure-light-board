@@ -218,6 +218,55 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
   }
   const feedback = { positive, negative, total: positive + negative };
 
+  // ---- Growth: last 7 days vs prior 7 days ----
+  const pct = (cur: number, prev: number): number | null => {
+    if (prev <= 0) return cur > 0 ? 100 : null;
+    return ((cur - prev) / prev) * 100;
+  };
+  const sums = {
+    cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+    prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+  };
+  for (const r of usageTrendRows.data ?? []) {
+    const d = (r as any).day as string;
+    const bucket = d >= start7Date ? sums.cur : sums.prev;
+    bucket.opened += (r as any).conversations_opened ?? 0;
+    bucket.resolved += (r as any).conversations_resolved ?? 0;
+    bucket.msgs += ((r as any).messages_in ?? 0) + ((r as any).messages_out ?? 0);
+    bucket.words += (r as any).ai_words_used ?? 0;
+    bucket.clicks += (r as any).clicks ?? 0;
+    const rs = (r as any).avg_response_seconds ?? 0;
+    if (rs > 0) {
+      bucket.respSum += rs;
+      bucket.respDays += 1;
+    }
+  }
+  let curTickets = 0;
+  let prevTickets = 0;
+  for (const r of ticketTrendRows.data ?? []) {
+    const t = (r as any).created_at as string;
+    if (t >= start7) curTickets++;
+    else prevTickets++;
+  }
+  const curRate = sums.cur.opened > 0 ? sums.cur.resolved / sums.cur.opened : 0;
+  const prevRate = sums.prev.opened > 0 ? sums.prev.resolved / sums.prev.opened : 0;
+  const curResp = sums.cur.respDays > 0 ? sums.cur.respSum / sums.cur.respDays : 0;
+  const prevResp = sums.prev.respDays > 0 ? sums.prev.respSum / sums.prev.respDays : 0;
+  // For response time, "down" (faster) is good — invert the sign so green = improvement.
+  const respGrowthRaw = pct(curResp, prevResp);
+  const respGrowth = respGrowthRaw == null ? null : -respGrowthRaw;
+
+  const growth = {
+    conversations: pct(sums.cur.opened, sums.prev.opened),
+    completionRate:
+      prevRate <= 0 ? (curRate > 0 ? 100 : null) : ((curRate - prevRate) / prevRate) * 100,
+    ticketsTotal: pct(curTickets, prevTickets),
+    wordsUsed: pct(sums.cur.words, sums.prev.words),
+    widgetClicks: pct(sums.cur.clicks, sums.prev.clicks),
+    avgResponseSeconds: respGrowth,
+    messages: pct(sums.cur.msgs, sums.prev.msgs),
+  };
+
   return {
     conversations,
     messagesIn,
@@ -232,5 +281,6 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     completionRate,
     classification,
     feedback,
+    growth,
   };
 }
