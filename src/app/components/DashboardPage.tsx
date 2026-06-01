@@ -12,7 +12,6 @@ import {
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   TooltipProps
 } from 'recharts';
-import { RecentActivityTable } from './dashboard/RecentActivityTable';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 
 function formatNumber(n: number): string {
@@ -243,9 +242,6 @@ export function DashboardPage() {
                   <span className={`text-[11px] flex items-center gap-1 ${color}`} style={{ fontWeight: 600 }}>
                     <Icon className="w-3 h-3" />
                     {sign}{g.toFixed(1)}%
-                    <span className="text-muted-foreground" style={{ fontWeight: 500 }}>
-                      {t('vs yesterday', 'مقارنة بالأمس')}
-                    </span>
                   </span>
                 );
               })()}
@@ -731,8 +727,6 @@ export function DashboardPage() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <RecentActivityTable />
     </div>
   );
 }
