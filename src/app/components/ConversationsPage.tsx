@@ -400,24 +400,6 @@ export function ConversationsPage() {
               {selected.chatStatus === 'closed' && <CompletionPill score={selected.completionScore} size="md" />}
               {selected.intentType && <IntentBadge type={selected.intentType} size="md" />}
               <GoalMetBadge met={selected.goalMet} />
-              {selected.chatStatus === 'closed' && (
-                <button
-                  type="button"
-                  onClick={() => handleReanalyze(selected)}
-                  disabled={reanalyzing}
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-[#043CC8]/10 text-[#043CC8] dark:text-[#6b8bff] inline-flex items-center gap-1 hover:bg-[#043CC8]/20 transition-colors disabled:opacity-50"
-                  style={{ fontWeight: 600 }}
-                  title={t('Re-run AI analysis on this conversation', 'إعادة تشغيل تحليل الذكاء الاصطناعي')}
-                >
-                  {reanalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                  {t('Re-analyze', 'إعادة التحليل')}
-                </button>
-              )}
-              {selected.category && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
-                  {t(categoryMap[selected.category].en, categoryMap[selected.category].ar)}
-                </span>
-              )}
               <span className={`text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${selected.chatStatus === 'open' ? 'bg-[#043CC8]/10 text-[#043CC8] dark:text-[#6b8bff]' : 'bg-muted text-muted-foreground'}`} style={{ fontWeight: 600 }}>
                 {selected.chatStatus === 'open' ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                 {selected.chatStatus === 'open' ? t('Open', 'مفتوحة') : t('Closed', 'مغلقة')}
