@@ -75,14 +75,31 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
   };
 
   const doSend = () => {
-    if (canSend) {
-      onSendMessage(message.trim(), attachment || undefined);
-      setMessage('');
-      setAttachment(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+    if (!canSend) return;
+    const raw = message.trim();
+    const lines = raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    if (lines.length === 0 && attachment) {
+      // Attachment-only send
+      onSendMessage('', attachment);
+    } else if (lines.length <= 1) {
+      onSendMessage(lines[0] ?? '', attachment || undefined);
+    } else {
+      // Multi-line: attach file to first line only, send remaining lines as plain text
+      lines.forEach((line, idx) => {
+        if (idx === 0) onSendMessage(line, attachment || undefined);
+        else onSendMessage(line);
+      });
+    }
+
+    setMessage('');
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
     }
   };
 
