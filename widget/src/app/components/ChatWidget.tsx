@@ -144,6 +144,12 @@ export function ChatWidget() {
   /** Serializes send calls so multi-line sends are processed in order. */
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
 
+  /** Always-current snapshot of messages, for serialized sends. */
+  const messagesRef = useRef<Message[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   // ── Auto-scroll refs ────────────────────────────────────────────────────────
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -175,8 +181,9 @@ export function ChatWidget() {
   // ── Message handlers ────────────────────────────────────────────────────────
 
   const sendOne = async (text: string, attachment?: MessageAttachment) => {
-    const lastAssistantMessage = [...messages].reverse().find(m => m.sender === 'store');
-    const hasOpenTicketForm = messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted);
+    const currentMessages = messagesRef.current;
+    const lastAssistantMessage = [...currentMessages].reverse().find(m => m.sender === 'store');
+    const hasOpenTicketForm = currentMessages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted);
     const newMessage: Message = {
       id: Date.now().toString(),
       text,
@@ -185,7 +192,11 @@ export function ChatWidget() {
       timestamp: new Date(),
       conversationId,
     };
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => {
+      const next = [...prev, newMessage];
+      messagesRef.current = next;
+      return next;
+    });
 
     if (attachment && !text) {
       // Attachment-only — for now, no AI call
@@ -212,7 +223,7 @@ export function ChatWidget() {
     }
 
     setIsTyping(true);
-    const history = messages.slice(-10).map(m => ({
+    const history = messagesRef.current.slice(-10).map(m => ({
       sender: m.sender,
       text: m.text,
     }));
@@ -259,14 +270,29 @@ export function ChatWidget() {
         ticketFormSubmitted: false,
       };
       ticketSourceRef.current = 'inline';
-      setMessages(prev => [...prev, response, ticketForm]);
+      setMessages(prev => {
+        const next = [...prev, response, ticketForm];
+        messagesRef.current = next;
+        return next;
+      });
     } else {
-      setMessages(prev => [...prev, response]);
+      setMessages(prev => {
+        const next = [...prev, response];
+        messagesRef.current = next;
+        return next;
+      });
     }
 
     if (isCloseDone) {
       setTimeout(() => setCurrentScreen('rating'), 700);
     }
+  };
+
+  /** Public entry: queues sends so multi-line bursts execute sequentially. */
+  const handleSendMessage = (text: string, attachment?: MessageAttachment) => {
+    const next = sendQueueRef.current.then(() => sendOne(text, attachment)).catch(() => {});
+    sendQueueRef.current = next;
+    return next;
   };
 
   // ── Quick-reply handler (نعم / لا for "Do you need anything else?") ────────
