@@ -242,9 +242,6 @@ export function DashboardPage() {
                   <span className={`text-[11px] flex items-center gap-1 ${color}`} style={{ fontWeight: 600 }}>
                     <Icon className="w-3 h-3" />
                     {sign}{g.toFixed(1)}%
-                    <span className="text-muted-foreground" style={{ fontWeight: 500 }}>
-                      {t('vs yesterday', 'مقارنة بالأمس')}
-                    </span>
                   </span>
                 );
               })()}
