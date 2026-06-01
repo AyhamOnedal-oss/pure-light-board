@@ -21,6 +21,19 @@ export interface DashboardMetrics {
   completionRate: number; // 0..1
   classification: Record<string, number>;
   feedback: { positive: number; negative: number; total: number };
+  /**
+   * Growth % per KPI comparing the last 7 days against the previous 7 days.
+   * Positive number = up, negative = down, null = no prior data to compare.
+   */
+  growth: {
+    conversations: number | null;
+    completionRate: number | null;
+    ticketsTotal: number | null;
+    wordsUsed: number | null;
+    widgetClicks: number | null;
+    avgResponseSeconds: number | null;
+    messages: number | null;
+  };
 }
 
 export const EMPTY_METRICS: DashboardMetrics = {
@@ -37,6 +50,15 @@ export const EMPTY_METRICS: DashboardMetrics = {
   completionRate: 0,
   classification: {},
   feedback: { positive: 0, negative: 0, total: 0 },
+  growth: {
+    conversations: null,
+    completionRate: null,
+    ticketsTotal: null,
+    wordsUsed: null,
+    widgetClicks: null,
+    avgResponseSeconds: null,
+    messages: null,
+  },
 };
 
 async function count(table: string, build: (q: any) => any): Promise<number> {
@@ -53,6 +75,14 @@ async function count(table: string, build: (q: any) => any): Promise<number> {
 export async function fetchDashboardMetrics(tenantId: string): Promise<DashboardMetrics> {
   if (!tenantId) return EMPTY_METRICS;
 
+  // 14-day window used for growth comparisons (last 7d vs prior 7d).
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const start14 = new Date(now - 14 * day).toISOString();
+  const start7 = new Date(now - 7 * day).toISOString();
+  const start14Date = start14.slice(0, 10);
+  const start7Date = start7.slice(0, 10);
+
   const [
     conversations,
     messagesIn,
@@ -66,6 +96,8 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     csatRows,
     usageRows,
     feedbackRows,
+    usageTrendRows,
+    ticketTrendRows,
   ] = await Promise.all([
     count('conversations_main', (q) => q.eq('tenant_id', tenantId)),
     count('conversations_messages', (q) => q.eq('tenant_id', tenantId).eq('sender', 'customer')),
@@ -104,6 +136,16 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
       .eq('tenant_id', tenantId)
       .in('sender', ['ai', 'agent'])
       .not('feedback', 'is', null),
+    supabase
+      .from('dashboard_usage_daily')
+      .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
+      .eq('tenant_id', tenantId)
+      .gte('day', start14Date),
+    supabase
+      .from('tickets_main')
+      .select('created_at')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', start14),
   ]);
 
   const wordsUsed = (wordsRows.data ?? []).reduce(
