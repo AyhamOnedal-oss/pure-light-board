@@ -345,8 +345,8 @@ export function DashboardPage() {
             <PieChart>
               <Pie
                 data={[
-                  { name: t('Positive', 'إيجابي'), value: 847, color: '#10b981' },
-                  { name: t('Negative', 'سلبي'), value: 53, color: '#ff4466' },
+                  { name: t('Positive', 'إيجابي'), value: metrics.feedback.positive, color: '#10b981' },
+                  { name: t('Negative', 'سلبي'), value: metrics.feedback.negative, color: '#ff4466' },
                 ]}
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
@@ -363,11 +363,11 @@ export function DashboardPage() {
           <div className="flex items-center justify-center gap-5 mt-1">
             <div className="flex items-center gap-1.5">
               <ThumbsUp className="w-3.5 h-3.5 text-green-500" />
-              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Positive', 'إيجابي')} ({((847 / 900) * 100).toFixed(1)}%)</span>
+              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Positive', 'إيجابي')} ({metrics.feedback.total > 0 ? ((metrics.feedback.positive / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ThumbsDown className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Negative', 'سلبي')} ({((53 / 900) * 100).toFixed(1)}%)</span>
+              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Negative', 'سلبي')} ({metrics.feedback.total > 0 ? ((metrics.feedback.negative / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
             </div>
           </div>
         </motion.div>
