@@ -416,6 +416,18 @@ Deno.serve(async (req) => {
       const action = { type: "offer_close_done" as ActionType, reason: "user_end_conversation" };
       await logClassifier("user_intent", userVerdict, userIntent, "classifier");
       await persistMessages(message, reply);
+      try {
+        await supabase
+          .from("conversations_main")
+          .update({
+            status: "closed",
+            resolved_at: new Date().toISOString(),
+            close_reason: "user_end_conversation",
+          })
+          .eq("id", conversation_id);
+      } catch (e) {
+        console.log("conversation close update failed (non-fatal):", e);
+      }
       return jsonResponse({ reply, attachments: [], action, intent: "closed", tenant_id, conversation_id });
     }
 

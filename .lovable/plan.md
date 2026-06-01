@@ -1,21 +1,42 @@
-## Problem
+# Two fixes
 
-In `widget-4.7.17-hostinger.js`, the multi-line split logic is in place, but only the first line bubble appears for the user. Root cause: the second line is only pushed to `state.messages` *after* the first backend response returns (inside `onDone → next()`). If anything during the first round-trip changes UI state — `intent === 'closed'` triggering `renderRatingScreen()`, `intent === 'offer_ticket'` injecting a ticket form, an error in `pushAiMessage`, a thrown callback, or the user closing — the queue can stop before the second customer bubble is ever rendered. Result: the second line is silently dropped, exactly matching the screenshot.
+## 1) Multi-line input → one merged message (one webhook call)
 
-## Fix (only in `/mnt/documents/widget-4.7.18-hostinger.js`)
+**File:** `/mnt/documents/widget-4.7.19-hostinger.js` (copy of 4.7.18, patched)
 
-1. **Render all customer bubbles immediately**, before any network call. Loop through `lines`, push each as a `customer` message into `state.messages` (attachment only on the first), call `renderMessages()` once. The widget instantly shows every line as its own bubble, matching the dashboard view (each row is a separate `messages` row keyed by `sender='customer'`).
-2. **Then send sequentially** to `chat-ai` in a queue, one request per line, so the AI sees them as ordered separate messages and the conversation history stays clean.
-3. **Queue resilience**: `next()` always runs after the previous request — both on success and failure — so a single bad response cannot strand the remaining lines. Intent handling (ticket form, closed/rating) only runs for the **last** line's response, not intermediate ones, so the rating/ticket UI does not pop up mid-batch.
-4. Keep current input handling (desktop Enter = send, Shift+Enter = newline, mobile Enter = newline). Empty lines from extra blank separators are dropped as before.
-5. Bump header to `Version: 4.7.18 (Hostinger embed: render all lines as separate bubbles, then send sequentially)`.
-6. No changes to `sendToBackend`, ticket flow, rating flow, dashboard, edge functions, React widget, or any other code path.
+Reverse the v4.7.18 splitting. The widget should:
+- Keep accepting newlines in the textarea (Shift+Enter on desktop, Enter on mobile).
+- On send, **join all non-empty lines with `\n`** into a single string, render **one customer bubble** (preserving line breaks via `white-space: pre-wrap` already present), and make **one** `sendToBackend` call.
+- Remove the `queue` / `sendOneQueued` sequential loop entirely; restore a single `sendOne(text, att)` path that pushes one customer message, sets `isTyping`, calls the backend once, handles intent (`offer_ticket` / `closed`) once.
+- Attachment behavior unchanged (attached to that single message).
+- Bump header to `Version: 4.7.19 (Hostinger embed: multi-line input sent as one merged message)`.
 
-## Deliverable
+This eliminates the double webhook call shown in the screenshots. Dashboard will then show one merged bubble with line breaks instead of two rows.
 
-`/mnt/documents/widget-4.7.18-hostinger.js` — the only file to upload to Hostinger. The previous `widget-4.7.17-hostinger.js` stays in place for rollback.
+No other widget logic changes.
+
+## 2) Conversation status stays "open" after AI closes it
+
+**Root cause** (verified in `supabase/functions/chat-ai/index.ts`):
+When the user-intent classifier returns `end_conversation`, the function returns `intent: "closed"` to the widget and shows the rating screen, **but never updates `conversations_main.status`**. The row stays at `"new"`, so `ConversationsPage.tsx:140` (`isClosed = c.status === 'closed' || 'resolved'`) evaluates false and the dashboard renders "محادثة مفتوحة".
+
+**Fix in `supabase/functions/chat-ai/index.ts`:**
+- In the `if (userIntent === "end_conversation")` branch (around line 414), after `persistMessages`, update the conversation row:
+  ```ts
+  await supabase
+    .from("conversations_main")
+    .update({ status: "closed", closed_at: new Date().toISOString() })
+    .eq("id", conversation_id);
+  ```
+  (Wrap in try/catch, non-fatal, matching existing pattern.)
+- Also do the same when the assistant's reply intent is classified as `closed` later in the flow (around line 621–624) — if `intent === "closed"`, update status to `"closed"`. This catches the "هل تحتاج مساعدة أخرى؟" → "لا" → closing greeting path.
+- Skip the `closed_at` field if the column doesn't exist; status alone is what the dashboard reads. (I'll check the schema before deploying and only include columns that exist.)
+
+No widget changes for #2 — the close intent already fires; only DB persistence is missing.
+
+## Deliverables
+- `/mnt/documents/widget-4.7.19-hostinger.js` (upload to Hostinger)
+- Edge function `chat-ai` redeploy with the status update.
 
 ## Out of scope
-
-- No changes to `widget/src/app/components/ChatInput.tsx` (React widget) — that file already splits correctly and is not what Hostinger serves.
-- No backend / `chat-ai` / dashboard changes. Dashboard already renders each `messages` row separately, so once the widget sends one row per line the dashboard will show them as separate messages automatically.
+- React widget (`widget/src/app/...`), dashboard UI, n8n workflow, rating flow.
