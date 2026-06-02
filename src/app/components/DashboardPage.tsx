@@ -379,7 +379,7 @@ export function DashboardPage() {
             </div>
           ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
+            <PieChart key={`fb-${feedback.total}-${feedback.positive}`}>
               <Pie
                 data={[
                   { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
@@ -388,7 +388,7 @@ export function DashboardPage() {
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive animationBegin={600} animationDuration={1200} animationEasing="ease-out"
+                isAnimationActive animationBegin={200} animationDuration={1400} animationEasing="ease-out"
               >
                 <Cell key="fb-positive" fill="#10b981" />
                 <Cell key="fb-negative" fill="#ff4466" />
