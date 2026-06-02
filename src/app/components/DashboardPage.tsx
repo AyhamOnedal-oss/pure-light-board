@@ -13,6 +13,8 @@ import {
   TooltipProps
 } from 'recharts';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
+import { DateRangePicker, computeRange, type RangePreset } from './dashboard/DateRangePicker';
+import type { DateRange } from '../services/metrics';
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
@@ -102,7 +104,9 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 
 export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
-  const { metrics } = useDashboardMetrics();
+  const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
+  const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
+  const { metrics } = useDashboardMetrics(range);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [issues, setIssues] = useState(insightIssues);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
@@ -193,9 +197,16 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Dashboard', 'لوحة التحكم')}</h1>
-        <p className="text-muted-foreground text-[14px] mt-1">{t('Overview of your AI customer service performance', 'نظرة عامة على أداء خدمة العملاء بالذكاء الاصطناعي')}</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Dashboard', 'لوحة التحكم')}</h1>
+          <p className="text-muted-foreground text-[14px] mt-1">{t('Overview of your AI customer service performance', 'نظرة عامة على أداء خدمة العملاء بالذكاء الاصطناعي')}</p>
+        </div>
+        <DateRangePicker
+          preset={rangePreset}
+          custom={range}
+          onChange={(p, r) => { setRangePreset(p); setRange(r); }}
+        />
       </div>
 
       {/* KPIs — compact */}
