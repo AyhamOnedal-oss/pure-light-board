@@ -490,7 +490,11 @@ export function ChatWindow({
   const handleTicketFormBack   = () => { ticketCreatingRef.current = false; setCurrentScreen('chat'); };
   // Flow B — after ticket-created, send user to the rating screen so they
   // can rate the AI's handoff (not directly close the widget).
-  const handleTicketCreatedClose = () => setCurrentScreen('rating');
+  // v4.7.22 — "حسناً، شكراً لك": end + full reset, then close. Next open = brand new chat.
+  const handleTicketCreatedClose = () => {
+    closeConversation(evCtx, 'user_ticket_acknowledged');
+    onClose();
+  };
   const handleTicketCreatedBack  = () => {
     // Only inject success message for the X → Create Ticket flow.
     // The inline flow already shows a green badge on the ticket-form message.
