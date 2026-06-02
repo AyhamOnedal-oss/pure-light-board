@@ -3,9 +3,8 @@
  * Supports Dark Mode via isDarkMode prop.
  */
 
-import { useEffect } from 'react';
 import type { Theme } from '../types/theme';
-import { CheckCircle2, Clock, Tag, ArrowRight, Download, Star } from 'lucide-react';
+import { CheckCircle2, Clock, Tag, ArrowRight, Download } from 'lucide-react';
 
 interface TicketCreatedScreenProps {
   theme: Theme;
@@ -24,12 +23,8 @@ export function TicketCreatedScreen({
   onClose, onBackToChat, onDownload,
   isDarkMode = false, mainColor,
 }: TicketCreatedScreenProps) {
-  // Auto-advance to the rating screen after a short pause so the user can
-  // rate the AI's handoff. onClose is wired by the parent to setCurrentScreen('rating').
-  useEffect(() => {
-    const t = setTimeout(() => { onClose(); }, 3500);
-    return () => clearTimeout(t);
-  }, [onClose]);
+  // v4.7.22 — no auto-close. User must explicitly tap "حسناً، شكراً لك" (onClose,
+  // wired by parent to full-reset for next open) or the back arrow (continue chat).
 
   const isWhiteTheme = theme.background === '#FFFFFF';
   const isBlackTheme = theme.id === 'black';
@@ -178,8 +173,7 @@ export function TicketCreatedScreen({
             fontWeight: 700,
           }}
         >
-          <Star className="w-4 h-4" />
-          تقييم تجربتك
+          حسناً، شكراً لك
         </button>
 
         <button
