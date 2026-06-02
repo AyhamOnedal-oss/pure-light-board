@@ -186,6 +186,7 @@ export function FloatingWidget({
       <AnimatePresence>
         {isOpen && (
           <ChatWindow
+            key={conversationId}
             theme={theme}
             position={position}
             onClose={handleFullClose}
