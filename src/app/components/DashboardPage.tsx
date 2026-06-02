@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { AnimatedValue } from './AnimatedNumber';
@@ -111,6 +111,13 @@ export function DashboardPage() {
   const feedback = rangePreset === 'last3m' && metrics.feedback.total === 0
     ? { positive: 842, negative: 96, total: 938 }
     : metrics.feedback;
+  const feedbackPieData = useMemo(
+    () => [
+      { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
+      { name: t('Negative', 'سلبي'), value: feedback.negative, color: '#ff4466' },
+    ],
+    [feedback.positive, feedback.negative, language],
+  );
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [issues, setIssues] = useState(insightIssues);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
@@ -379,16 +386,13 @@ export function DashboardPage() {
             </div>
           ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <PieChart key={`fb-${feedback.total}-${feedback.positive}`}>
+            <PieChart key={rangePreset === 'last3m' ? 'fb-mock' : 'fb-real'}>
               <Pie
-                data={[
-                  { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
-                  { name: t('Negative', 'سلبي'), value: feedback.negative, color: '#ff4466' },
-                ]}
+                data={feedbackPieData}
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive animationBegin={200} animationDuration={1400} animationEasing="ease-out"
+                isAnimationActive animationBegin={400} animationDuration={1800} animationEasing="ease-out"
               >
                 <Cell key="fb-positive" fill="#10b981" />
                 <Cell key="fb-negative" fill="#ff4466" />
