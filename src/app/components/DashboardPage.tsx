@@ -111,6 +111,13 @@ export function DashboardPage() {
   const feedback = rangePreset === 'last3m' && metrics.feedback.total === 0
     ? { positive: 842, negative: 96, total: 938 }
     : metrics.feedback;
+  const feedbackPieData = useMemo(
+    () => [
+      { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
+      { name: t('Negative', 'سلبي'), value: feedback.negative, color: '#ff4466' },
+    ],
+    [feedback.positive, feedback.negative, language],
+  );
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [issues, setIssues] = useState(insightIssues);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
