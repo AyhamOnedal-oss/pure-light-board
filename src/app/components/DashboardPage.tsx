@@ -82,6 +82,8 @@ const insightIssues: Record<string, InsightIssue[]> = {
   ],
 };
 
+const mockAiFeedback = { positive: 842, negative: 96, total: 938 };
+
 // Custom tooltip for charts — all white text in dark mode, clean layout
 function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> & { isDark: boolean }) {
   if (!active || !payload?.length) return null;
@@ -108,9 +110,8 @@ export function DashboardPage() {
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
   const { metrics } = useDashboardMetrics(range);
   // Mock AI feedback for "Last 3 months" preset (visual demo only).
-  const feedback = rangePreset === 'last3m' && metrics.feedback.total === 0
-    ? { positive: 842, negative: 96, total: 938 }
-    : metrics.feedback;
+  const feedback = rangePreset === 'last3m' ? mockAiFeedback : metrics.feedback;
+  const feedbackAnimationKey = rangePreset === 'last3m' ? 'feedback-last3m-mock' : 'feedback-live';
   const feedbackPieData = useMemo(
     () => [
       { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
@@ -385,21 +386,29 @@ export function DashboardPage() {
               </p>
             </div>
           ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart key={rangePreset === 'last3m' ? 'fb-mock' : 'fb-real'}>
-              <Pie
-                data={feedbackPieData}
-                cx="50%" cy="50%"
-                innerRadius={50} outerRadius={78}
-                dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive animationBegin={400} animationDuration={1800} animationEasing="ease-out"
-              >
-                <Cell key="fb-positive" fill="#10b981" />
-                <Cell key="fb-negative" fill="#ff4466" />
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <motion.div
+            key={feedbackAnimationKey}
+            initial={{ opacity: 0.78, rotate: -360, scale: 0.94 }}
+            animate={{ opacity: 1, rotate: 0, scale: 1 }}
+            transition={{ duration: 1.65, ease: [0.22, 1, 0.36, 1] }}
+            className="h-[200px]"
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={feedbackPieData}
+                  cx="50%" cy="50%"
+                  innerRadius={50} outerRadius={78}
+                  dataKey="value" paddingAngle={4} strokeWidth={0}
+                  isAnimationActive={false}
+                >
+                  <Cell key="fb-positive" fill="#10b981" />
+                  <Cell key="fb-negative" fill="#ff4466" />
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </motion.div>
           )}
           {/* Custom legend with thumbs icons */}
           <div className="flex items-center justify-center gap-5 mt-1">
