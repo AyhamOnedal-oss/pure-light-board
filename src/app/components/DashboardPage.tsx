@@ -107,6 +107,10 @@ export function DashboardPage() {
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
   const { metrics } = useDashboardMetrics(range);
+  // Mock AI feedback for "Last 3 months" preset (visual demo only).
+  const feedback = rangePreset === 'last3m' && metrics.feedback.total === 0
+    ? { positive: 842, negative: 96, total: 938 }
+    : metrics.feedback;
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [issues, setIssues] = useState(insightIssues);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
