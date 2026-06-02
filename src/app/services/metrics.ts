@@ -117,7 +117,7 @@ export async function fetchDashboardMetrics(
     usageTrendRows,
     ticketTrendRows,
   ] = await Promise.all([
-    count('conversations_main', (q) => inRange(q.eq('tenant_id', tenantId))),
+    count('conversations_main', (q) => inRange(q.eq('tenant_id', tenantId).eq('is_test', false))),
     count('conversations_messages', (q) => inRange(q.eq('tenant_id', tenantId).eq('sender', 'customer'))),
     count('conversations_messages', (q) => inRange(q.eq('tenant_id', tenantId).in('sender', ['ai', 'agent']))),
     count('tickets_main', (q) => inRange(q.eq('tenant_id', tenantId))),
@@ -134,6 +134,7 @@ export async function fetchDashboardMetrics(
       .from('conversations_main')
       .select('id, status, category, csat_rating')
       .eq('tenant_id', tenantId)
+      .eq('is_test', false)
       .gte('created_at', fromIso)
       .lte('created_at', toIso)
       .limit(2000),
@@ -149,6 +150,7 @@ export async function fetchDashboardMetrics(
       .from('conversations_main')
       .select('csat_rating')
       .eq('tenant_id', tenantId)
+      .eq('is_test', false)
       .gte('created_at', fromIso)
       .lte('created_at', toIso)
       .not('csat_rating', 'is', null),
