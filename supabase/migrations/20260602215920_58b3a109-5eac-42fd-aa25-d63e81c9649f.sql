@@ -1,0 +1,2 @@
+ALTER TABLE public.conversations_main ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_conversations_main_tenant_is_test ON public.conversations_main (tenant_id, is_test);

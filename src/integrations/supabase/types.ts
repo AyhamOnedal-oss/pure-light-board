@@ -983,6 +983,7 @@ export type Database = {
           goal_met: boolean | null
           id: string
           intent_type: string | null
+          is_test: boolean
           language: string
           last_message_at: string
           rating_comment: string | null
@@ -1012,6 +1013,7 @@ export type Database = {
           goal_met?: boolean | null
           id?: string
           intent_type?: string | null
+          is_test?: boolean
           language?: string
           last_message_at?: string
           rating_comment?: string | null
@@ -1041,6 +1043,7 @@ export type Database = {
           goal_met?: boolean | null
           id?: string
           intent_type?: string | null
+          is_test?: boolean
           language?: string
           last_message_at?: string
           rating_comment?: string | null
