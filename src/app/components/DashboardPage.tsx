@@ -108,7 +108,7 @@ export function DashboardPage() {
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
   const { metrics } = useDashboardMetrics(range);
   // Mock AI feedback for "Last 3 months" preset (visual demo only).
-  const feedback = rangePreset === 'last3m' && metrics.feedback.total === 0
+  const feedback = rangePreset === 'last3m' && feedback.total === 0
     ? { positive: 842, negative: 96, total: 938 }
     : metrics.feedback;
   const [openInsight, setOpenInsight] = useState<string | null>(null);
@@ -367,7 +367,7 @@ export function DashboardPage() {
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('AI Feedback', 'تقييم الذكاء الاصطناعي')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Positive vs negative responses', 'الردود الإيجابية مقابل السلبية')}</p>
-          {metrics.feedback.total === 0 ? (
+          {feedback.total === 0 ? (
             <div className="h-[200px] flex flex-col items-center justify-center text-center px-4">
               <div className="text-[32px] mb-2">💬</div>
               <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
@@ -382,8 +382,8 @@ export function DashboardPage() {
             <PieChart>
               <Pie
                 data={[
-                  { name: t('Positive', 'إيجابي'), value: metrics.feedback.positive, color: '#10b981' },
-                  { name: t('Negative', 'سلبي'), value: metrics.feedback.negative, color: '#ff4466' },
+                  { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
+                  { name: t('Negative', 'سلبي'), value: feedback.negative, color: '#ff4466' },
                 ]}
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
@@ -401,11 +401,11 @@ export function DashboardPage() {
           <div className="flex items-center justify-center gap-5 mt-1">
             <div className="flex items-center gap-1.5">
               <ThumbsUp className="w-3.5 h-3.5 text-green-500" />
-              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Positive', 'إيجابي')} {metrics.feedback.positive} ({metrics.feedback.total > 0 ? ((metrics.feedback.positive / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
+              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Positive', 'إيجابي')} {feedback.positive} ({feedback.total > 0 ? ((feedback.positive / feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ThumbsDown className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Negative', 'سلبي')} {metrics.feedback.negative} ({metrics.feedback.total > 0 ? ((metrics.feedback.negative / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
+              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Negative', 'سلبي')} {feedback.negative} ({feedback.total > 0 ? ((feedback.negative / feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
             </div>
           </div>
         </motion.div>
