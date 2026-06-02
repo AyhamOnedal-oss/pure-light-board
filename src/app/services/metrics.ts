@@ -7,6 +7,11 @@
  */
 import { supabase } from '../../integrations/supabase/client';
 
+export interface DateRange {
+  from: Date;
+  to: Date;
+}
+
 export interface DashboardMetrics {
   conversations: number;
   messagesIn: number;
@@ -72,16 +77,29 @@ async function count(table: string, build: (q: any) => any): Promise<number> {
   return count ?? 0;
 }
 
-export async function fetchDashboardMetrics(tenantId: string): Promise<DashboardMetrics> {
+export async function fetchDashboardMetrics(
+  tenantId: string,
+  range?: DateRange,
+): Promise<DashboardMetrics> {
   if (!tenantId) return EMPTY_METRICS;
 
-  // 14-day window used for growth comparisons (last 7d vs prior 7d).
-  const now = Date.now();
+  // Default = last 30 days.
   const day = 24 * 60 * 60 * 1000;
-  const start14 = new Date(now - 14 * day).toISOString();
-  const start7 = new Date(now - 7 * day).toISOString();
-  const start14Date = start14.slice(0, 10);
-  const start7Date = start7.slice(0, 10);
+  const to = range?.to ?? new Date();
+  const from = range?.from ?? new Date(to.getTime() - 30 * day);
+  const windowMs = Math.max(day, to.getTime() - from.getTime());
+  const prevFrom = new Date(from.getTime() - windowMs);
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
+  const prevFromIso = prevFrom.toISOString();
+  const fromDate = fromIso.slice(0, 10);
+  const toDate = toIso.slice(0, 10);
+  const prevFromDate = prevFromIso.slice(0, 10);
+
+  const inRange = (q: any, col = 'created_at') =>
+    q.gte(col, fromIso).lte(col, toIso);
+  const inTrend = (q: any, col = 'created_at') =>
+    q.gte(col, prevFromIso).lte(col, toIso);
 
   const [
     conversations,
@@ -99,53 +117,67 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
     usageTrendRows,
     ticketTrendRows,
   ] = await Promise.all([
-    count('conversations_main', (q) => q.eq('tenant_id', tenantId)),
-    count('conversations_messages', (q) => q.eq('tenant_id', tenantId).eq('sender', 'customer')),
-    count('conversations_messages', (q) => q.eq('tenant_id', tenantId).in('sender', ['ai', 'agent'])),
-    count('tickets_main', (q) => q.eq('tenant_id', tenantId)),
-    count('tickets_main', (q) => q.eq('tenant_id', tenantId).in('status', ['open', 'in_progress', 'pending'])),
-    count('tickets_main', (q) => q.eq('tenant_id', tenantId).in('status', ['resolved', 'closed'])),
+    count('conversations_main', (q) => inRange(q.eq('tenant_id', tenantId))),
+    count('conversations_messages', (q) => inRange(q.eq('tenant_id', tenantId).eq('sender', 'customer'))),
+    count('conversations_messages', (q) => inRange(q.eq('tenant_id', tenantId).in('sender', ['ai', 'agent']))),
+    count('tickets_main', (q) => inRange(q.eq('tenant_id', tenantId))),
+    count('tickets_main', (q) => inRange(q.eq('tenant_id', tenantId).in('status', ['open', 'in_progress', 'pending']))),
+    count('tickets_main', (q) => inRange(q.eq('tenant_id', tenantId).in('status', ['resolved', 'closed']))),
     supabase
       .from('conversations_messages')
       .select('word_count')
       .eq('tenant_id', tenantId)
-      .in('sender', ['ai', 'agent']),
+      .in('sender', ['ai', 'agent'])
+      .gte('created_at', fromIso)
+      .lte('created_at', toIso),
     supabase
       .from('conversations_main')
       .select('id, status, category, csat_rating')
       .eq('tenant_id', tenantId)
+      .gte('created_at', fromIso)
+      .lte('created_at', toIso)
       .limit(2000),
     supabase
       .from('conversations_messages')
       .select('conversation_id, sender, created_at')
       .eq('tenant_id', tenantId)
+      .gte('created_at', fromIso)
+      .lte('created_at', toIso)
       .order('created_at', { ascending: true })
       .limit(5000),
     supabase
       .from('conversations_main')
       .select('csat_rating')
       .eq('tenant_id', tenantId)
+      .gte('created_at', fromIso)
+      .lte('created_at', toIso)
       .not('csat_rating', 'is', null),
     supabase
       .from('dashboard_usage_daily')
       .select('clicks')
-      .eq('tenant_id', tenantId),
+      .eq('tenant_id', tenantId)
+      .gte('day', fromDate)
+      .lte('day', toDate),
     supabase
       .from('conversations_messages')
       .select('feedback')
       .eq('tenant_id', tenantId)
       .in('sender', ['ai', 'agent'])
-      .not('feedback', 'is', null),
+      .not('feedback', 'is', null)
+      .gte('created_at', fromIso)
+      .lte('created_at', toIso),
     supabase
       .from('dashboard_usage_daily')
       .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
       .eq('tenant_id', tenantId)
-      .gte('day', start14Date),
+      .gte('day', prevFromDate)
+      .lte('day', toDate),
     supabase
       .from('tickets_main')
       .select('created_at')
       .eq('tenant_id', tenantId)
-      .gte('created_at', start14),
+      .gte('created_at', prevFromIso)
+      .lte('created_at', toIso),
   ]);
 
   const wordsUsed = (wordsRows.data ?? []).reduce(
@@ -229,7 +261,7 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
   };
   for (const r of usageTrendRows.data ?? []) {
     const d = (r as any).day as string;
-    const bucket = d >= start7Date ? sums.cur : sums.prev;
+    const bucket = d >= fromDate ? sums.cur : sums.prev;
     bucket.opened += (r as any).conversations_opened ?? 0;
     bucket.resolved += (r as any).conversations_resolved ?? 0;
     bucket.msgs += ((r as any).messages_in ?? 0) + ((r as any).messages_out ?? 0);
@@ -245,7 +277,7 @@ export async function fetchDashboardMetrics(tenantId: string): Promise<Dashboard
   let prevTickets = 0;
   for (const r of ticketTrendRows.data ?? []) {
     const t = (r as any).created_at as string;
-    if (t >= start7) curTickets++;
+    if (t >= fromIso) curTickets++;
     else prevTickets++;
   }
   const curRate = sums.cur.opened > 0 ? sums.cur.resolved / sums.cur.opened : 0;
