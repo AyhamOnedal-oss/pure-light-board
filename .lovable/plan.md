@@ -1,42 +1,44 @@
-# Two fixes
+## Goal
+Fix two end-of-chat flows in the Hostinger widget (v4.7.20) and keep DB status in sync.
 
-## 1) Multi-line input → one merged message (one webhook call)
+## 1. Idle prompt → "End chat" must go through rating
+Current: `InactivityPrompt` "إنهاء المحادثة" closes immediately (or auto-skips rating).
+Change:
+- When user taps **إنهاء المحادثة** in the idle banner → route to `renderRatingScreen()` (same as a normal end), NOT a direct close.
+- Rating screen behavior stays as-is: submit / skip / 15-min auto-close all → full session reset.
+- "متابعة المحادثة" stays unchanged (clears idle timers, keeps conversation).
 
-**File:** `/mnt/documents/widget-4.7.19-hostinger.js` (copy of 4.7.18, patched)
+## 2. Ticket created → "حسناً شكراً لك" must end immediately (no rating)
+Current: tapping the primary button on `TicketCreatedScreen` advances to the rating screen.
+Change:
+- Primary CTA **حسناً شكراً لك** → immediately end + full session reset (no rating screen).
+- Back arrow (top-right) still lets user return to chat and keep talking — unchanged.
+- "تحميل التذكرة" stays unchanged.
+- Remove the auto-advance `setTimeout` that pushes to rating after 3.5s.
 
-Reverse the v4.7.18 splitting. The widget should:
-- Keep accepting newlines in the textarea (Shift+Enter on desktop, Enter on mobile).
-- On send, **join all non-empty lines with `\n`** into a single string, render **one customer bubble** (preserving line breaks via `white-space: pre-wrap` already present), and make **one** `sendToBackend` call.
-- Remove the `queue` / `sendOneQueued` sequential loop entirely; restore a single `sendOne(text, att)` path that pushes one customer message, sets `isTyping`, calls the backend once, handles intent (`offer_ticket` / `closed`) once.
-- Attachment behavior unchanged (attached to that single message).
-- Bump header to `Version: 4.7.19 (Hostinger embed: multi-line input sent as one merged message)`.
+## 3. Full session reset (shared helper, already planned for v4.7.20)
+On any terminal exit (rating submit, rating skip, rating auto-close, idle→rating→end, ticket "شكراً لك"):
+- `notifyBackendClose(reason)` → marks `conversations_main.status='closed'` with appropriate `close_reason`:
+  - `user_end_inactivity` (idle banner end → rating done/skip/auto)
+  - `user_rating_submitted` / `user_rating_skipped` / `rating_auto_close`
+  - `user_ticket_acknowledged` (new — for the شكراً لك path)
+- Clear `state.messages`, generate new `state.conversationId`, reset all flags.
+- Next widget open = brand-new conversation.
 
-This eliminates the double webhook call shown in the screenshots. Dashboard will then show one merged bubble with line breaks instead of two rows.
-
-No other widget logic changes.
-
-## 2) Conversation status stays "open" after AI closes it
-
-**Root cause** (verified in `supabase/functions/chat-ai/index.ts`):
-When the user-intent classifier returns `end_conversation`, the function returns `intent: "closed"` to the widget and shows the rating screen, **but never updates `conversations_main.status`**. The row stays at `"new"`, so `ConversationsPage.tsx:140` (`isClosed = c.status === 'closed' || 'resolved'`) evaluates false and the dashboard renders "محادثة مفتوحة".
-
-**Fix in `supabase/functions/chat-ai/index.ts`:**
-- In the `if (userIntent === "end_conversation")` branch (around line 414), after `persistMessages`, update the conversation row:
-  ```ts
-  await supabase
-    .from("conversations_main")
-    .update({ status: "closed", closed_at: new Date().toISOString() })
-    .eq("id", conversation_id);
-  ```
-  (Wrap in try/catch, non-fatal, matching existing pattern.)
-- Also do the same when the assistant's reply intent is classified as `closed` later in the flow (around line 621–624) — if `intent === "closed"`, update status to `"closed"`. This catches the "هل تحتاج مساعدة أخرى؟" → "لا" → closing greeting path.
-- Skip the `closed_at` field if the column doesn't exist; status alone is what the dashboard reads. (I'll check the schema before deploying and only include columns that exist.)
-
-No widget changes for #2 — the close intent already fires; only DB persistence is missing.
-
-## Deliverables
-- `/mnt/documents/widget-4.7.19-hostinger.js` (upload to Hostinger)
-- Edge function `chat-ai` redeploy with the status update.
+## 4. Files touched
+- `widget-4.7.20-hostinger.js` (built artifact in `/mnt/documents/`)
+  - Idle banner end-button handler → call `openRatingScreen()` instead of `closeAndReset()`
+  - Ticket-created primary button → call `closeAndReset('user_ticket_acknowledged')` instead of opening rating
+  - Remove ticket-screen auto-advance timer
+- `supabase/functions/conversation-close/index.ts` (new, from prior plan) — accepts `{conversation_id, reason}` and updates `conversations_main`.
+- No React widget / dashboard changes.
 
 ## Out of scope
-- React widget (`widget/src/app/...`), dashboard UI, n8n workflow, rating flow.
+- AI auto-detect close path (already working, untouched).
+- Rating UI redesign.
+- n8n workflow.
+
+## Confirm before I build
+- Idle "End chat" → rating screen → then reset. ✅ (matches your message)
+- Ticket "شكراً لك" → immediate reset, no rating. ✅
+- Back arrow on ticket screen → returns to chat (unchanged). ✅
