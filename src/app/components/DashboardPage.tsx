@@ -13,6 +13,8 @@ import {
   TooltipProps
 } from 'recharts';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
+import { DateRangePicker, computeRange, type RangePreset } from './dashboard/DateRangePicker';
+import type { DateRange } from '../services/metrics';
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
@@ -102,7 +104,9 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 
 export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
-  const { metrics } = useDashboardMetrics();
+  const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
+  const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
+  const { metrics } = useDashboardMetrics(range);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   const [issues, setIssues] = useState(insightIssues);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
@@ -193,9 +197,16 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Dashboard', 'لوحة التحكم')}</h1>
-        <p className="text-muted-foreground text-[14px] mt-1">{t('Overview of your AI customer service performance', 'نظرة عامة على أداء خدمة العملاء بالذكاء الاصطناعي')}</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Dashboard', 'لوحة التحكم')}</h1>
+          <p className="text-muted-foreground text-[14px] mt-1">{t('Overview of your AI customer service performance', 'نظرة عامة على أداء خدمة العملاء بالذكاء الاصطناعي')}</p>
+        </div>
+        <DateRangePicker
+          preset={rangePreset}
+          custom={range}
+          onChange={(p, r) => { setRangePreset(p); setRange(r); }}
+        />
       </div>
 
       {/* KPIs — compact */}
@@ -352,6 +363,17 @@ export function DashboardPage() {
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('AI Feedback', 'تقييم الذكاء الاصطناعي')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Positive vs negative responses', 'الردود الإيجابية مقابل السلبية')}</p>
+          {metrics.feedback.total === 0 ? (
+            <div className="h-[200px] flex flex-col items-center justify-center text-center px-4">
+              <div className="text-[32px] mb-2">💬</div>
+              <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                {t('No feedback in this period', 'لا توجد تقييمات في هذه الفترة')}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {t('Try widening the date range', 'جرّب توسيع نطاق التاريخ')}
+              </p>
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie
@@ -370,15 +392,16 @@ export function DashboardPage() {
               <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
             </PieChart>
           </ResponsiveContainer>
+          )}
           {/* Custom legend with thumbs icons */}
           <div className="flex items-center justify-center gap-5 mt-1">
             <div className="flex items-center gap-1.5">
               <ThumbsUp className="w-3.5 h-3.5 text-green-500" />
-              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Positive', 'إيجابي')} ({metrics.feedback.total > 0 ? ((metrics.feedback.positive / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
+              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Positive', 'إيجابي')} {metrics.feedback.positive} ({metrics.feedback.total > 0 ? ((metrics.feedback.positive / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ThumbsDown className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Negative', 'سلبي')} ({metrics.feedback.total > 0 ? ((metrics.feedback.negative / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
+              <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{t('Negative', 'سلبي')} {metrics.feedback.negative} ({metrics.feedback.total > 0 ? ((metrics.feedback.negative / metrics.feedback.total) * 100).toFixed(1) : '0.0'}%)</span>
             </div>
           </div>
         </motion.div>

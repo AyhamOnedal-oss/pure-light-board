@@ -1,64 +1,53 @@
-Do I know what the issue is? Yes.
+## Goal
 
-The problem is not the wording of the previous plan. The actual bug is state ownership and the wrong close function being used:
+1. Add a date-range selector at the top of the merchant Dashboard (`/dashboard`) so every KPI, chart, and growth delta is scoped to the selected period.
+2. Fix the "تقييم الذكاء الاصطناعي" (AI Feedback) tile that currently shows 0.0% / 0.0% — it should show real counts when data exists and a clear empty state when it doesn't.
 
-1. `endConversationNoRating()` sets `state.conversationEnded = true` and disables the input with `تم إنهاء المحادثة`. Any path that calls it before rendering rating will show the ended-chat state instead of the rating screen.
-2. `fullClose()` resets the DOM while the widget is still mounted, but it does not force a brand-new widget/session identity in the React source. If the child screen state remains mounted or restored, reopening can still land on `ticket-created`.
-3. `TicketCreatedScreen` currently auto-calls `onClose()` after 3.5 seconds, and its main button is wired as a rating/close action in the source. This conflicts with your required behavior: the user must explicitly choose either back arrow to continue, or “حسناً، شكراً لك” to acknowledge and start fresh next time.
-4. Inactivity auto-close and inactivity “إنهاء المحادثة” must go to rating first, never to the ended-chat input state.
+## 1. Date-range selector
 
-Plan:
+### UI (top of `DashboardPage.tsx`, beside the page title, RTL-aware)
 
-1. Create a new exported file `widget-4.7.22-hostinger.js` from the current 4.7.21 file, instead of patching 4.7.20/4.7.21 again.
+A single pill button showing the current range label (default: "آخر 30 يوم"). Clicking it opens a popover with:
 
-2. Add one explicit helper in the Hostinger JS:
-   - `showRatingBeforeClose(reason)`:
-     - clears inactivity/ticket timers
-     - does NOT call `endConversationNoRating()`
-     - makes sure `conversationEnded` is false while rating renders
-     - renders `renderRatingScreen()`
-   - use this helper for:
-     - X modal → “إغلاق المحادثة”
-     - inactivity prompt → “إنهاء المحادثة”
-     - inactivity auto-close if applicable
+- اليوم (Today)
+- آخر 7 أيام
+- آخر 30 يوم  ← default
+- آخر 3 أشهر
+- آخر 6 أشهر
+- آخر سنة
+- تخصيص فترة… → reveals two date inputs (من / إلى) + "تطبيق" button
 
-3. Add one explicit helper in the Hostinger JS:
-   - `resetConversationForNextOpen()`:
-     - clears messages
-     - clears `ticketCreated`
-     - clears `currentScreen` to `chat`
-     - clears `conversationEnded`
-     - creates new `conversationId`
-     - creates new `ticketId`
-     - clears rating/feedback/typing/attachment/timers
-     - rebuilds the empty chat screen before hiding
-   - use this helper only after the user finishes/skips rating, or clicks “حسناً، شكراً لك” on the ticket-created screen.
+The selected range is held in local state (no URL/localStorage persistence in v1). Selection updates label and triggers a refetch.
 
-4. Fix ticket-created behavior in Hostinger JS:
-   - Remove/avoid any auto-transition from ticket-created to rating/close.
-   - “حسناً، شكراً لك” = close + reset for next open, no rating required.
-   - Back arrow = `renderChatScreen()` and preserve messages/ticket state so the user can continue the same conversation.
+### Wiring through to data
 
-5. Mirror the same logic in React source so future bundled exports don’t reintroduce the bug:
-   - `FloatingWidget.tsx`: add a `sessionKey`/conversation reset path so a full close remounts `ChatWindow` cleanly and generates a fresh conversation.
-   - `ChatWindow.tsx`: add separate handlers:
-     - manual X close and inactivity end → `currentScreen = 'rating'`
-     - rating submit/skip → full close/reset
-     - ticket “حسناً، شكراً لك” → full close/reset
-     - ticket back arrow → return to chat with state preserved
-   - `TicketCreatedScreen.tsx`: remove the auto `useEffect` close and make the primary button mean “حسناً، شكراً لك” instead of “تقييم تجربتك”.
+- `useDashboardMetrics(range)` accepts a `{ from: Date; to: Date }` argument.
+- `fetchDashboardMetrics(tenantId, range)` adds `.gte('created_at', from).lte('created_at', to)` (or `day` for `dashboard_usage_daily`) to every Supabase query that has a timestamp column: `conversations_main`, `conversations_messages`, `tickets_main`, `dashboard_usage_daily`.
+- Growth deltas compare the selected range vs the immediately-preceding window of the same length (e.g. last 30 days vs prior 30 days), replacing the hard-coded 7-vs-7 logic.
+- Realtime subscription remains as-is; it just calls the same `load()` with the current range.
 
-6. Validate without doing a full build:
-   - Run syntax check on `widget-4.7.22-hostinger.js`.
-   - Search the new file to confirm:
-     - X close and inactivity end call rating flow, not `endConversationNoRating()`.
-     - ticket “حسناً، شكراً لك” calls reset-for-next-open.
-     - back arrow only renders chat and does not reset.
-     - no ticket-created auto-close remains.
+### Out of scope
 
-Expected behavior after implementation:
+- Persisting the range across sessions
+- Per-tile range overrides
+- Other pages (Conversations, Tickets, Admin) — only `/dashboard`
 
-- X → إغلاق المحادثة → rating screen → submit/skip → widget closes → next click opens a new empty chat.
-- Inactivity prompt → إنهاء المحادثة → rating screen → submit/skip → widget closes → next click opens a new empty chat.
-- Ticket screen → حسناً، شكراً لك → widget closes → next click opens a new empty chat.
-- Ticket screen → back arrow → same conversation remains available and can continue.
+## 2. AI Feedback tile fix
+
+Root cause: data is correct in the DB and the query is correct; tiles show 0.0% because the current tenant simply has no `feedback` rows in the selected window. The UI also hides the absolute counts, so users can't tell empty from zero.
+
+Changes to the tile in `DashboardPage.tsx`:
+
+- Show absolute counts next to the percentage: `إيجابي 12 (66.7%)` / `سلبي 6 (33.3%)`.
+- When `metrics.feedback.total === 0`, replace the donut with a centered empty state: "لا توجد تقييمات في هذه الفترة" and a hint to widen the date range.
+- Keep the donut + legend when there is data.
+
+## Technical details
+
+Files touched:
+- `src/app/components/DashboardPage.tsx` — add `DateRangePicker` component (inline or new file), wire selected range into `useDashboardMetrics`, update AI Feedback tile.
+- `src/app/hooks/useDashboardMetrics.ts` — accept and forward `range`, key the realtime channel by range bounds.
+- `src/app/services/metrics.ts` — accept `range`, add date filters to every query, generalize growth comparison to "current window vs prior window of same length".
+- New small component `src/app/components/dashboard/DateRangePicker.tsx` for the popover.
+
+No DB / migration / edge-function changes.

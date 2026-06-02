@@ -5,6 +5,7 @@ import {
   EMPTY_METRICS,
   fetchDashboardMetrics,
   type DashboardMetrics,
+  type DateRange,
 } from '../services/metrics';
 
 /**
@@ -16,11 +17,13 @@ import {
  *   and refetches the whole metric set, debounced, on any change.
  * - Returns the latest metrics + a loading flag.
  */
-export function useDashboardMetrics() {
+export function useDashboardMetrics(range?: DateRange) {
   const { tenantId } = useApp();
   const [metrics, setMetrics] = useState<DashboardMetrics>(EMPTY_METRICS);
   const [loading, setLoading] = useState(true);
   const refetchTimer = useRef<number | null>(null);
+  const fromKey = range?.from.getTime();
+  const toKey = range?.to.getTime();
 
   useEffect(() => {
     if (!tenantId) {
@@ -31,7 +34,7 @@ export function useDashboardMetrics() {
 
     let cancelled = false;
     const load = async () => {
-      const m = await fetchDashboardMetrics(tenantId);
+      const m = await fetchDashboardMetrics(tenantId, range);
       if (!cancelled) {
         setMetrics(m);
         setLoading(false);
@@ -61,7 +64,7 @@ export function useDashboardMetrics() {
       if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
       void supabase.removeChannel(channel);
     };
-  }, [tenantId]);
+  }, [tenantId, fromKey, toKey]);
 
   return { metrics, loading };
 }
