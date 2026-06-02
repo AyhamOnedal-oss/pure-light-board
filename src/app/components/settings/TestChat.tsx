@@ -201,10 +201,22 @@ export function TestChat() {
                 <div className={`max-w-[75%] px-3.5 py-2.5 rounded-2xl text-[13px] ${
                   msg.sender === 'user'
                     ? 'bg-muted text-foreground rounded-br-sm'
-                    : 'bg-black text-white rounded-bl-sm'
+                    : msg.error
+                      ? 'bg-red-500/10 text-red-500 border border-red-500/20 rounded-bl-sm'
+                      : 'bg-black text-white rounded-bl-sm'
                 }`}>
-                  <span className="whitespace-pre-wrap">{msg.text}</span>
-                  <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : 'text-white/50'}`}>{msg.time}</p>
+                  {msg.pending ? (
+                    <span className="inline-flex gap-1 py-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </span>
+                  ) : (
+                    <>
+                      <span className="whitespace-pre-wrap">{msg.text}</span>
+                      <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : msg.error ? 'text-red-500/60' : 'text-white/50'}`}>{msg.time}</p>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
