@@ -1,53 +1,39 @@
 ## Goal
 
-1. Add a date-range selector at the top of the merchant Dashboard (`/dashboard`) so every KPI, chart, and growth delta is scoped to the selected period.
-2. Fix the "تقييم الذكاء الاصطناعي" (AI Feedback) tile that currently shows 0.0% / 0.0% — it should show real counts when data exists and a clear empty state when it doesn't.
+Make the dashboard's "اختبار المحادثة" (Test Chat) page send real messages through the exact same `chat-ai` Supabase edge function the widget uses, so the merchant can actually test their AI and every word is deducted from their monthly quota — but the resulting conversation must NOT appear in the merchant's Conversations page.
 
-## 1. Date-range selector
+## Changes
 
-### UI (top of `DashboardPage.tsx`, beside the page title, RTL-aware)
+### 1. Database (migration)
+Add an `is_test` flag to `conversations_main` so word-usage accounting still runs (via the existing `bump_word_usage` trigger on `conversations_messages`) while we can hide test rows from the Conversations UI.
 
-A single pill button showing the current range label (default: "آخر 30 يوم"). Clicking it opens a popover with:
+- `ALTER TABLE conversations_main ADD COLUMN is_test boolean NOT NULL DEFAULT false`
+- Index on `(tenant_id, is_test)` to keep the filtered list query fast.
 
-- اليوم (Today)
-- آخر 7 أيام
-- آخر 30 يوم  ← default
-- آخر 3 أشهر
-- آخر 6 أشهر
-- آخر سنة
-- تخصيص فترة… → reveals two date inputs (من / إلى) + "تطبيق" button
+### 2. Edge function `supabase/functions/chat-ai/index.ts`
+- Accept an optional `is_test: boolean` in the request body.
+- When `is_test === true`:
+  - Skip the per-minute rate-limit check (merchant testing their own AI shouldn't be throttled).
+  - When inserting/upserting `conversations_main`, set `is_test = true` and `channel_kind = 'web'`.
+  - Everything else stays identical (n8n webhook call, message persistence → word-usage trigger fires → quota deducted, classifier logging, etc.).
+- No new webhook — the exact same `N8N_WEBHOOK_URL` secret is used.
 
-The selected range is held in local state (no URL/localStorage persistence in v1). Selection updates label and triggers a refetch.
+### 3. Frontend — `src/app/components/settings/TestChat.tsx`
+Replace the canned `aiResponses` mock with a real call to the edge function:
+- Import `supabase` client and read `tenantId` from `AppContext`.
+- Maintain a stable `conversationId` (UUID) for the test session, persisted to localStorage alongside messages so refreshes keep the same thread.
+- On send:
+  - Optimistically push the user message + a typing indicator.
+  - Call `supabase.functions.invoke('chat-ai', { body: { tenant_id, conversation_id, visitor_id: 'test-<tenantId>', message, history, is_test: true } })`.
+  - Replace the typing indicator with `data.reply`. Handle `rate_limited` (shouldn't happen now), `402` credit/quota messages, and network errors with a clear inline error bubble.
+- "Clear Chat" also rotates the `conversationId` so a new test thread starts fresh.
+- Keep the orange warning banner; it is now accurate.
 
-### Wiring through to data
+### 4. Hide test conversations from Conversations page
+- `src/app/components/ConversationsPage.tsx` (and any related service in `src/app/services/metrics.ts` / list query): add `.eq('is_test', false)` to the conversations list query so test threads don't pollute the merchant's real inbox.
+- Dashboard metrics that count conversations should also exclude `is_test = true` to avoid inflating KPIs from testing.
 
-- `useDashboardMetrics(range)` accepts a `{ from: Date; to: Date }` argument.
-- `fetchDashboardMetrics(tenantId, range)` adds `.gte('created_at', from).lte('created_at', to)` (or `day` for `dashboard_usage_daily`) to every Supabase query that has a timestamp column: `conversations_main`, `conversations_messages`, `tickets_main`, `dashboard_usage_daily`.
-- Growth deltas compare the selected range vs the immediately-preceding window of the same length (e.g. last 30 days vs prior 30 days), replacing the hard-coded 7-vs-7 logic.
-- Realtime subscription remains as-is; it just calls the same `load()` with the current range.
-
-### Out of scope
-
-- Persisting the range across sessions
-- Per-tile range overrides
-- Other pages (Conversations, Tickets, Admin) — only `/dashboard`
-
-## 2. AI Feedback tile fix
-
-Root cause: data is correct in the DB and the query is correct; tiles show 0.0% because the current tenant simply has no `feedback` rows in the selected window. The UI also hides the absolute counts, so users can't tell empty from zero.
-
-Changes to the tile in `DashboardPage.tsx`:
-
-- Show absolute counts next to the percentage: `إيجابي 12 (66.7%)` / `سلبي 6 (33.3%)`.
-- When `metrics.feedback.total === 0`, replace the donut with a centered empty state: "لا توجد تقييمات في هذه الفترة" and a hint to widen the date range.
-- Keep the donut + legend when there is data.
-
-## Technical details
-
-Files touched:
-- `src/app/components/DashboardPage.tsx` — add `DateRangePicker` component (inline or new file), wire selected range into `useDashboardMetrics`, update AI Feedback tile.
-- `src/app/hooks/useDashboardMetrics.ts` — accept and forward `range`, key the realtime channel by range bounds.
-- `src/app/services/metrics.ts` — accept `range`, add date filters to every query, generalize growth comparison to "current window vs prior window of same length".
-- New small component `src/app/components/dashboard/DateRangePicker.tsx` for the popover.
-
-No DB / migration / edge-function changes.
+## Technical notes
+- Word deduction continues to work automatically: `conversations_messages` inserts (sender = customer and sender = ai) fire the existing `bump_word_usage` trigger, which updates `settings_plans.monthly_words_used` and `dashboard_usage_daily.ai_words_used`. No extra accounting code needed.
+- Same webhook = same n8n agent, same merchant context loaded (training prompt, store info, products) → the test behaves identically to a real visitor.
+- Test convos still create rows in `conversations_main` / `conversations_messages` (required for the trigger and for the AI to have history), they are simply filtered out of the UI by `is_test = false`.
