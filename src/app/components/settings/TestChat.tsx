@@ -1,12 +1,27 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '../../../integrations/supabase/client';
 import { ArrowUp, Paperclip, Trash2 } from 'lucide-react';
 import iconImg from '../../../imports/FUQAH-AI-icon-01@2x.png';
 import logoImg from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 
-interface Msg { id: string; sender: 'user' | 'ai'; text: string; time: string; }
+interface Msg { id: string; sender: 'user' | 'ai'; text: string; time: string; pending?: boolean; error?: boolean; }
 
 const STORAGE_KEY = 'fuqah_test_chat_messages';
+const CONV_KEY = 'fuqah_test_chat_conversation_id';
+
+function loadConversationId(): string {
+  try {
+    let id = localStorage.getItem(CONV_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(CONV_KEY, id);
+    }
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
 
 function loadMessages(): Msg[] {
   try {
@@ -20,20 +35,14 @@ function saveMessages(msgs: Msg[]) {
 }
 
 export function TestChat() {
-  const { t, language } = useApp();
+  const { t, language, tenantId } = useApp();
   const [messages, setMessages] = useState<Msg[]>(loadMessages);
+  const [conversationId, setConversationId] = useState<string>(loadConversationId);
+  const [sending, setSending] = useState(false);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const aiResponses = [
-    { en: "Thank you for your message! I'm here to help. Could you provide more details?", ar: "شكراً لرسالتك! أنا هنا للمساعدة. هل يمكنك تقديم المزيد من التفاصيل؟" },
-    { en: "I understand your concern. Let me look into that for you right away.", ar: "أتفهم قلقك. دعني أبحث في ذلك لك فوراً." },
-    { en: "Great question! Based on our policies, I can help you with that.", ar: "سؤال رائع! بناءً على سياساتنا، يمكنني مساعدتك في ذلك." },
-    { en: "I've noted your request. Is there anything else I can assist you with?", ar: "لقد سجلت طلبك. هل هناك شيء آخر يمكنني مساعدتك به؟" },
-    { en: "Your order is being processed. You should receive a confirmation email shortly.", ar: "طلبك قيد المعالجة. ستتلقى بريداً إلكترونياً للتأكيد قريباً." },
-  ];
 
   // Persist messages
   useEffect(() => {
@@ -52,15 +61,68 @@ export function TestChat() {
     }
   }, [input]);
 
-  const sendMessage = useCallback(() => {
-    if (!input.trim()) return;
+  const sendMessage = useCallback(async () => {
+    const text = input.trim();
+    if (!text || sending) return;
+    if (!tenantId) return;
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const userMsg: Msg = { id: Date.now().toString(), sender: 'user', text: input.trim(), time: now };
-    const resp = aiResponses[Math.floor(Math.random() * aiResponses.length)];
-    const aiMsg: Msg = { id: (Date.now() + 1).toString(), sender: 'ai', text: language === 'ar' ? resp.ar : resp.en, time: now };
-    setMessages(prev => [...prev, userMsg, aiMsg]);
+    const userId = Date.now().toString();
+    const pendingId = (Date.now() + 1).toString();
+    const userMsg: Msg = { id: userId, sender: 'user', text, time: now };
+    const pendingMsg: Msg = { id: pendingId, sender: 'ai', text: '…', time: now, pending: true };
+
+    // Build history from current messages (before adding the new one)
+    const history = messages
+      .filter(m => !m.pending && !m.error)
+      .map(m => ({ sender: m.sender === 'user' ? 'customer' as const : 'ai' as const, text: m.text }));
+
+    setMessages(prev => [...prev, userMsg, pendingMsg]);
     setInput('');
-  }, [input, language]);
+    setSending(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('chat-ai', {
+        body: {
+          tenant_id: tenantId,
+          conversation_id: conversationId,
+          visitor_id: `test-${tenantId}`,
+          message: text,
+          history,
+          is_test: true,
+        },
+      });
+
+      const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (error || !data) {
+        const errText = language === 'ar'
+          ? 'تعذّر الاتصال بالذكاء الاصطناعي. حاول مرة أخرى.'
+          : 'Could not reach the AI. Please try again.';
+        setMessages(prev => prev.map(m => m.id === pendingId
+          ? { ...m, text: errText, time: replyTime, pending: false, error: true }
+          : m));
+      } else if ((data as any).error === 'rate_limited') {
+        const errText = language === 'ar'
+          ? 'تم تجاوز الحد المسموح، حاول بعد قليل.'
+          : 'Rate limit reached, please try again shortly.';
+        setMessages(prev => prev.map(m => m.id === pendingId
+          ? { ...m, text: errText, time: replyTime, pending: false, error: true }
+          : m));
+      } else {
+        const reply: string = (data as any).reply || (language === 'ar' ? '(لا يوجد رد)' : '(No reply)');
+        setMessages(prev => prev.map(m => m.id === pendingId
+          ? { ...m, text: reply, time: replyTime, pending: false }
+          : m));
+      }
+    } catch (e) {
+      const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const errText = language === 'ar' ? 'خطأ في الشبكة.' : 'Network error.';
+      setMessages(prev => prev.map(m => m.id === pendingId
+        ? { ...m, text: errText, time: replyTime, pending: false, error: true }
+        : m));
+    } finally {
+      setSending(false);
+    }
+  }, [input, language, messages, sending, tenantId, conversationId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -85,6 +147,9 @@ export function TestChat() {
   const clearChat = () => {
     setMessages([]);
     localStorage.removeItem(STORAGE_KEY);
+    const newId = crypto.randomUUID();
+    try { localStorage.setItem(CONV_KEY, newId); } catch {}
+    setConversationId(newId);
   };
 
   return (
@@ -136,10 +201,22 @@ export function TestChat() {
                 <div className={`max-w-[75%] px-3.5 py-2.5 rounded-2xl text-[13px] ${
                   msg.sender === 'user'
                     ? 'bg-muted text-foreground rounded-br-sm'
-                    : 'bg-black text-white rounded-bl-sm'
+                    : msg.error
+                      ? 'bg-red-500/10 text-red-500 border border-red-500/20 rounded-bl-sm'
+                      : 'bg-black text-white rounded-bl-sm'
                 }`}>
-                  <span className="whitespace-pre-wrap">{msg.text}</span>
-                  <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : 'text-white/50'}`}>{msg.time}</p>
+                  {msg.pending ? (
+                    <span className="inline-flex gap-1 py-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </span>
+                  ) : (
+                    <>
+                      <span className="whitespace-pre-wrap">{msg.text}</span>
+                      <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : msg.error ? 'text-red-500/60' : 'text-white/50'}`}>{msg.time}</p>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

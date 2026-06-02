@@ -256,6 +256,7 @@ Deno.serve(async (req) => {
     const domain: string | null = body.domain ?? null;
     const visitor = body.visitor && typeof body.visitor === "object" ? body.visitor : null;
     let conversation_id: string | null = body.conversation_id ?? null;
+    const is_test: boolean = body.is_test === true;
 
     if (!message || typeof message !== "string") {
       return jsonResponse({ error: "missing_message" }, 400);
@@ -271,7 +272,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "tenant_not_found" }, 404);
     }
 
-    if (!(await checkRateLimit(tenant_id))) {
+    // Skip rate limit for merchant test-chat sessions
+    if (!is_test && !(await checkRateLimit(tenant_id))) {
       return jsonResponse({ error: "rate_limited" }, 429);
     }
 
@@ -328,6 +330,7 @@ Deno.serve(async (req) => {
           status: "new",
           language: "ar",
           ai_handled: true,
+          is_test,
           last_message_at: new Date().toISOString(),
         });
       } else {

@@ -84,6 +84,7 @@ export function ConversationsPage() {
         .from('conversations_main')
         .select('id, customer_id, subject, category, status, ticket_status, csat_rating, rating_comment, close_reason, created_at, resolved_at, last_message_at, completion_score, intent_type, goal_met, analysis_done')
         .eq('tenant_id', tenantId)
+        .eq('is_test', false)
         .order('last_message_at', { ascending: false });
 
       if (!convs || convs.length === 0) { setConversations([]); setLoading(false); return; }
