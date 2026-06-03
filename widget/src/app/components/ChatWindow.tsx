@@ -273,7 +273,7 @@ export function ChatWindow({
       sender: m.sender === 'customer' ? 'customer' : 'store',
       text: m.text ?? '',
     }));
-    const result = await sendBackendMessage(conversationId, text, history);
+    const result = await sendBackendMessage(conversationId, text, history, attachment);
     setIsTyping(false);
 
     // Swap to backend-issued conversation UUID on first reply

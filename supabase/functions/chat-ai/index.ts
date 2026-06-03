@@ -285,6 +285,14 @@ Deno.serve(async (req) => {
       }
     }
     const hasAttachments = attachmentsIn.length > 0;
+    console.log("attachments_in", {
+      count: attachmentsIn.length,
+      types: attachmentsIn.map((a) => a.content_type),
+      sizes: attachmentsIn.map((a) => a.size ?? null),
+      url_kinds: attachmentsIn.map((a) =>
+        a.url?.startsWith("data:") ? "data" : a.url?.startsWith("blob:") ? "blob" : a.url?.startsWith("http") ? "http" : "other"
+      ),
+    });
 
     if (!message && !hasAttachments) {
       return jsonResponse({ error: "missing_message" }, 400);

@@ -77,8 +77,14 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
     }
     // Skip recompression for small images
     if (file.size <= 200 * 1024) {
-      const url = URL.createObjectURL(file);
-      setAttachment({ type: 'image', url, name: file.name, size: file.size });
+      try {
+        setCompressing(true);
+        const url = URL.createObjectURL(file);
+        const dataUrl = await blobToDataUrl(file);
+        setAttachment({ type: 'image', url, name: file.name, size: file.size, dataUrl, content_type: file.type || 'image/jpeg' });
+      } finally {
+        setCompressing(false);
+      }
       return;
     }
     try {
@@ -90,11 +96,18 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
         ? file.name.replace(/\.[^.]+$/, '') + '.jpg'
         : file.name;
       const url = URL.createObjectURL(finalBlob);
-      setAttachment({ type: 'image', url, name: finalName, size: finalBlob.size });
+      const dataUrl = await blobToDataUrl(finalBlob);
+      const ct = compressed.size < file.size ? 'image/jpeg' : (file.type || 'image/jpeg');
+      setAttachment({ type: 'image', url, name: finalName, size: finalBlob.size, dataUrl, content_type: ct });
     } catch (err) {
       console.log('[FuqahChat] image compression failed, using original', err);
       const url = URL.createObjectURL(file);
-      setAttachment({ type: 'image', url, name: file.name, size: file.size });
+      try {
+        const dataUrl = await blobToDataUrl(file);
+        setAttachment({ type: 'image', url, name: file.name, size: file.size, dataUrl, content_type: file.type || 'image/jpeg' });
+      } catch {
+        setAttachment({ type: 'image', url, name: file.name, size: file.size });
+      }
     } finally {
       setCompressing(false);
     }
@@ -308,5 +321,15 @@ async function compressImage(file: File, maxSide: number, quality: number): Prom
       'image/jpeg',
       quality,
     );
+  });
+}
+
+/** Read a Blob/File as a base64 data URL. */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('read_failed'));
+    reader.readAsDataURL(blob);
   });
 }
