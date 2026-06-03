@@ -202,11 +202,6 @@ export function ChatWidget() {
       return next;
     });
 
-    if (attachment && !text) {
-      // Attachment-only — for now, no AI call
-      return;
-    }
-
     const lastAssistantOfferedTicket = lastAssistantMessage?.action === 'offer_ticket'
       || isTicketOfferPrompt(lastAssistantMessage?.text);
 
@@ -231,7 +226,7 @@ export function ChatWidget() {
       sender: m.sender,
       text: m.text,
     }));
-    const { reply, rateLimited, error, attachments, action } = await sendMessage(conversationId, text, history);
+    const { reply, rateLimited, error, attachments, action } = await sendMessage(conversationId, text, history, attachment);
     setIsTyping(false);
 
     let responseText = reply;
