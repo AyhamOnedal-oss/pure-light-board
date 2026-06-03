@@ -274,3 +274,39 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
     </form>
   );
 }
+
+/**
+ * compressImage — downscale an image File to ~maxSide px on the longest side
+ * and re-encode as JPEG. Targets ~150KB for typical phone photos.
+ */
+async function compressImage(file: File, maxSide: number, quality: number): Promise<Blob> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const img: HTMLImageElement = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('image load failed'));
+    i.src = dataUrl;
+  });
+  const longest = Math.max(img.width, img.height);
+  const scale = longest > maxSide ? maxSide / longest : 1;
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d context unavailable');
+  ctx.drawImage(img, 0, 0, w, h);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))),
+      'image/jpeg',
+      quality,
+    );
+  });
+}
