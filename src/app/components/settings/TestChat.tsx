@@ -70,24 +70,23 @@ export function TestChat() {
 
   const uploadFiles = useCallback(async (files: File[]): Promise<MsgAttachment[]> => {
     if (!tenantId || files.length === 0) return [];
+    // Test chat bypasses Supabase Storage and embeds the image as a base64 data URL.
+    // This avoids the missing `chat-attachments` bucket dependency and works directly
+    // with the chat-ai edge function and OpenAI vision (which accepts data: URLs).
     const uploaded: MsgAttachment[] = [];
     for (const file of files) {
-      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-      const path = `${tenantId}/test-${conversationId}/${crypto.randomUUID()}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from('chat-attachments')
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (upErr) throw upErr;
-      const { data: signed, error: sErr } = await supabase.storage
-        .from('chat-attachments')
-        .createSignedUrl(path, 60 * 60);
-      if (sErr || !signed?.signedUrl) throw sErr ?? new Error('sign_failed');
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error ?? new Error('read_failed'));
+        reader.readAsDataURL(file);
+      });
       uploaded.push({
-        url: signed.signedUrl,
+        url: dataUrl,
         name: file.name,
         content_type: file.type,
         size: file.size,
-        storage_path: path,
+        storage_path: '',
       });
     }
     return uploaded;
