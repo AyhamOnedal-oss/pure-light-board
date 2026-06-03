@@ -39,6 +39,10 @@ export interface MessageAttachment {
   url: string;
   name: string;
   size?: number;
+  /** base64 data URL of image content, used for sending to vision-capable backend */
+  dataUrl?: string;
+  /** MIME type, e.g. image/jpeg */
+  content_type?: string;
 }
 
 export interface Message {
