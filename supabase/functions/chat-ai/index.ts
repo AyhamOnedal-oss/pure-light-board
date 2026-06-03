@@ -293,7 +293,69 @@ Deno.serve(async (req) => {
     if (!message && hasAttachments) {
       message = "صِف الصورة المرفقة أو أجب عن سؤال العميل عنها.";
     }
-    const userText: string = message;
+    let userText: string = message;
+
+    // === Vision pre-processing ===
+    // n8n agent is text-only, so describe attached images with gpt-4o-mini
+    // vision here and inject the description into the message sent to n8n.
+    if (hasAttachments && OPENAI_API_KEY) {
+      try {
+        const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            temperature: 0,
+            max_tokens: 250,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You describe customer-attached images for a shopping support agent. " +
+                  "In 1-3 short sentences, describe what is visible: product type, brand/logo or readable text, color, distinguishing features. " +
+                  "If it looks like a product, say so and guess the category. If it contains text, transcribe the key text. " +
+                  "Reply in the same language as the user caption (Arabic if Arabic, else English). No preamble.",
+              },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: message || "Describe this image." },
+                  ...attachmentsIn.map((a: any) => ({
+                    type: "image_url",
+                    image_url: { url: a.url, detail: "low" },
+                  })),
+                ],
+              },
+            ],
+          }),
+        });
+        if (visionRes.ok) {
+          const vdata = await visionRes.json();
+          const desc: string = vdata?.choices?.[0]?.message?.content?.trim() ?? "";
+          const usage = vdata?.usage ?? {};
+          console.log("vision_usage", {
+            attachments: attachmentsIn.length,
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            total_tokens: usage.total_tokens,
+            cost_usd: estimateCost("gpt-4o-mini", usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
+          });
+          if (desc) {
+            userText = message
+              ? `${message}\n\n[وصف الصورة المرفقة: ${desc}]`
+              : `[وصف الصورة المرفقة: ${desc}]`;
+          }
+        } else {
+          const errTxt = await visionRes.text().catch(() => "");
+          console.error("vision_http_error", { status: visionRes.status, body: errTxt.slice(0, 300) });
+        }
+      } catch (e) {
+        console.error("vision_failed", String((e as any)?.message ?? e));
+      }
+    }
 
     const { tenant_id, is_active } = await resolveTenant({
       platform,
