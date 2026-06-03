@@ -1,59 +1,31 @@
-# Plan: Widget image compression + newline preservation
+# Plan: ship `widget-4.7.23-hostinger.js`
 
-## 1. Client-side image compression in the widget (~150 KB target)
+My previous edits went to the React widget source (`widget/src/...`), but the file you're actually deploying is the standalone vanilla-JS bundle at `/mnt/documents/widget-4.7.22-hostinger.js` (~150 KB, hand-rolled, no build step). It needs the same two fixes applied directly inside that file, then saved as the next version.
 
-File: `widget/src/app/components/ChatInput.tsx`
+## Steps
 
-In `handleFileSelect`, when the picked file is an image, downscale it before turning it into an attachment:
+1. **Copy** `/mnt/documents/widget-4.7.22-hostinger.js` → `/mnt/documents/widget-4.7.23-hostinger.js`.
 
-- Load the file into an `Image` via `URL.createObjectURL`.
-- Draw onto a `<canvas>` resized so the **longest side = 1024 px** (keep aspect ratio; never upscale).
-- Re-encode as `image/jpeg` at quality `0.72` (tuned for the ~150 KB phone-photo target).
-- If the original was already smaller than ~200 KB, keep it as-is (skip recompression).
-- Replace the attachment `url` with the compressed blob URL, and store the compressed blob/size on the attachment so the rest of the pipeline (send → base64 → edge function → vision) uses the small version.
+2. **Newline fix** — inside `FQ_INLINE_CSS` (line 13), add `white-space: pre-wrap;` to the `.fq-msg-text` rule. This makes user and AI bubbles render `\n` and blank lines as real line breaks instead of collapsing to a single space. (`doSend()` at line 1516 already preserves internal newlines as of v4.7.19 — only the CSS was missing.)
 
-Non-images (PDF/doc/txt) are untouched.
+3. **Image compression** — replace `fileInput.onchange` (lines 1305–1313) with a handler that, for images >200 KB:
+   - Reads the file via `FileReader`.
+   - Loads into an `Image` and draws onto a `<canvas>` resized so the longest side is **1024 px** (aspect-ratio preserved, never upscaled).
+   - Re-encodes as `image/jpeg` at quality `0.72` via `canvas.toBlob`.
+   - Sets `state.attachment` to the compressed blob URL (renames extension to `.jpg`); keeps the original if compression somehow grew the file or failed.
+   - Disables the send button while compressing (sets `state.isTyping`-like flag, then `updateSendState()`).
+   
+   Non-image files and small images (≤200 KB) skip compression. Typical 4–6 MB phone photo → ~120–180 KB.
 
-Expected: typical 4–6 MB phone photo → ~120–180 KB. Upload time drops from seconds to <300 ms; OpenAI vision quality at `detail: "low"` is unaffected (it downsamples to 512 px internally anyway).
+4. **Version bump** — update the `console.log('[Fuqah] Widget v4.7.21 …')` strings (lines 2641, 2662) to `v4.7.23`, and add a `// v4.7.23 — client-side image compression + pre-wrap newlines` comment near the touched code so the changelog tracks it.
 
-## 2. Newline preservation (the `السلام عليكم \n\n وين طلبي` → one line bug)
+5. **No edits** to edge functions, DB, or the React source — those don't affect what Hostinger serves.
 
-Two independent issues are stripping the newlines today.
+## Deliverable
 
-### 2a. Stop splitting the textarea into multiple messages
+A single new file: `widget-4.7.23-hostinger.js` in `/mnt/documents/`. You upload it to Hostinger as-is.
 
-File: `widget/src/app/components/ChatInput.tsx`, function `doSend`.
+## Confirm before I build
 
-Currently it does `raw.split(/\r?\n/).map(trim).filter(non-empty)` and either sends each line as a separate `onSendMessage` call or collapses them. That's what eats the blank line and reflows the text.
-
-Change it to send the **raw trimmed text as a single message**, newlines intact:
-
-```
-const text = message.replace(/\s+$/g, ''); // trim only trailing whitespace
-if (!text && !attachment) return;
-onSendMessage(text, attachment || undefined);
-```
-
-### 2b. Render bubbles with `white-space: pre-wrap`
-
-File: `widget/src/app/components/MessageTextWithLinks.tsx`
-
-The `<p>` style currently has no `whiteSpace`, so the browser collapses `\n` to a space. Add `whiteSpace: 'pre-wrap'` to the root `<p>` style. URL splitting still works because the regex doesn't consume newlines.
-
-### 2c. Dashboard TestChat send path
-
-File: `src/app/components/settings/TestChat.tsx`
-
-The render side already uses `whitespace-pre-wrap` (line 301). Verify the send path doesn't strip `\n` before insert into `conversations_messages.body` / before POST to `chat-ai`. If any `.trim()` / `.replace(/\s+/g, ' ')` is applied to `input`, change it to only trim leading/trailing whitespace (`text.replace(/^\s+|\s+$/g, '')`).
-
-## 3. Out of scope (explicit)
-
-- No edge-function changes.
-- No DB migration — `conversations_messages.body` is `text` and already stores `\n` fine; only client rendering was at fault.
-- Vision model / latency optimizations from the previous plan are **not** part of this change.
-
-## Technical notes
-
-- Compression helper lives inline in `ChatInput.tsx` (small enough; no new file).
-- Canvas approach is fully synchronous-ish and works in all widget target browsers; no extra dependency.
-- Send button stays disabled while compression is running (reuse `isDisabled` + a local `compressing` state).
+- OK to call the new version **`4.7.23`** (matches the "version 23" you mentioned)?
+- Compression target ~150 KB via `maxSide=1024, quality=0.72`, skip-if-already-under-200KB — OK, or do you want a different ceiling (e.g. 800 px / quality 0.6 for ~80 KB)?
