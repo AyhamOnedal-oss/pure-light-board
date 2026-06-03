@@ -1,28 +1,37 @@
-The current failure is still Supabase-side: the browser request is `POST /storage/v1/object/chat-attachments/...` and Supabase returns `Bucket not found`. A fresh DB check also shows no `chat-attachments` bucket exists, so the previous migration did not actually create it or was not executed successfully.
+## Option A: Vision pre-processing in `chat-ai` edge function
 
-Plan:
+Add a vision step before the n8n call. If `attachments` contains images, call OpenAI `gpt-4o-mini` (already used as classifier, `OPENAI_API_KEY` already set) to describe the image, then inject the description into `message` sent to n8n. n8n agent stays text-only and no longer needs changes.
 
-1. Confirm the chosen upload strategy
-   - Recommended: bypass browser-to-Supabase Storage for the test chat and send attachments through an Edge Function.
-   - Alternative: keep Supabase Storage, but create the missing bucket using Supabase Storage’s native bucket API, then apply object policies.
+### Changes
 
-2. Recommended fix: Edge Function attachment relay
-   - Update the test chat upload flow so the browser sends the file to the existing chat Edge Function instead of uploading directly to `chat-attachments`.
-   - The Edge Function will validate file type and size, convert or forward the file payload, then send it to n8n.
-   - This avoids Storage bucket setup, RLS policy complexity, and the current immediate `Bucket not found` failure.
+**`supabase/functions/chat-ai/index.ts`** — after the existing attachment validation (around line 296), before `resolveTenant`:
 
-3. Add clear frontend error handling
-   - Replace the generic Arabic `فشل رفع الملف` with more specific errors for file size, unsupported type, auth/session issues, and backend failures.
-   - Keep the UI behavior the same; only improve the upload path and error reporting.
+1. Call OpenAI chat completions with `gpt-4o-mini`, `detail: "low"`, `max_tokens: 250`.
+2. Send all attachments as `image_url` content parts together with the user's caption.
+3. System prompt: 1–3 short sentences describing product type, brand/text, color, distinguishing features; transcribe visible text; reply in the user's language.
+4. On success: rewrite `userText` to `"<original caption>\n\n[وصف الصورة المرفقة: <vision output>]"`.
+5. On failure (HTTP error, timeout, no key): log and fall through — send the original message without the description so the chat doesn't break.
+6. Log `vision_usage` with prompt/completion/total tokens + estimated cost (uses existing `estimateCost`).
 
-4. Optional durable-storage path
-   - If you need uploaded images saved and accessible later, create the `chat-attachments` bucket using native Supabase Storage tooling, then add tenant-scoped `storage.objects` policies.
-   - This is better for long-term file history, but it adds more moving parts than the immediate test-chat requirement.
+No frontend change. No n8n workflow change. No new secret.
 
-Technical details:
+### Token + cost per request (gpt-4o-mini vision, `detail: "low"`)
 
-- The current request fails before n8n is called.
-- SQL migrations are not a reliable path for bucket creation here; Supabase Storage bucket creation should use the Storage API/tooling.
-- The fastest robust workaround is: browser -> Edge Function -> n8n, with no direct Supabase Storage dependency.
+`detail: "low"` is a **fixed 2,833 image tokens per image** (OpenAI's mini multiplier × the 85-token base), regardless of resolution. So:
 
-Recommended implementation choice: build the Edge Function relay fallback first, then only add Supabase Storage later if persistent file URLs are required.
+| Per request | Input tokens | Output tokens | Cost (USD) |
+|---|---|---|---|
+| Text prompt overhead | ~150 | — | — |
+| 1 image | 2,833 | up to 250 | ~$0.00060 |
+| 2 images | 5,666 | up to 250 | ~$0.00102 |
+| 4 images (max) | 11,332 | up to 250 | ~$0.00184 |
+
+Pricing: gpt-4o-mini = $0.15 / 1M input, $0.60 / 1M output (already in `MODEL_PRICING`).
+
+So a typical single-image test message costs **≈ $0.0006 (≈ 6 cents per 100 images)**. Negligible.
+
+If you ever want sharper vision (read tiny text, count items), switch the vision call to `detail: "high"` — that becomes ~5,667 + ~5,667 per 512px tile, so a 1024×1024 image runs ~25k input tokens (~$0.0038). Not needed now.
+
+### After implementation
+
+I'll deploy `chat-ai` and ask you to send a test image so we can confirm `vision_usage` shows in logs and the agent's reply references the image content.
