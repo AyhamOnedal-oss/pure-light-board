@@ -1,7 +1,31 @@
 # Fuqah Chat Widget
 
-Standalone storefront widget. Builds to a single IIFE bundle (`dist/widget.js`)
-that gets uploaded to `https://widget.fuqah.net/widget.js`.
+Source for the storefront chat widget UI.
+
+## DEPRECATED: standalone `widget.js` bundle
+
+The old standalone IIFE bundle (`dist/widget.js` uploaded to
+`widget.fuqah.net/widget.js`) is no longer used. It was a second copy of
+the same React app and caused real-store traffic to keep running stale
+code (e.g. image attachments dropped because the CDN had an old build).
+
+**Single source of truth now:**
+
+- The merchant storefront snippet loads the Supabase edge function
+  `widget-loader`, which mounts a bubble and opens an iframe pointing at
+  the main React app route `/widget/chat`.
+- `/widget/chat` is implemented in `src/app/components/WidgetChatPage.tsx`
+  in the parent project and imports the components from this `widget/src`
+  folder directly. No separate build, no separate hosted bundle.
+
+If `widget.fuqah.net/widget.js` is still referenced anywhere, replace it
+with the Supabase widget-loader URL:
+
+```html
+<script src="https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/widget-loader"
+        data-platform="zid" data-store-id="{{store.id}}" data-store-uuid="{{store.uuid}}"
+        defer></script>
+```
 
 ## Sync architecture
 
@@ -14,8 +38,9 @@ Dashboard UI ──save──▶ Supabase: settings_chat_design
                               └──▶ postMessage FUQAH_CONFIG_UPDATE ──▶ iframe live preview (instant)
 ```
 
-- **Storefront snippet** (unchanged): `<script src="https://widget.fuqah.net/widget.js"></script>`
-- **Tenant resolution**: `widget-loader` edge function detects platform → calls `widget-resolve` → loads this bundle.
+- **Storefront snippet**: loads the `widget-loader` Supabase edge function (see snippet above).
+- **Tenant resolution**: `widget-loader` detects platform → calls `widget-resolve` → mounts the bubble + iframe.
+- **Iframe target**: `/widget/chat` in the main React app (`src/app/components/WidgetChatPage.tsx`).
 - **Live preview in dashboard**: dashboard embeds the widget in an iframe and posts `FUQAH_*` messages; `useDashboardBridge` applies them in real time.
 
 ## Scripts
@@ -23,15 +48,13 @@ Dashboard UI ──save──▶ Supabase: settings_chat_design
 ```bash
 cd widget
 bun install
-bun run dev      # local preview at :5173
-bun run build    # outputs dist/widget.js
+bun run dev      # local showcase preview at :5173 (developer-only)
 ```
 
 ## Deploy
 
-Upload `widget/dist/widget.js` to whatever hosts `widget.fuqah.net` (Cloudflare R2, S3, etc.). Cache it short (5–15 min) so design tweaks propagate without forcing merchants to bust cache.
-
-After functional widget fixes, rebuild the standalone bundle and replace the hosted `widget.js`. If the CDN responds with a long cache header (for example `max-age=604800`), purge that file from the CDN; otherwise stores can keep running an older bundle even when the React source is fixed.
+Nothing to upload. Edit `widget/src/...`, the main app build picks the
+components up automatically and serves them at `/widget/chat`.
 
 ## Source of truth
 

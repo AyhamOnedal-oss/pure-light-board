@@ -1,60 +1,50 @@
-## AHA moment
+## Goal
+Make the live store, dashboard preview, and image upload test use the same widget/chat path so we stop fixing one path while the customer sees another.
 
-The logs confirm the latest store message reached `chat-ai` with **`attachments: []`** and no `vision_usage` log. So OpenAI Vision never ran.
+## Simplest path
 
-There are actually two active widget paths:
-
-1. The downloadable Hostinger bundle `/mnt/documents/widget-4.7.24-hostinger.js` was patched.
-2. The live store is using the iframe app path from `widget-loader`: `APP_BASE_URL + "/widget/chat?..."`, which uses `widget/src/app/*`.
-
-That React iframe path still drops attachments:
-- `ChatInput.tsx` creates only a preview `blob:` URL, not a base64 `dataUrl`.
-- `ChatWidget.tsx` calls `sendMessage(conversationId, text, history)` without the attachment.
-- `chatApi.ts` posts no `attachments` field to `/chat-ai`.
-
-So the patched Hostinger file is not the path currently producing the screenshot/logs.
-
-## Plan
-
-1. Update the active React widget attachment model
-   - Add `dataUrl?: string` and `content_type?: string` to `MessageAttachment`.
-   - Keep `url` as the local preview URL for UI rendering.
-
-2. Convert selected images to base64 in `ChatInput.tsx`
-   - For small images: read the original `File` as a data URL.
-   - For compressed images: read the final compressed blob as a data URL.
-   - Disable send until the image data URL is ready, same as compression.
-   - Preserve existing non-image attachment behavior.
-
-3. Forward attachments from `ChatWidget.tsx` to `chatApi.ts`
-   - Change `sendMessage(...)` to accept the optional attachment.
-   - Pass the selected image attachment into the API call.
-   - Remove/adjust the “attachment-only no AI call” early return so image-only sends can also trigger vision.
-
-4. Include image attachments in the `/chat-ai` request body
-   - If `attachment.type === 'image'` and `attachment.dataUrl` exists, send:
-     ```json
-     {
-       "attachments": [
-         {
-           "url": "data:image/...;base64,...",
-           "name": "...",
-           "content_type": "image/jpeg|image/png|image/webp|image/gif",
-           "size": 12345
-         }
-       ]
-     }
+1. **Keep one working runtime path**
+   - Keep the Supabase `widget-loader` → iframe flow.
+   - This means the storefront bubble opens:
+     ```text
+     APP_BASE_URL/widget/chat?tenant_id=...&platform=...&store_id=...
      ```
-   - Otherwise omit `attachments`.
+   - This path uses the React widget code where image `dataUrl` sending already exists.
 
-5. Add backend debug visibility
-   - Add a concise `chat-ai attachments_in` log with count and content types before vision.
-   - This makes future failures obvious immediately: no attachment vs. vision failure.
+2. **Add the missing `/widget/chat` app route**
+   - Add a public, no-auth route in the main React app.
+   - It renders only the actual chat widget UI, not the dashboard layout, not the test chat page.
+   - It reads `tenant_id`, `platform`, `store_id`, and `store_uuid` from the iframe URL.
 
-6. Validate
-   - Query recent `conversations_messages` to confirm new customer messages persist non-empty `attachments`.
-   - Check `chat-ai` edge logs for `attachments_in` and `vision_usage` after the next test.
+3. **Make the iframe chat route use the existing widget code**
+   - Reuse the existing widget components instead of creating a second chat implementation.
+   - Ensure image selection still creates a base64 `dataUrl` and forwards it into `sendBackendMessage`.
+   - Keep the dashboard test chat as a separate testing screen, but not as the storefront runtime.
 
-## Expected result
+4. **Delete/retire the broken standalone hosted bundle path**
+   - Stop treating `widget/dist/widget.js` / Hostinger CDN bundle as the source of truth.
+   - Remove or clearly deprecate the standalone widget build docs/scripts so future fixes are not applied to the wrong bundle.
+   - The official storefront snippet should load the Supabase `widget-loader` endpoint, or `widget.fuqah.net/widget.js` should become only a thin proxy to that loader, not a separate widget app.
 
-After this, the same storefront test should show non-empty `attachments` in the DB/logs, `vision_usage` in `chat-ai`, and the AI should receive injected image description text before it calls n8n.
+5. **Keep backend behavior unchanged except verification logs**
+   - `chat-ai` already works when it receives image attachments.
+   - Keep the existing `attachments_in` and `vision_usage` logs.
+   - No database schema changes needed.
+
+6. **Validation after implementation**
+   - Open `/widget/chat?...` directly and send a product image.
+   - Confirm the browser request to `chat-ai` contains `attachments` with a `data:image/...` URL.
+   - Confirm Supabase logs show:
+     ```text
+     attachments_in.count = 1
+     url_kinds = ["data"]
+     vision_usage
+     ```
+   - Confirm the saved customer message has non-empty `attachments`.
+
+## Files likely affected
+- `src/app/routes.tsx`
+- New small route component for `/widget/chat`
+- `widget/src/app/components/*` only if the route integration exposes a gap
+- `widget/README.md` and root build script/docs to remove the stale Hostinger-bundle deployment path
+- Possibly `supabase/functions/widget-loader/index.ts` only if the snippet URL or query params need cleanup

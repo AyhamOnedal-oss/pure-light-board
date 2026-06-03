@@ -8,7 +8,7 @@
     "build:dev": "vite build --mode development",
     "dev": "vite",
     "preview": "vite preview",
-    "build:widget": "cd widget && vite build"
+    "build:widget": "echo 'DEPRECATED: the standalone widget bundle has been removed. The widget is served from /widget/chat in the main app.' && exit 1"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -47,6 +47,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
+    "country-flag-icons": "^1.6.17",
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
     "input-otp": "1.4.2",
