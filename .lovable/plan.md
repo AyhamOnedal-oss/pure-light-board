@@ -1,29 +1,60 @@
-# Plan: forward image attachments from the widget to `chat-ai` (ship v4.7.24)
+## AHA moment
 
-## Why the agent doesn't "see" the image in the store
+The logs confirm the latest store message reached `chat-ai` with **`attachments: []`** and no `vision_usage` log. So OpenAI Vision never ran.
 
-In the live widget (`widget-4.7.23-hostinger.js`), `sendToBackend(text, callback)` at line 2651 sends only `{ message, history, ... }` to `/chat-ai`. It **never includes `attachments`**.
+There are actually two active widget paths:
 
-The dashboard's TestChat works because it converts the image to a base64 data URL and posts `{ attachments: [{url, content_type, ...}] }`. The `chat-ai` edge function only runs the OpenAI vision pre-processing when `body.attachments` is a non-empty array (`supabase/functions/chat-ai/index.ts` line 267, 287). So the camera photo reaches OpenAI in the test chat, but in the store the AI just sees the text "المنتج متوفر؟" with no image context — that's why it asks "أي منتج تقصد؟".
+1. The downloadable Hostinger bundle `/mnt/documents/widget-4.7.24-hostinger.js` was patched.
+2. The live store is using the iframe app path from `widget-loader`: `APP_BASE_URL + "/widget/chat?..."`, which uses `widget/src/app/*`.
 
-A second issue: the widget stores `attachment.url` as a `blob:` URL (from `URL.createObjectURL`). `blob:` URLs are only readable inside the browser tab that created them, so the edge function couldn't fetch them anyway. They must be sent as **base64 data URLs**, which is what OpenAI vision expects with `detail: "low"`.
+That React iframe path still drops attachments:
+- `ChatInput.tsx` creates only a preview `blob:` URL, not a base64 `dataUrl`.
+- `ChatWidget.tsx` calls `sendMessage(conversationId, text, history)` without the attachment.
+- `chatApi.ts` posts no `attachments` field to `/chat-ai`.
 
-## Changes (in `widget-4.7.23-hostinger.js`, save as `widget-4.7.24-hostinger.js`)
+So the patched Hostinger file is not the path currently producing the screenshot/logs.
 
-1. **Compute a data URL during image selection.**  
-   In `fileInput.onchange` and the `compressImage` callback (lines ~1305–1330), after we have the final blob, read it through `FileReader.readAsDataURL` and store on the attachment: `state.attachment.dataUrl = "data:image/jpeg;base64,..."`. For non-image files, leave `dataUrl` undefined (chat-ai will ignore them — vision only runs on images).
+## Plan
 
-2. **Pass the attachment to `sendToBackend`.**  
-   - In `doSend` (~line 1419), call `sendToBackend(text, att, callback)` instead of `sendToBackend(text, callback)`.
-   - Change `sendToBackend(text, callback)` → `sendToBackend(text, attachment, callback)`.
-   - When `attachment && attachment.dataUrl`, include in the POST body:  
-     `attachments: [{ url: attachment.dataUrl, name: attachment.name, content_type: 'image/jpeg', size: attachment.size }]`.  
-   - Otherwise omit the field (current behavior).
+1. Update the active React widget attachment model
+   - Add `dataUrl?: string` and `content_type?: string` to `MessageAttachment`.
+   - Keep `url` as the local preview URL for UI rendering.
 
-3. **Version bump.** Bump the two `console.log('[Fuqah] Widget v4.7.23 …')` strings to `v4.7.24`. Add a `// v4.7.24 — forward image attachments to chat-ai for vision` comment near `sendToBackend`.
+2. Convert selected images to base64 in `ChatInput.tsx`
+   - For small images: read the original `File` as a data URL.
+   - For compressed images: read the final compressed blob as a data URL.
+   - Disable send until the image data URL is ready, same as compression.
+   - Preserve existing non-image attachment behavior.
 
-4. **No edge-function changes.** `chat-ai` already handles the attachment + vision flow (verified at lines 267–356). The plan from the earlier turn (~$0.0006 per image with gpt-4o-mini `detail: "low"`) still applies — cost unchanged.
+3. Forward attachments from `ChatWidget.tsx` to `chatApi.ts`
+   - Change `sendMessage(...)` to accept the optional attachment.
+   - Pass the selected image attachment into the API call.
+   - Remove/adjust the “attachment-only no AI call” early return so image-only sends can also trigger vision.
 
-## Deliverable
+4. Include image attachments in the `/chat-ai` request body
+   - If `attachment.type === 'image'` and `attachment.dataUrl` exists, send:
+     ```json
+     {
+       "attachments": [
+         {
+           "url": "data:image/...;base64,...",
+           "name": "...",
+           "content_type": "image/jpeg|image/png|image/webp|image/gif",
+           "size": 12345
+         }
+       ]
+     }
+     ```
+   - Otherwise omit `attachments`.
 
-`widget-4.7.24-hostinger.js` in `/mnt/documents/`. Upload to Hostinger. After deploy: send a product photo in the live widget; expect the AI to reply with a vision-aware answer (and `vision_usage` log entry in edge-function logs).
+5. Add backend debug visibility
+   - Add a concise `chat-ai attachments_in` log with count and content types before vision.
+   - This makes future failures obvious immediately: no attachment vs. vision failure.
+
+6. Validate
+   - Query recent `conversations_messages` to confirm new customer messages persist non-empty `attachments`.
+   - Check `chat-ai` edge logs for `attachments_in` and `vision_usage` after the next test.
+
+## Expected result
+
+After this, the same storefront test should show non-empty `attachments` in the DB/logs, `vision_usage` in `chat-ai`, and the AI should receive injected image description text before it calls n8n.
