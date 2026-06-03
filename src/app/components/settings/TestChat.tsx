@@ -5,7 +5,12 @@ import { ArrowUp, Paperclip, Trash2 } from 'lucide-react';
 import iconImg from '../../../imports/FUQAH-AI-icon-01@2x.png';
 import logoImg from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 
-interface Msg { id: string; sender: 'user' | 'ai'; text: string; time: string; pending?: boolean; error?: boolean; }
+interface MsgAttachment { url: string; name: string; content_type: string; size: number; storage_path: string; }
+interface Msg { id: string; sender: 'user' | 'ai'; text: string; time: string; pending?: boolean; error?: boolean; attachments?: MsgAttachment[]; }
+
+const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_ATTACHMENTS = 4;
 
 const STORAGE_KEY = 'fuqah_test_chat_messages';
 const CONV_KEY = 'fuqah_test_chat_conversation_id';
@@ -40,6 +45,8 @@ export function TestChat() {
   const [conversationId, setConversationId] = useState<string>(loadConversationId);
   const [sending, setSending] = useState(false);
   const [input, setInput] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -61,14 +68,48 @@ export function TestChat() {
     }
   }, [input]);
 
+  const uploadFiles = useCallback(async (files: File[]): Promise<MsgAttachment[]> => {
+    if (!tenantId || files.length === 0) return [];
+    const uploaded: MsgAttachment[] = [];
+    for (const file of files) {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const path = `${tenantId}/test-${conversationId}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('chat-attachments')
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (upErr) throw upErr;
+      const { data: signed, error: sErr } = await supabase.storage
+        .from('chat-attachments')
+        .createSignedUrl(path, 60 * 60);
+      if (sErr || !signed?.signedUrl) throw sErr ?? new Error('sign_failed');
+      uploaded.push({
+        url: signed.signedUrl,
+        name: file.name,
+        content_type: file.type,
+        size: file.size,
+        storage_path: path,
+      });
+    }
+    return uploaded;
+  }, [tenantId, conversationId]);
+
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (sending) return;
     if (!tenantId) return;
+    if (!text && pendingFiles.length === 0) return;
+
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userId = Date.now().toString();
     const pendingId = (Date.now() + 1).toString();
-    const userMsg: Msg = { id: userId, sender: 'user', text, time: now };
+    const localPreviews: MsgAttachment[] = pendingFiles.map((f) => ({
+      url: URL.createObjectURL(f),
+      name: f.name,
+      content_type: f.type,
+      size: f.size,
+      storage_path: '',
+    }));
+    const userMsg: Msg = { id: userId, sender: 'user', text, time: now, attachments: localPreviews };
     const pendingMsg: Msg = { id: pendingId, sender: 'ai', text: '…', time: now, pending: true };
 
     // Build history from current messages (before adding the new one)
@@ -77,16 +118,36 @@ export function TestChat() {
       .map(m => ({ sender: m.sender === 'user' ? 'customer' as const : 'ai' as const, text: m.text }));
 
     setMessages(prev => [...prev, userMsg, pendingMsg]);
+    const filesToUpload = pendingFiles;
+    setPendingFiles([]);
     setInput('');
     setSending(true);
+    setUploading(filesToUpload.length > 0);
 
     try {
+      let uploaded: MsgAttachment[] = [];
+      if (filesToUpload.length > 0) {
+        try {
+          uploaded = await uploadFiles(filesToUpload);
+        } catch (e) {
+          console.error('upload failed', e);
+          const errText = language === 'ar' ? 'فشل رفع الملف.' : 'File upload failed.';
+          setMessages(prev => prev.map(m => m.id === pendingId
+            ? { ...m, text: errText, time: now, pending: false, error: true }
+            : m));
+          return;
+        } finally {
+          setUploading(false);
+        }
+      }
+
       const { data, error } = await supabase.functions.invoke('chat-ai', {
         body: {
           tenant_id: tenantId,
           conversation_id: conversationId,
           visitor_id: `test-${tenantId}`,
           message: text,
+          attachments: uploaded,
           history,
           is_test: true,
         },
@@ -121,8 +182,9 @@ export function TestChat() {
         : m));
     } finally {
       setSending(false);
+      setUploading(false);
     }
-  }, [input, language, messages, sending, tenantId, conversationId]);
+  }, [input, language, messages, sending, tenantId, conversationId, pendingFiles, uploadFiles]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -134,18 +196,30 @@ export function TestChat() {
   const handleFileClick = () => fileInputRef.current?.click();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const userMsg: Msg = { id: Date.now().toString(), sender: 'user', text: `📎 ${file.name}`, time: now };
-      const aiMsg: Msg = { id: (Date.now() + 1).toString(), sender: 'ai', text: language === 'ar' ? 'تم استلام الملف. جاري المعالجة...' : 'File received. Processing...', time: now };
-      setMessages(prev => [...prev, userMsg, aiMsg]);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+    const files = Array.from(e.target.files ?? []);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    const valid: File[] = [];
+    for (const f of files) {
+      if (!ALLOWED_MIME.includes(f.type)) {
+        alert(language === 'ar' ? 'نوع الملف غير مدعوم. الصور فقط (JPG, PNG, WEBP, GIF).' : 'Unsupported file type. Images only (JPG, PNG, WEBP, GIF).');
+        continue;
+      }
+      if (f.size > MAX_FILE_BYTES) {
+        alert(language === 'ar' ? 'حجم الملف أكبر من 5 ميجابايت.' : 'File exceeds 5MB.');
+        continue;
+      }
+      valid.push(f);
     }
+    setPendingFiles(prev => [...prev, ...valid].slice(0, MAX_ATTACHMENTS));
+  };
+
+  const removePendingFile = (idx: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== idx));
   };
 
   const clearChat = () => {
     setMessages([]);
+    setPendingFiles([]);
     localStorage.removeItem(STORAGE_KEY);
     const newId = crypto.randomUUID();
     try { localStorage.setItem(CONV_KEY, newId); } catch {}
