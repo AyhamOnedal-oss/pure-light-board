@@ -287,6 +287,18 @@ export function TestChat() {
                     </span>
                   ) : (
                     <>
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-1.5">
+                          {msg.attachments.map((a, i) => (
+                            <img
+                              key={i}
+                              src={a.url}
+                              alt={a.name}
+                              className="max-w-[180px] max-h-[180px] rounded-lg object-cover"
+                            />
+                          ))}
+                        </div>
+                      )}
                       <span className="whitespace-pre-wrap">{msg.text}</span>
                       <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : msg.error ? 'text-red-500/60' : 'text-white/50'}`}>{msg.time}</p>
                     </>
@@ -298,9 +310,23 @@ export function TestChat() {
 
           {/* Input — Attachment LEFT, Send RIGHT */}
           <div className="p-3 border-t border-border shrink-0">
+            {pendingFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {pendingFiles.map((f, i) => (
+                  <div key={i} className="relative">
+                    <img src={URL.createObjectURL(f)} alt={f.name} className="w-14 h-14 rounded-lg object-cover border border-border" />
+                    <button
+                      onClick={() => removePendingFile(i)}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black text-white text-[10px] flex items-center justify-center"
+                      aria-label="remove"
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2">
-              <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
-              <button onClick={handleFileClick} className="p-2 hover:bg-muted rounded-xl transition-colors shrink-0 mb-0.5">
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" onChange={handleFileChange} />
+              <button onClick={handleFileClick} disabled={pendingFiles.length >= MAX_ATTACHMENTS} className="p-2 hover:bg-muted rounded-xl transition-colors shrink-0 mb-0.5 disabled:opacity-40">
                 <Paperclip className="w-[18px] h-[18px] text-muted-foreground" />
               </button>
               <textarea
