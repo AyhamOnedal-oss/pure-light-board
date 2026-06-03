@@ -1,37 +1,59 @@
-## Option A: Vision pre-processing in `chat-ai` edge function
+# Plan: Widget image compression + newline preservation
 
-Add a vision step before the n8n call. If `attachments` contains images, call OpenAI `gpt-4o-mini` (already used as classifier, `OPENAI_API_KEY` already set) to describe the image, then inject the description into `message` sent to n8n. n8n agent stays text-only and no longer needs changes.
+## 1. Client-side image compression in the widget (~150 KB target)
 
-### Changes
+File: `widget/src/app/components/ChatInput.tsx`
 
-**`supabase/functions/chat-ai/index.ts`** — after the existing attachment validation (around line 296), before `resolveTenant`:
+In `handleFileSelect`, when the picked file is an image, downscale it before turning it into an attachment:
 
-1. Call OpenAI chat completions with `gpt-4o-mini`, `detail: "low"`, `max_tokens: 250`.
-2. Send all attachments as `image_url` content parts together with the user's caption.
-3. System prompt: 1–3 short sentences describing product type, brand/text, color, distinguishing features; transcribe visible text; reply in the user's language.
-4. On success: rewrite `userText` to `"<original caption>\n\n[وصف الصورة المرفقة: <vision output>]"`.
-5. On failure (HTTP error, timeout, no key): log and fall through — send the original message without the description so the chat doesn't break.
-6. Log `vision_usage` with prompt/completion/total tokens + estimated cost (uses existing `estimateCost`).
+- Load the file into an `Image` via `URL.createObjectURL`.
+- Draw onto a `<canvas>` resized so the **longest side = 1024 px** (keep aspect ratio; never upscale).
+- Re-encode as `image/jpeg` at quality `0.72` (tuned for the ~150 KB phone-photo target).
+- If the original was already smaller than ~200 KB, keep it as-is (skip recompression).
+- Replace the attachment `url` with the compressed blob URL, and store the compressed blob/size on the attachment so the rest of the pipeline (send → base64 → edge function → vision) uses the small version.
 
-No frontend change. No n8n workflow change. No new secret.
+Non-images (PDF/doc/txt) are untouched.
 
-### Token + cost per request (gpt-4o-mini vision, `detail: "low"`)
+Expected: typical 4–6 MB phone photo → ~120–180 KB. Upload time drops from seconds to <300 ms; OpenAI vision quality at `detail: "low"` is unaffected (it downsamples to 512 px internally anyway).
 
-`detail: "low"` is a **fixed 2,833 image tokens per image** (OpenAI's mini multiplier × the 85-token base), regardless of resolution. So:
+## 2. Newline preservation (the `السلام عليكم \n\n وين طلبي` → one line bug)
 
-| Per request | Input tokens | Output tokens | Cost (USD) |
-|---|---|---|---|
-| Text prompt overhead | ~150 | — | — |
-| 1 image | 2,833 | up to 250 | ~$0.00060 |
-| 2 images | 5,666 | up to 250 | ~$0.00102 |
-| 4 images (max) | 11,332 | up to 250 | ~$0.00184 |
+Two independent issues are stripping the newlines today.
 
-Pricing: gpt-4o-mini = $0.15 / 1M input, $0.60 / 1M output (already in `MODEL_PRICING`).
+### 2a. Stop splitting the textarea into multiple messages
 
-So a typical single-image test message costs **≈ $0.0006 (≈ 6 cents per 100 images)**. Negligible.
+File: `widget/src/app/components/ChatInput.tsx`, function `doSend`.
 
-If you ever want sharper vision (read tiny text, count items), switch the vision call to `detail: "high"` — that becomes ~5,667 + ~5,667 per 512px tile, so a 1024×1024 image runs ~25k input tokens (~$0.0038). Not needed now.
+Currently it does `raw.split(/\r?\n/).map(trim).filter(non-empty)` and either sends each line as a separate `onSendMessage` call or collapses them. That's what eats the blank line and reflows the text.
 
-### After implementation
+Change it to send the **raw trimmed text as a single message**, newlines intact:
 
-I'll deploy `chat-ai` and ask you to send a test image so we can confirm `vision_usage` shows in logs and the agent's reply references the image content.
+```
+const text = message.replace(/\s+$/g, ''); // trim only trailing whitespace
+if (!text && !attachment) return;
+onSendMessage(text, attachment || undefined);
+```
+
+### 2b. Render bubbles with `white-space: pre-wrap`
+
+File: `widget/src/app/components/MessageTextWithLinks.tsx`
+
+The `<p>` style currently has no `whiteSpace`, so the browser collapses `\n` to a space. Add `whiteSpace: 'pre-wrap'` to the root `<p>` style. URL splitting still works because the regex doesn't consume newlines.
+
+### 2c. Dashboard TestChat send path
+
+File: `src/app/components/settings/TestChat.tsx`
+
+The render side already uses `whitespace-pre-wrap` (line 301). Verify the send path doesn't strip `\n` before insert into `conversations_messages.body` / before POST to `chat-ai`. If any `.trim()` / `.replace(/\s+/g, ' ')` is applied to `input`, change it to only trim leading/trailing whitespace (`text.replace(/^\s+|\s+$/g, '')`).
+
+## 3. Out of scope (explicit)
+
+- No edge-function changes.
+- No DB migration — `conversations_messages.body` is `text` and already stores `\n` fine; only client rendering was at fault.
+- Vision model / latency optimizations from the previous plan are **not** part of this change.
+
+## Technical notes
+
+- Compression helper lives inline in `ChatInput.tsx` (small enough; no new file).
+- Canvas approach is fully synchronous-ish and works in all widget target browsers; no extra dependency.
+- Send button stays disabled while compression is running (reuse `isDisabled` + a local `compressing` state).
