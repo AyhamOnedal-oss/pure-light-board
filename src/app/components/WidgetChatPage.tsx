@@ -11,6 +11,7 @@ import { ChatWindow } from '../../../widget/src/app/components/ChatWindow';
 import { THEMES, getThemeById, ACTIVE_THEME_ID } from '../../../widget/src/app/types/theme';
 import { useFetchChatSettings } from '../../../widget/src/app/hooks/useFetchChatSettings';
 import { useFetchStoreBranding } from '../../../widget/src/app/hooks/useFetchStoreBranding';
+import { getStoreContext } from '../../../widget/src/app/config/supabase';
 import type { Message } from '../../../widget/src/app/components/ChatWidget';
 import '../../../widget/src/styles/index.css';
 
@@ -33,6 +34,8 @@ export function WidgetChatPage() {
   const [conversationId, setConversationId] = useState<string>(generateConversationId);
 
   const theme = useMemo(() => getThemeById(ACTIVE_THEME_ID) ?? THEMES[0], []);
+  const ctx = useMemo(() => getStoreContext(), []);
+  const storeId = ctx.store_id || ctx.tenant_id || 'store_default';
 
   // Tell the parent (widget-loader bubble) when we are ready / want to close
   useEffect(() => {
@@ -79,7 +82,7 @@ export function WidgetChatPage() {
           storeName={branding.storeName}
           storeLogo={branding.storeLogo}
           storeIcon={branding.storeIcon}
-          storeId={branding.storeName /* unused server-side; conv ties to tenant */}
+          storeId={storeId}
           conversationId={conversationId}
           onConversationIdChange={setConversationId}
           messages={messages}
