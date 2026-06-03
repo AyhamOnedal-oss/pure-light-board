@@ -323,3 +323,13 @@ async function compressImage(file: File, maxSide: number, quality: number): Prom
     );
   });
 }
+
+/** Read a Blob/File as a base64 data URL. */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('read_failed'));
+    reader.readAsDataURL(blob);
+  });
+}

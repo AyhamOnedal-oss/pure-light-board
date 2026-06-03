@@ -52,8 +52,18 @@ export async function sendMessage(
   conversationId: string,
   text: string,
   history: ChatHistoryEntry[] = [],
+  attachment?: { type: 'image' | 'file'; dataUrl?: string; name?: string; content_type?: string; size?: number },
 ): Promise<SendMessageResult> {
   const ctx = getStoreContext();
+  const outAttachments =
+    attachment && attachment.type === 'image' && attachment.dataUrl
+      ? [{
+          url: attachment.dataUrl,
+          name: attachment.name ?? 'image.jpg',
+          content_type: attachment.content_type ?? 'image/jpeg',
+          size: attachment.size ?? 0,
+        }]
+      : undefined;
   try {
     const res = await fetch(`${FUNCTIONS_BASE}/chat-ai`, {
       method: "POST",
@@ -70,6 +80,7 @@ export async function sendMessage(
         visitor_id: getVisitorId(),
         message: text,
         history,
+        ...(outAttachments ? { attachments: outAttachments } : {}),
       }),
     });
 
