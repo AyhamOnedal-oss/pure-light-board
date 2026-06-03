@@ -1,31 +1,29 @@
-# Plan: ship `widget-4.7.23-hostinger.js`
+# Plan: forward image attachments from the widget to `chat-ai` (ship v4.7.24)
 
-My previous edits went to the React widget source (`widget/src/...`), but the file you're actually deploying is the standalone vanilla-JS bundle at `/mnt/documents/widget-4.7.22-hostinger.js` (~150 KB, hand-rolled, no build step). It needs the same two fixes applied directly inside that file, then saved as the next version.
+## Why the agent doesn't "see" the image in the store
 
-## Steps
+In the live widget (`widget-4.7.23-hostinger.js`), `sendToBackend(text, callback)` at line 2651 sends only `{ message, history, ... }` to `/chat-ai`. It **never includes `attachments`**.
 
-1. **Copy** `/mnt/documents/widget-4.7.22-hostinger.js` → `/mnt/documents/widget-4.7.23-hostinger.js`.
+The dashboard's TestChat works because it converts the image to a base64 data URL and posts `{ attachments: [{url, content_type, ...}] }`. The `chat-ai` edge function only runs the OpenAI vision pre-processing when `body.attachments` is a non-empty array (`supabase/functions/chat-ai/index.ts` line 267, 287). So the camera photo reaches OpenAI in the test chat, but in the store the AI just sees the text "المنتج متوفر؟" with no image context — that's why it asks "أي منتج تقصد؟".
 
-2. **Newline fix** — inside `FQ_INLINE_CSS` (line 13), add `white-space: pre-wrap;` to the `.fq-msg-text` rule. This makes user and AI bubbles render `\n` and blank lines as real line breaks instead of collapsing to a single space. (`doSend()` at line 1516 already preserves internal newlines as of v4.7.19 — only the CSS was missing.)
+A second issue: the widget stores `attachment.url` as a `blob:` URL (from `URL.createObjectURL`). `blob:` URLs are only readable inside the browser tab that created them, so the edge function couldn't fetch them anyway. They must be sent as **base64 data URLs**, which is what OpenAI vision expects with `detail: "low"`.
 
-3. **Image compression** — replace `fileInput.onchange` (lines 1305–1313) with a handler that, for images >200 KB:
-   - Reads the file via `FileReader`.
-   - Loads into an `Image` and draws onto a `<canvas>` resized so the longest side is **1024 px** (aspect-ratio preserved, never upscaled).
-   - Re-encodes as `image/jpeg` at quality `0.72` via `canvas.toBlob`.
-   - Sets `state.attachment` to the compressed blob URL (renames extension to `.jpg`); keeps the original if compression somehow grew the file or failed.
-   - Disables the send button while compressing (sets `state.isTyping`-like flag, then `updateSendState()`).
-   
-   Non-image files and small images (≤200 KB) skip compression. Typical 4–6 MB phone photo → ~120–180 KB.
+## Changes (in `widget-4.7.23-hostinger.js`, save as `widget-4.7.24-hostinger.js`)
 
-4. **Version bump** — update the `console.log('[Fuqah] Widget v4.7.21 …')` strings (lines 2641, 2662) to `v4.7.23`, and add a `// v4.7.23 — client-side image compression + pre-wrap newlines` comment near the touched code so the changelog tracks it.
+1. **Compute a data URL during image selection.**  
+   In `fileInput.onchange` and the `compressImage` callback (lines ~1305–1330), after we have the final blob, read it through `FileReader.readAsDataURL` and store on the attachment: `state.attachment.dataUrl = "data:image/jpeg;base64,..."`. For non-image files, leave `dataUrl` undefined (chat-ai will ignore them — vision only runs on images).
 
-5. **No edits** to edge functions, DB, or the React source — those don't affect what Hostinger serves.
+2. **Pass the attachment to `sendToBackend`.**  
+   - In `doSend` (~line 1419), call `sendToBackend(text, att, callback)` instead of `sendToBackend(text, callback)`.
+   - Change `sendToBackend(text, callback)` → `sendToBackend(text, attachment, callback)`.
+   - When `attachment && attachment.dataUrl`, include in the POST body:  
+     `attachments: [{ url: attachment.dataUrl, name: attachment.name, content_type: 'image/jpeg', size: attachment.size }]`.  
+   - Otherwise omit the field (current behavior).
+
+3. **Version bump.** Bump the two `console.log('[Fuqah] Widget v4.7.23 …')` strings to `v4.7.24`. Add a `// v4.7.24 — forward image attachments to chat-ai for vision` comment near `sendToBackend`.
+
+4. **No edge-function changes.** `chat-ai` already handles the attachment + vision flow (verified at lines 267–356). The plan from the earlier turn (~$0.0006 per image with gpt-4o-mini `detail: "low"`) still applies — cost unchanged.
 
 ## Deliverable
 
-A single new file: `widget-4.7.23-hostinger.js` in `/mnt/documents/`. You upload it to Hostinger as-is.
-
-## Confirm before I build
-
-- OK to call the new version **`4.7.23`** (matches the "version 23" you mentioned)?
-- Compression target ~150 KB via `maxSide=1024, quality=0.72`, skip-if-already-under-200KB — OK, or do you want a different ceiling (e.g. 800 px / quality 0.6 for ~80 KB)?
+`widget-4.7.24-hostinger.js` in `/mnt/documents/`. Upload to Hostinger. After deploy: send a product photo in the live widget; expect the AI to reply with a vision-aware answer (and `vision_usage` log entry in edge-function logs).
