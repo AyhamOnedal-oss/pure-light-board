@@ -560,7 +560,12 @@ Deno.serve(async (req) => {
         tenant_id,
         conversation_id,
         visitor_id,
-        message,
+        message: userText,
+        attachments: attachmentsIn.map((a) => ({
+          url: a.url,
+          content_type: a.content_type,
+          name: a.name,
+        })),
         history: Array.isArray(history) ? history.slice(-10) : [],
         store: {
           id: storePlatformId,
