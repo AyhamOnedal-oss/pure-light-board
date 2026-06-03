@@ -28,6 +28,7 @@ import { AdAutomationPage } from './components/admin/AdAutomationPage';
 import { AdAutomationDetailPage } from './components/admin/AdAutomationDetailPage';
 import { AdminPipelinePage } from './components/admin/AdminPipelinePage';
 import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailPage';
+import { WidgetChatPage } from './components/WidgetChatPage';
 
 function RootEntry() {
   // When the OAuth callback redirects back with ?oauth_result=install_success,
@@ -62,6 +63,9 @@ export const router = createBrowserRouter([
   { path: '/check-email', element: <LoginPage /> },
   { path: '/admin/login', element: <AdminLoginPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  // Storefront chat iframe target — public, no auth, no dashboard chrome.
+  // Used by supabase/functions/widget-loader as the iframe.src.
+  { path: '/widget/chat', element: <WidgetChatPage /> },
   {
     path: '/dashboard',
     element: <RequireAuth><Layout /></RequireAuth>,
