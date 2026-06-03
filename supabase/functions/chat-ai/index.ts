@@ -252,7 +252,8 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { platform, store_id, store_uuid, visitor_id, message, history } = body;
+    const { platform, store_id, store_uuid, visitor_id, history } = body;
+    let message: string = typeof body.message === "string" ? body.message : "";
     const domain: string | null = body.domain ?? null;
     const visitor = body.visitor && typeof body.visitor === "object" ? body.visitor : null;
     let conversation_id: string | null = body.conversation_id ?? null;
@@ -285,10 +286,14 @@ Deno.serve(async (req) => {
     }
     const hasAttachments = attachmentsIn.length > 0;
 
-    if ((!message || typeof message !== "string") && !hasAttachments) {
+    if (!message && !hasAttachments) {
       return jsonResponse({ error: "missing_message" }, 400);
     }
-    const userText: string = typeof message === "string" ? message : "";
+    // If image only and no caption, give the agent a default user instruction
+    if (!message && hasAttachments) {
+      message = "صِف الصورة المرفقة أو أجب عن سؤال العميل عنها.";
+    }
+    const userText: string = message;
 
     const { tenant_id, is_active } = await resolveTenant({
       platform,
