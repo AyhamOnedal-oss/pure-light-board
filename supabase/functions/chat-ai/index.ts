@@ -252,15 +252,48 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { platform, store_id, store_uuid, visitor_id, message, history } = body;
+    const { platform, store_id, store_uuid, visitor_id, history } = body;
+    let message: string = typeof body.message === "string" ? body.message : "";
     const domain: string | null = body.domain ?? null;
     const visitor = body.visitor && typeof body.visitor === "object" ? body.visitor : null;
     let conversation_id: string | null = body.conversation_id ?? null;
     const is_test: boolean = body.is_test === true;
 
-    if (!message || typeof message !== "string") {
+    // Image attachments (optional). Each item: { url, name, content_type, size, storage_path }
+    const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const MAX_FILE_BYTES = 5 * 1024 * 1024;
+    const MAX_ATTACHMENTS = 4;
+    let attachmentsIn: Array<{ url: string; name?: string; content_type: string; size?: number; storage_path?: string }> = [];
+    if (Array.isArray(body.attachments)) {
+      attachmentsIn = body.attachments
+        .filter((a: any) => a && typeof a === "object" && typeof a.url === "string" && typeof a.content_type === "string")
+        .slice(0, MAX_ATTACHMENTS)
+        .map((a: any) => ({
+          url: a.url,
+          name: typeof a.name === "string" ? a.name : null,
+          content_type: a.content_type,
+          size: typeof a.size === "number" ? a.size : null,
+          storage_path: typeof a.storage_path === "string" ? a.storage_path : null,
+        }));
+      for (const a of attachmentsIn) {
+        if (!ALLOWED_MIME.includes(a.content_type)) {
+          return jsonResponse({ error: "invalid_attachment_type", content_type: a.content_type }, 400);
+        }
+        if (a.size && a.size > MAX_FILE_BYTES) {
+          return jsonResponse({ error: "attachment_too_large", max_bytes: MAX_FILE_BYTES }, 400);
+        }
+      }
+    }
+    const hasAttachments = attachmentsIn.length > 0;
+
+    if (!message && !hasAttachments) {
       return jsonResponse({ error: "missing_message" }, 400);
     }
+    // If image only and no caption, give the agent a default user instruction
+    if (!message && hasAttachments) {
+      message = "صِف الصورة المرفقة أو أجب عن سؤال العميل عنها.";
+    }
+    const userText: string = message;
 
     const { tenant_id, is_active } = await resolveTenant({
       platform,
@@ -382,6 +415,7 @@ Deno.serve(async (req) => {
           kind: "text",
           body: userText,
           word_count: userText.split(/\s+/).length,
+          attachments: attachmentsIn,
           created_at: new Date(nowMs).toISOString(),
         });
         await supabase.from("conversations_messages").insert({
@@ -531,7 +565,12 @@ Deno.serve(async (req) => {
         tenant_id,
         conversation_id,
         visitor_id,
-        message,
+        message: userText,
+        attachments: attachmentsIn.map((a) => ({
+          url: a.url,
+          content_type: a.content_type,
+          name: a.name,
+        })),
         history: Array.isArray(history) ? history.slice(-10) : [],
         store: {
           id: storePlatformId,

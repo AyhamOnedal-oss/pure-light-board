@@ -12,6 +12,9 @@ payload — n8n just needs to bind them to the AI Agent node.
   "conversation_id": "uuid",
   "visitor_id": "anon-...",
   "message": "user's question",
+  "attachments": [
+    { "url": "https://...signed-url", "content_type": "image/png", "name": "photo.png" }
+  ],
   "history": [
     { "sender": "customer", "body": "..." },
     { "sender": "ai", "body": "..." }
@@ -30,6 +33,9 @@ payload — n8n just needs to bind them to the AI Agent node.
 }
 ```
 
+`attachments` is empty `[]` when the user didn't attach anything. URLs are 1-hour
+signed URLs to a private Supabase Storage bucket — they expire, so don't cache them.
+
 ## 2. Wire it up in n8n (matches the flow in your screenshot)
 
 | Node                  | Field                  | Value                                    |
@@ -40,6 +46,25 @@ payload — n8n just needs to bind them to the AI Agent node.
 | AI Agent              | System Message         | `={{ $json.ai.prompt }}`                 |
 | OpenAI Chat Model     | Model                  | your choice (gpt-4o-mini works well)     |
 | Respond to Webhook    | Response Body          | `={{ { "reply": $json.output } }}`       |
+
+### Vision (image attachments)
+
+To let the agent "see" attached images, switch the OpenAI Chat Model to
+`gpt-4o-mini` (or any vision-capable model) and replace the AI Agent's
+**User Message** with this expression:
+
+```
+={{
+  $json.attachments && $json.attachments.length
+    ? [
+        { type: 'text', text: $json.message || 'Describe the attached image.' },
+        ...$json.attachments.map(a => ({ type: 'image_url', image_url: { url: a.url, detail: 'high' } }))
+      ]
+    : $json.message
+}}
+```
+
+That's the only change required. Text-only messages keep working unchanged.
 
 If `ai.mode === "file"`, add an HTTP Request node before the AI Agent:
 
