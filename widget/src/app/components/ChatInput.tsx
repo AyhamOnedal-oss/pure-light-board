@@ -35,13 +35,14 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
   const [message, setMessage] = useState('');
   const [attachment, setAttachment] = useState<MessageAttachment | null>(null);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const btnBg = mainColor || theme.background;
   const btnText = '#FFFFFF';
 
-  const canSend = (message.trim() || attachment) && !isDisabled;
+  const canSend = (message.trim() || attachment) && !isDisabled && !compressing;
 
   // Detect mobile/tablet via touch + screen width
   useEffect(() => {
@@ -65,35 +66,46 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
 
   useEffect(() => { autoResize(); }, [message, autoResize]);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+    const isImage = file.type.startsWith('image/');
+    if (!isImage) {
       const url = URL.createObjectURL(file);
-      const type = file.type.startsWith('image/') ? 'image' : 'file';
-      setAttachment({ type, url, name: file.name, size: file.size });
+      setAttachment({ type: 'file', url, name: file.name, size: file.size });
+      return;
+    }
+    // Skip recompression for small images
+    if (file.size <= 200 * 1024) {
+      const url = URL.createObjectURL(file);
+      setAttachment({ type: 'image', url, name: file.name, size: file.size });
+      return;
+    }
+    try {
+      setCompressing(true);
+      const compressed = await compressImage(file, 1024, 0.72);
+      // If compression somehow grew the file, keep the original
+      const finalBlob = compressed.size < file.size ? compressed : file;
+      const finalName = compressed.size < file.size
+        ? file.name.replace(/\.[^.]+$/, '') + '.jpg'
+        : file.name;
+      const url = URL.createObjectURL(finalBlob);
+      setAttachment({ type: 'image', url, name: finalName, size: finalBlob.size });
+    } catch (err) {
+      console.log('[FuqahChat] image compression failed, using original', err);
+      const url = URL.createObjectURL(file);
+      setAttachment({ type: 'image', url, name: file.name, size: file.size });
+    } finally {
+      setCompressing(false);
     }
   };
 
   const doSend = () => {
     if (!canSend) return;
-    const raw = message.trim();
-    const lines = raw
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    if (lines.length === 0 && attachment) {
-      // Attachment-only send
-      onSendMessage('', attachment);
-    } else if (lines.length <= 1) {
-      onSendMessage(lines[0] ?? '', attachment || undefined);
-    } else {
-      // Multi-line: attach file to first line only, send remaining lines as plain text
-      lines.forEach((line, idx) => {
-        if (idx === 0) onSendMessage(line, attachment || undefined);
-        else onSendMessage(line);
-      });
-    }
+    // Trim only leading/trailing whitespace — preserve internal newlines as-is.
+    const text = message.replace(/^\s+|\s+$/g, '');
+    if (!text && !attachment) return;
+    onSendMessage(text, attachment || undefined);
 
     setMessage('');
     setAttachment(null);
@@ -261,4 +273,40 @@ export function ChatInput({ onSendMessage, isDisabled = false, theme, mainColor,
       </div>
     </form>
   );
+}
+
+/**
+ * compressImage — downscale an image File to ~maxSide px on the longest side
+ * and re-encode as JPEG. Targets ~150KB for typical phone photos.
+ */
+async function compressImage(file: File, maxSide: number, quality: number): Promise<Blob> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const img: HTMLImageElement = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('image load failed'));
+    i.src = dataUrl;
+  });
+  const longest = Math.max(img.width, img.height);
+  const scale = longest > maxSide ? maxSide / longest : 1;
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d context unavailable');
+  ctx.drawImage(img, 0, 0, w, h);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))),
+      'image/jpeg',
+      quality,
+    );
+  });
 }

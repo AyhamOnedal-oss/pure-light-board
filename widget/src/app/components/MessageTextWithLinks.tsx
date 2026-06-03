@@ -29,6 +29,7 @@ export function MessageTextWithLinks({ text, style }: MessageTextWithLinksProps)
       letterSpacing: '0.01em',
       wordBreak: 'break-word',
       overflowWrap: 'break-word',
+      whiteSpace: 'pre-wrap',
     }}>
       {parts.map((part, index) => {
         // Check if this part is a URL
