@@ -96,6 +96,88 @@ export async function fetchDashboardMetrics(
   const toDate = toIso.slice(0, 10);
   const prevFromDate = prevFromIso.slice(0, 10);
 
+  // First try the security-definer RPC. This always returns the full
+  // aggregated set, even for an invited employee whose RLS would block
+  // the underlying tables (tickets/conversations). If it succeeds we
+  // also fetch the (always-readable) usage trend rows for growth %.
+  const rpc = await supabase.rpc('dashboard_metrics', {
+    _tenant: tenantId,
+    _from: fromIso,
+    _to: toIso,
+  });
+  if (!rpc.error && rpc.data) {
+    const m = rpc.data as any;
+    const { data: trendRows } = await supabase
+      .from('dashboard_usage_daily')
+      .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
+      .eq('tenant_id', tenantId)
+      .gte('day', prevFromDate)
+      .lte('day', toDate);
+    const pct = (cur: number, prev: number): number | null => {
+      if (prev <= 0) return cur > 0 ? 100 : null;
+      return ((cur - prev) / prev) * 100;
+    };
+    const sums = {
+      cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+      prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+    };
+    for (const r of trendRows ?? []) {
+      const d = (r as any).day as string;
+      const bucket = d >= fromDate ? sums.cur : sums.prev;
+      bucket.opened += (r as any).conversations_opened ?? 0;
+      bucket.resolved += (r as any).conversations_resolved ?? 0;
+      bucket.msgs += ((r as any).messages_in ?? 0) + ((r as any).messages_out ?? 0);
+      bucket.words += (r as any).ai_words_used ?? 0;
+      bucket.clicks += (r as any).clicks ?? 0;
+      const rs = (r as any).avg_response_seconds ?? 0;
+      if (rs > 0) { bucket.respSum += rs; bucket.respDays += 1; }
+    }
+    const curRate = sums.cur.opened > 0 ? sums.cur.resolved / sums.cur.opened : 0;
+    const prevRate = sums.prev.opened > 0 ? sums.prev.resolved / sums.prev.opened : 0;
+    const curResp = sums.cur.respDays > 0 ? sums.cur.respSum / sums.cur.respDays : 0;
+    const prevResp = sums.prev.respDays > 0 ? sums.prev.respSum / sums.prev.respDays : 0;
+    const respGrowthRaw = pct(curResp, prevResp);
+    const respGrowth = respGrowthRaw == null ? null : -respGrowthRaw;
+    return {
+      conversations: m.conversations ?? 0,
+      messagesIn: m.messagesIn ?? 0,
+      messagesOut: m.messagesOut ?? 0,
+      wordsUsed: m.wordsUsed ?? 0,
+      widgetClicks: m.widgetClicks ?? 0,
+      avgResponseSeconds: curResp || 0,
+      ticketsTotal: m.ticketsTotal ?? 0,
+      ticketsOpen: m.ticketsOpen ?? 0,
+      ticketsClosed: m.ticketsClosed ?? 0,
+      csat: {
+        1: m.csat?.['1'] ?? 0,
+        2: m.csat?.['2'] ?? 0,
+        3: m.csat?.['3'] ?? 0,
+        4: m.csat?.['4'] ?? 0,
+        5: m.csat?.['5'] ?? 0,
+        total: m.csat?.total ?? 0,
+        avg: Number(m.csat?.avg ?? 0),
+      },
+      completionRate: Number(m.completionRate ?? 0),
+      classification: (m.classification ?? {}) as Record<string, number>,
+      feedback: {
+        positive: m.feedback?.positive ?? 0,
+        negative: m.feedback?.negative ?? 0,
+        total: m.feedback?.total ?? 0,
+      },
+      growth: {
+        conversations: pct(sums.cur.opened, sums.prev.opened),
+        completionRate:
+          prevRate <= 0 ? (curRate > 0 ? 100 : null) : ((curRate - prevRate) / prevRate) * 100,
+        ticketsTotal: null,
+        wordsUsed: pct(sums.cur.words, sums.prev.words),
+        widgetClicks: pct(sums.cur.clicks, sums.prev.clicks),
+        avgResponseSeconds: respGrowth,
+        messages: pct(sums.cur.msgs, sums.prev.msgs),
+      },
+    };
+  }
+  // Fallback below: legacy direct-query path (still works for owners/admins).
+
   const inRange = (q: any, col = 'created_at') =>
     q.gte(col, fromIso).lte(col, toIso);
   const inTrend = (q: any, col = 'created_at') =>

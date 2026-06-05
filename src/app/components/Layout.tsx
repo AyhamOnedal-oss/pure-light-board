@@ -15,7 +15,7 @@ import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notific
 import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
 
 export function Layout() {
-  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin } = useApp();
+  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
   const { perms: userPerms, loading: permsLoading } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [displayName, setDisplayName] = useState<string>('');
   const [displayEmail, setDisplayEmail] = useState<string>('');
@@ -88,6 +88,8 @@ export function Layout() {
     return userPerms === 'all' ? true : isAllowed(userPerms, key);
   };
 
+  const notifyLocked = () => showToast(t('You do not have access to this section', 'ليس لديك صلاحية للوصول إلى هذا القسم'));
+
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: t('Home', 'الرئيسية'), end: true, badge: 0, key: 'home' as PermissionKey },
     { to: '/dashboard/team', icon: Users, label: t('Team', 'الفريق'), badge: 0, key: 'team' as PermissionKey },
@@ -133,7 +135,7 @@ export function Layout() {
             return (
               <div
                 key={item.to}
-                onClick={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); notifyLocked(); }}
                 title={t('You do not have access to this section', 'ليس لديك صلاحية الوصول إلى هذا القسم')}
                 className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50"
               >
@@ -187,6 +189,7 @@ export function Layout() {
           </button>
         ) : (
           <div
+            onClick={notifyLocked}
             title={t('You do not have access to this section', 'ليس لديك صلاحية الوصول إلى هذا القسم')}
             className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50"
           >
@@ -206,6 +209,7 @@ export function Layout() {
                 return (
                   <div
                     key={item.to}
+                    onClick={notifyLocked}
                     title={t('You do not have access to this section', 'ليس لديك صلاحية الوصول إلى هذا القسم')}
                     className="flex items-center gap-3 px-4 py-2 rounded-xl text-[13px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50"
                   >
