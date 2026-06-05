@@ -16,7 +16,7 @@ import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermission
 
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin } = useApp();
-  const { perms: userPerms } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
+  const { perms: userPerms, loading: permsLoading } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [displayName, setDisplayName] = useState<string>('');
   const [displayEmail, setDisplayEmail] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -81,7 +81,12 @@ export function Layout() {
   const ticketsBadge = 0;
   const conversationsBadge = 0;
 
-  const can = (key: PermissionKey) => userPerms === 'all' ? true : isAllowed(userPerms, key);
+  // While permissions are loading, treat everything as locked so the
+  // sidebar never flashes unrestricted for an invited employee.
+  const can = (key: PermissionKey) => {
+    if (permsLoading) return false;
+    return userPerms === 'all' ? true : isAllowed(userPerms, key);
+  };
 
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: t('Home', 'الرئيسية'), end: true, badge: 0, key: 'home' as PermissionKey },
@@ -99,7 +104,11 @@ export function Layout() {
     { to: '/dashboard/settings/store', icon: Store, label: t('Store Info', 'معلومات المتجر'), key: 'settings_store' as PermissionKey },
   ];
 
-  const canSettings = userPerms === 'all' ? true : !!(userPerms as MemberPermissions).settings;
+  const canSettings = permsLoading
+    ? false
+    : userPerms === 'all'
+      ? true
+      : !!(userPerms as MemberPermissions).settings;
 
   const logo = theme === 'dark' ? logoDark : logoLight;
 
