@@ -96,3 +96,75 @@ export function isAllowed(perms: MemberPermissions, key: PermissionKey): boolean
   }
   return !!perms[key];
 }
+
+// --- Live permissions for the signed-in user from team_members ---
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+
+export type ResolvedPermissions = MemberPermissions | 'all';
+
+/**
+ * Resolve the currently signed-in user's effective permissions for the
+ * active tenant. Returns 'all' for tenant owners/admins (no team_members
+ * row, since they created the workspace) or super admins, and the stored
+ * `permissions` JSON for invited members.
+ */
+export function useCurrentMemberPermissions(
+  userId: string | null | undefined,
+  tenantId: string | null | undefined,
+  isSuperAdmin: boolean,
+): { perms: ResolvedPermissions; loading: boolean } {
+  const [perms, setPerms] = useState<ResolvedPermissions>('all');
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (isSuperAdmin) { setPerms('all'); setLoading(false); return; }
+    if (!userId || !tenantId) { setPerms('all'); setLoading(true); return; }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      // Tenant role: owner/admin bypass the per-member permission map.
+      const { data: tm } = await supabase
+        .from('auth_tenant_members')
+        .select('role')
+        .eq('tenant_id', tenantId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      const role = tm?.role as string | undefined;
+      if (role === 'owner' || role === 'admin') {
+        if (!cancelled) { setPerms('all'); setLoading(false); }
+        return;
+      }
+      const { data: row } = await supabase
+        .from('team_members')
+        .select('permissions')
+        .eq('tenant_id', tenantId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (cancelled) return;
+      const p = (row?.permissions as MemberPermissions | undefined) || {};
+      setPerms(p);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [userId, tenantId, isSuperAdmin]);
+
+  return { perms, loading };
+}
+
+export function firstAllowedPath(perms: ResolvedPermissions): string {
+  if (perms === 'all') return '/dashboard';
+  if (perms.home) return '/dashboard';
+  if (perms.conversations) return '/dashboard/conversations';
+  if (perms.tickets) return '/dashboard/tickets';
+  if (perms.team) return '/dashboard/team';
+  if (perms.settings) {
+    for (const k of SETTINGS_SUB_KEYS) {
+      if (perms[k]) {
+        const entry = Object.entries(PATH_TO_PERMISSION).find(([, v]) => v === k);
+        if (entry) return entry[0];
+      }
+    }
+  }
+  return '/dashboard';
+}
