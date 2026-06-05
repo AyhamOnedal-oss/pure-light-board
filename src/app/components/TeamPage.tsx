@@ -543,6 +543,7 @@ export function TeamPage() {
           onSave={handleAdd}
           onClose={() => setShowAdd(false)}
           t={t}
+          saving={saving}
         />
       )}
       {editMember && (
@@ -554,6 +555,7 @@ export function TeamPage() {
           onSave={handleEdit}
           onClose={() => setEditMember(null)}
           t={t}
+          saving={saving}
         />
       )}
 
