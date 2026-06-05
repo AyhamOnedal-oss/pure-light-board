@@ -119,7 +119,14 @@ export function useCurrentMemberPermissions(
 
   useEffect(() => {
     if (isSuperAdmin) { setPerms('all'); setLoading(false); return; }
-    if (!userId || !tenantId) { setPerms('all'); setLoading(true); return; }
+    if (!userId || !tenantId) {
+      // Safe default while we don't know the user/tenant yet: deny everything.
+      // Returning 'all' here was unlocking restricted pages (tickets, etc.)
+      // for invited employees during the brief loading window.
+      setPerms({});
+      setLoading(true);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     (async () => {
