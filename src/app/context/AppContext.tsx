@@ -105,6 +105,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, ...prev]);
   }, []);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Per-message cooldown so the same error can't be re-shown immediately
+  // after it auto-dismisses. Without this, components that retry on every
+  // render (e.g. failed RLS-restricted queries) can spam dozens of copies.
+  const toastCooldownRef = React.useRef<Map<string, number>>(new Map());
 
   // Real Supabase auth
   const [session, setSession] = useState<Session | null>(null);
@@ -237,10 +241,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const showToast = useCallback((message: string) => {
+    const now = Date.now();
+    const COOLDOWN_MS = 4000;
+    const last = toastCooldownRef.current.get(message) ?? 0;
+    if (now - last < COOLDOWN_MS) return;
+    toastCooldownRef.current.set(message, now);
     setToasts(prev => {
       // Deduplicate: don't stack the same message repeatedly.
       if (prev.some(t => t.message === message)) return prev;
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const id = `${now}-${Math.random().toString(36).slice(2, 7)}`;
       // Hard cap to avoid runaway stacks.
       const capped = prev.length >= 4 ? prev.slice(-3) : prev;
       setTimeout(() => {
