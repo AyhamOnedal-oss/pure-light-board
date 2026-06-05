@@ -145,6 +145,7 @@ Deno.serve(async (req) => {
     const email = String(body?.email ?? "").trim().toLowerCase();
     const phone = body?.phone ? String(body.phone).trim() : null;
     const permissions = body?.permissions ?? {};
+    const allow_existing = body?.allow_existing === true; // true for "resend invite"
     if (!tenant_id || !name || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return json({ error: "invalid_input" }, 400);
     }
@@ -159,6 +160,17 @@ Deno.serve(async (req) => {
       .eq("user_id", callerId)
       .maybeSingle();
     if (!membership) return json({ error: "forbidden" }, 403);
+
+    // Reject duplicate team member for this tenant (unless this is a resend)
+    const { data: dup } = await admin
+      .from("team_members")
+      .select("id")
+      .eq("tenant_id", tenant_id)
+      .eq("email", email)
+      .maybeSingle();
+    if (dup && !allow_existing) {
+      return json({ error: "email_exists", member_id: dup.id }, 409);
+    }
 
     // Find or create auth user (fast lookup via GoTrue admin REST)
     let isNewUser = false;
