@@ -303,7 +303,10 @@ Deno.serve(async (req) => {
     }).format(now);
 
     const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
-    const loginUrl = `${APP_URL}/login?email=${encodeURIComponent(email)}`;
+    // `invite=1` tells the login page to force-sign-out any stale session
+    // (e.g. the admin who just sent the invite from the same browser) so the
+    // invited employee actually authenticates as themselves.
+    const loginUrl = `${APP_URL}/login?email=${encodeURIComponent(email)}&invite=1`;
 
     const html = inviteEmailHtml({
       employeeName: name,
