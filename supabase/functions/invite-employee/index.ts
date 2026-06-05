@@ -172,6 +172,19 @@ Deno.serve(async (req) => {
       return json({ error: "email_exists", member_id: dup.id }, 409);
     }
 
+    // Reject duplicate phone for this tenant
+    if (phone) {
+      const { data: dupPhone } = await admin
+        .from("team_members")
+        .select("id,email")
+        .eq("tenant_id", tenant_id)
+        .eq("phone", phone)
+        .maybeSingle();
+      if (dupPhone && !allow_existing && dupPhone.email?.toLowerCase() !== email) {
+        return json({ error: "phone_exists", member_id: dupPhone.id }, 409);
+      }
+    }
+
     // Find or create auth user (fast lookup via GoTrue admin REST)
     let isNewUser = false;
     let password = generatePassword(12);
@@ -237,6 +250,40 @@ Deno.serve(async (req) => {
       memberId = ins.id;
     }
 
+    // Link team_members row to the auth user
+    if (userId && memberId) {
+      await admin.from("team_members").update({ user_id: userId }).eq("id", memberId);
+    }
+
+    // Enroll invitee as a member of the inviter's tenant
+    if (userId) {
+      await admin.from("auth_tenant_members").upsert(
+        { tenant_id, user_id: userId, role: "viewer" },
+        { onConflict: "tenant_id,user_id", ignoreDuplicates: true } as any,
+      );
+    }
+
+    // If we just created the auth user, the handle_new_user trigger auto-
+    // provisioned a personal workspace. Clean it up so the invitee only sees
+    // the inviter's tenant — but only when the invitee is the sole member.
+    if (isNewUser && userId) {
+      const { data: ownTenants } = await admin
+        .from("auth_tenant_members")
+        .select("tenant_id, role")
+        .eq("user_id", userId);
+      for (const row of ownTenants ?? []) {
+        if (row.tenant_id === tenant_id) continue;
+        const { count } = await admin
+          .from("auth_tenant_members")
+          .select("user_id", { count: "exact", head: true })
+          .eq("tenant_id", row.tenant_id);
+        if ((count ?? 0) <= 1) {
+          await admin.from("auth_tenant_members").delete().eq("tenant_id", row.tenant_id);
+          await admin.from("settings_workspace").delete().eq("id", row.tenant_id);
+        }
+      }
+    }
+
     // Resolve store name
     const { data: ws } = await admin
       .from("settings_workspace")
@@ -253,8 +300,8 @@ Deno.serve(async (req) => {
       timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(now);
 
-    const origin = req.headers.get("origin") || "https://pure-light-board.lovable.app";
-    const loginUrl = `${origin}/login?email=${encodeURIComponent(email)}`;
+    const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
+    const loginUrl = `${APP_URL}/login?email=${encodeURIComponent(email)}`;
 
     const html = inviteEmailHtml({
       employeeName: name,

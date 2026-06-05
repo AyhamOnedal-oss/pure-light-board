@@ -12,23 +12,11 @@ import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
-import { getCurrentMemberId, isAllowed, MemberPermissions, PermissionKey } from '../utils/permissions';
-
-const TEAM_STORAGE_KEY = 'fuqah_team_members';
-function readCurrentUserPermissions(): MemberPermissions | 'all' {
-  const id = getCurrentMemberId();
-  if (!id) return 'all';
-  try {
-    const raw = localStorage.getItem(TEAM_STORAGE_KEY);
-    if (!raw) return {};
-    const members = JSON.parse(raw) as Array<{ id: string; permissions?: MemberPermissions }>;
-    const m = members.find(x => x.id === id);
-    return m?.permissions || {};
-  } catch { return {}; }
-}
+import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
 
 export function Layout() {
-  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId } = useApp();
+  const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin } = useApp();
+  const { perms: userPerms } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [displayName, setDisplayName] = useState<string>('');
   const [displayEmail, setDisplayEmail] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -93,7 +81,6 @@ export function Layout() {
   const ticketsBadge = 0;
   const conversationsBadge = 0;
 
-  const userPerms = readCurrentUserPermissions();
   const can = (key: PermissionKey) => userPerms === 'all' ? true : isAllowed(userPerms, key);
 
   const navItems = [

@@ -470,6 +470,8 @@ export function TeamPage() {
     if (error || !data?.ok) {
       if (data?.error === 'email_exists') {
         setErrors(prev => ({ ...prev, email: t('This email is already a team member', 'هذا البريد مضاف مسبقًا كعضو') }));
+      } else if (data?.error === 'phone_exists') {
+        setErrors(prev => ({ ...prev, phone: t('This phone number is already invited', 'لا يمكن إرسال دعوة لنفس رقم الهاتف مرتين') }));
       } else {
         showToast(t('Failed to add member', 'فشل إضافة العضو'));
       }

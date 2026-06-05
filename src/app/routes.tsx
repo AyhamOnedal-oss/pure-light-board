@@ -5,6 +5,7 @@ import { LoginPage } from './components/LoginPage';
 import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
+import { RequirePermission } from './components/RequirePermission';
 import { DashboardPage } from './components/DashboardPage';
 import { NotFoundPage } from './components/NotFoundPage';
 import { TeamPage } from './components/TeamPage';
@@ -70,16 +71,16 @@ export const router = createBrowserRouter([
     path: '/dashboard',
     element: <RequireAuth><Layout /></RequireAuth>,
     children: [
-      { index: true, element: <DashboardPage /> },
-      { path: 'team', element: <TeamPage /> },
-      { path: 'conversations', element: <ConversationsPage /> },
-      { path: 'tickets', element: <TicketsPage /> },
-      { path: 'settings/train-ai', element: <TrainAI /> },
-      { path: 'settings/customize', element: <ChatCustomization /> },
-      { path: 'settings/test-chat', element: <TestChat /> },
-      { path: 'settings/account', element: <AccountSettings /> },
-      { path: 'settings/store', element: <StoreInfo /> },
-      { path: 'settings/plans', element: <PlansPage /> },
+      { index: true, element: <RequirePermission><DashboardPage /></RequirePermission> },
+      { path: 'team', element: <RequirePermission><TeamPage /></RequirePermission> },
+      { path: 'conversations', element: <RequirePermission><ConversationsPage /></RequirePermission> },
+      { path: 'tickets', element: <RequirePermission><TicketsPage /></RequirePermission> },
+      { path: 'settings/train-ai', element: <RequirePermission><TrainAI /></RequirePermission> },
+      { path: 'settings/customize', element: <RequirePermission><ChatCustomization /></RequirePermission> },
+      { path: 'settings/test-chat', element: <RequirePermission><TestChat /></RequirePermission> },
+      { path: 'settings/account', element: <RequirePermission><AccountSettings /></RequirePermission> },
+      { path: 'settings/store', element: <RequirePermission><StoreInfo /></RequirePermission> },
+      { path: 'settings/plans', element: <RequirePermission><PlansPage /></RequirePermission> },
     ],
   },
   {
