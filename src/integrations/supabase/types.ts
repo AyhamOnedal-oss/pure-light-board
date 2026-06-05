@@ -1934,6 +1934,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      dashboard_metrics: {
+        Args: { _from: string; _tenant: string; _to: string }
+        Returns: Json
+      }
       get_zid_credentials: {
         Args: { p_tenant_id: string }
         Returns: {
@@ -1957,6 +1961,10 @@ export type Database = {
       }
       is_tenant_member: {
         Args: { _tenant_id: string; _user_id: string }
+        Returns: boolean
+      }
+      member_can: {
+        Args: { _key: string; _tenant: string; _user: string }
         Returns: boolean
       }
       tenant_exists: { Args: { _tenant_id: string }; Returns: boolean }
