@@ -391,18 +391,26 @@ export function TeamPage() {
 
   const handleAdd = async () => {
     if (!validateForm() || !tenantId) return;
-    const { data, error } = await supabase.from('team_members').insert({
-      tenant_id: tenantId,
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone || null,
-      permissions: formData.permissions,
-      invited_by: user?.id ?? null,
-    }).select('id').single();
-    if (error || !data) { showToast(t('Failed to add member', 'فشل إضافة العضو')); return; }
-    setMembers([...members, { id: data.id, ...formData, status: 'active' }]);
+    const { data, error } = await supabase.functions.invoke('invite-employee', {
+      body: {
+        tenant_id: tenantId,
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone || null,
+        permissions: formData.permissions,
+      },
+    });
+    if (error || !data?.ok) {
+      showToast(t('Failed to add member', 'فشل إضافة العضو'));
+      return;
+    }
+    setMembers([...members, { id: data.member_id, ...formData, status: 'active' }]);
     setShowAdd(false);
-    showToast(t(`Member added. Invitation email will be sent to ${formData.email}`, `تمت إضافة العضو. سيتم إرسال دعوة إلى ${formData.email}`));
+    showToast(
+      data.email_sent
+        ? t(`Invitation email sent to ${formData.email}`, `تم إرسال دعوة بالبريد إلى ${formData.email}`)
+        : t(`Member added — email failed to send`, `تمت إضافة العضو — فشل إرسال البريد`),
+    );
   };
 
   const handleEdit = async () => {
@@ -419,8 +427,22 @@ export function TeamPage() {
     showToast(t('Member updated successfully', 'تم تحديث العضو بنجاح'));
   };
 
-  const resendInvite = (member: Member) => {
+  const resendInvite = async (member: Member) => {
     setMenuOpen(null);
+    if (!tenantId) return;
+    const { data, error } = await supabase.functions.invoke('invite-employee', {
+      body: {
+        tenant_id: tenantId,
+        name: member.name,
+        email: member.email,
+        phone: member.phone || null,
+        permissions: member.permissions,
+      },
+    });
+    if (error || !data?.ok || !data.email_sent) {
+      showToast(t('Failed to resend invitation', 'فشل إعادة إرسال الدعوة'));
+      return;
+    }
     showToast(t(`Invitation sent to ${member.email}`, `تم إرسال الدعوة إلى ${member.email}`));
   };
 
