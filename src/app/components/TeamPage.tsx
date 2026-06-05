@@ -196,7 +196,8 @@ function MemberModal({
   saving: boolean;
 }) {
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const digits = e.target.value.replace(/\D/g, '').slice(0, 15);
+    const max = formData.country === 'SA' ? 9 : 15;
+    const digits = e.target.value.replace(/\D/g, '').slice(0, max);
     setFormData(prev => ({ ...prev, phone: digits }));
   };
 
@@ -278,13 +279,18 @@ function MemberModal({
               <input
                 value={formData.phone}
                 onChange={handlePhoneChange}
-                placeholder={t('Phone number', 'رقم الهاتف')}
+                placeholder={formData.country === 'SA' ? '50XXXXXXX' : t('Phone number', 'رقم الهاتف')}
                 dir="ltr"
                 inputMode="tel"
-                maxLength={15}
+                maxLength={formData.country === 'SA' ? 9 : 15}
                 className="flex-1 min-w-0 px-3 py-3 bg-transparent text-[14px] outline-none text-foreground"
               />
             </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              {formData.country === 'SA'
+                ? t('Format: 966 50XXXXXXX', 'يجب أن يكون الرقم بصيغة: 966 50XXXXXXX')
+                : t('Enter a valid phone number for the selected country', 'أدخل رقم هاتف صحيح للدولة المختارة')}
+            </p>
             {formattedPreview && (
               <p className="text-[11px] text-muted-foreground mt-1.5" dir="ltr">{flagOf(formData.country)} +{getCountryCallingCode(formData.country)} {formattedPreview}</p>
             )}
@@ -442,6 +448,11 @@ export function TeamPage() {
   const handleAdd = async () => {
     if (!validateForm() || !tenantId) return;
     if (saving) return;
+    const emailLower = formData.email.trim().toLowerCase();
+    if (members.some(m => m.email.toLowerCase() === emailLower)) {
+      setErrors(prev => ({ ...prev, email: t('This email is already a team member', 'هذا البريد مضاف مسبقًا كعضو') }));
+      return;
+    }
     setSaving(true);
     const phoneE164 = formData.phone
       ? `+${getCountryCallingCode(formData.country)}${formData.phone}`
@@ -457,7 +468,11 @@ export function TeamPage() {
     });
     setSaving(false);
     if (error || !data?.ok) {
-      showToast(t('Failed to add member', 'فشل إضافة العضو'));
+      if (data?.error === 'email_exists') {
+        setErrors(prev => ({ ...prev, email: t('This email is already a team member', 'هذا البريد مضاف مسبقًا كعضو') }));
+      } else {
+        showToast(t('Failed to add member', 'فشل إضافة العضو'));
+      }
       return;
     }
     setMembers([...members, {
@@ -515,6 +530,7 @@ export function TeamPage() {
         email: member.email,
         phone: member.phone || null,
         permissions: member.permissions,
+        allow_existing: true,
       },
     });
     if (error || !data?.ok || !data.email_sent) {
