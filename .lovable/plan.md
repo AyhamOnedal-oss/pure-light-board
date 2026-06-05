@@ -1,59 +1,25 @@
-## Issues & root causes
-
-**1) Email "تسجيل الدخول" goes to Lovable preview, not the published app**
-`invite-employee` builds `loginUrl` from `req.headers.get("origin")`. When the admin clicks Save inside the Lovable editor preview (iframe), `origin` is the lovableproject.com preview URL, so the email button points there. We'll switch to an explicit allow-listed public URL, env-overridable, defaulting to `https://pure-light-board.lovable.app/login`.
-
-**2) Invited user gets a brand-new workspace with full access (not the inviter's workspace, no permission lock)**
-Two compounding bugs:
-- `handle_new_user` trigger fires for every `auth.users` insert — including the one the edge function creates for the invitee — so it provisions a new `settings_workspace` + makes the invitee its `owner`. AppContext then picks the *oldest* membership = that fresh workspace.
-- The edge function only writes a `team_members` row, never an `auth_tenant_members` row, so the invitee is not actually a member of the inviter's tenant in auth terms; and nothing in the app currently consults `team_members.permissions` to lock the sidebar/routes for the signed-in user.
-
-**3) Same phone can be invited twice** — no uniqueness check on `phone` (only on email).
-
----
-
 ## Plan
 
-### A. Edge function `supabase/functions/invite-employee/index.ts`
-1. Replace the dynamic origin with a stable login URL:
-   - `const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";`
-   - `loginUrl = ${APP_URL}/login?email=…`
-2. Add duplicate-phone guard (per tenant) before insert:
-   - if `phone` provided, query `team_members` where `tenant_id` + normalized `phone` matches and `!allow_existing` → `409 phone_exists`.
-3. After creating/finding the auth user, **enroll the invitee into the inviter's tenant**:
-   - `upsert` into `auth_tenant_members` `(tenant_id, user_id, role='viewer')` on conflict do nothing.
-   - Persist `user_id` on the `team_members` row (new column, see migration) so the dashboard can resolve the invitee's permissions on sign-in.
-4. If the auth user was just created by us (`isNewUser`) and the `handle_new_user` trigger auto-provisioned a personal workspace, clean it up so the invitee only sees the inviter's tenant:
-   - find tenants where the invitee is the **sole owner** and there are no other members → delete `settings_workspace` row (cascades). Skip if any other members exist (safety).
-5. Front-end client error mapping: handle `409 phone_exists` with Arabic toast.
+1. **Stop the repeated “فشل تحميل النشاط” toast spam**
+   - Update the toast system to deduplicate identical messages that are already visible.
+   - Make error toasts visually distinct, but prevent the same backend/loading failure from stacking dozens of times.
 
-### B. Migration (new file)
-- `ALTER TABLE public.team_members ADD COLUMN IF NOT EXISTS user_id uuid;`
-- `CREATE INDEX IF NOT EXISTS idx_team_members_user ON public.team_members(user_id);`
-- Optional: `CREATE UNIQUE INDEX team_members_tenant_phone_uniq ON public.team_members(tenant_id, phone) WHERE phone IS NOT NULL;` (defense-in-depth alongside the edge-function check).
+2. **Fix workspace synchronization for invited employees**
+   - Update tenant resolution so invited employees do not default to their auto-created personal workspace.
+   - Prefer the tenant where the user has a `team_members` row, then prefer non-owner memberships, and only use an owner workspace for normal admins/owners.
+   - Add a safe one-time cleanup for the affected invited email: remove the personal workspace membership/workspace created by `handle_new_user`, and keep the user attached to **test 15**.
 
-(No change to `handle_new_user` — leaving the trigger intact for normal sign-ups; cleanup happens in the edge function for invites only.)
+3. **Enforce locks correctly for tickets and other denied scopes**
+   - Fix permission resolution so `team_members.permissions` is used even if the employee also has an accidental owner membership elsewhere.
+   - Ensure the sidebar shows locked items immediately while permissions are loading instead of temporarily showing full access.
+   - Keep `/dashboard/tickets` route blocked when `tickets` is not granted, redirecting to the first allowed page.
 
-### C. Frontend permission gating
-1. New hook `useCurrentMemberPermissions()` in `src/app/utils/permissions.ts`:
-   - if `isSuperAdmin` → `'all'`.
-   - else load `team_members` row where `tenant_id = tenantId AND user_id = auth.uid()` → return its `permissions` object; if no row exists (the tenant owner) → `'all'`.
-2. `Layout.tsx`: replace the current `localStorage`-based `userPerms` resolution with the hook so the sidebar hides items the invitee can't access (already uses `can(key)`).
-3. New `RequirePermission` wrapper used in `routes.tsx` for `/dashboard/*` children (team, conversations, tickets, settings/*). If not allowed → redirect to `/dashboard` (home) or to the first allowed page; if home itself is disabled, redirect to the first allowed page.
+4. **Harden the invite flow going forward**
+   - Update `invite-employee` cleanup so existing users with an auto-created personal workspace are cleaned up too, not only brand-new users.
+   - Ensure the invitee is always linked by `user_id` and enrolled into the inviter’s tenant.
 
-### D. UX copy
-- `TeamPage` MemberModal: show Arabic error `لا يمكن إرسال دعوة لنفس رقم الهاتف مرتين` when server returns `phone_exists`, mirroring the existing `email_exists` handling.
+## Technical notes
 
----
-
-## Files touched
-- `supabase/functions/invite-employee/index.ts` (login URL, phone dup, tenant enrollment, auto-tenant cleanup)
-- `supabase/migrations/<new>.sql` (`team_members.user_id` + optional phone unique index)
-- `src/app/utils/permissions.ts` (hook + helpers)
-- `src/app/components/Layout.tsx` (use hook)
-- `src/app/routes.tsx` (RequirePermission gate)
-- `src/app/components/TeamPage.tsx` (phone_exists toast)
-
-## Out of scope
-- Reworking `handle_new_user` (kept for normal signups).
-- Changing roles model — invitee stays `viewer` in `auth_tenant_members`; granular access is driven by `team_members.permissions`.
+- Existing database shows the invited user is correctly linked to **test 15**, but still also has an older personal workspace (`ايهم's Workspace`) as `owner`; tenant selection currently picks the oldest membership, causing the wrong workspace.
+- The current permission hook returns `all` during missing tenant/loading states, which can briefly unlock tickets. I’ll change this to a safe loading/empty state for employees.
+- I will use a data change for the affected personal workspace cleanup and code changes in `AppContext`, `permissions`, `Layout`, `ToastContainer`, and `invite-employee`.
