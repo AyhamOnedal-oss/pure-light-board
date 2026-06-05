@@ -530,6 +530,7 @@ export function TeamPage() {
         email: member.email,
         phone: member.phone || null,
         permissions: member.permissions,
+        allow_existing: true,
       },
     });
     if (error || !data?.ok || !data.email_sent) {
