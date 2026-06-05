@@ -160,18 +160,31 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!membership) return json({ error: "forbidden" }, 403);
 
-    // Find or create auth user
+    // Find or create auth user (fast lookup via GoTrue admin REST)
     let isNewUser = false;
-    let password = "";
+    let password = generatePassword(12);
     let userId: string | null = null;
-    for (let page = 1; page <= 5; page++) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
-      if (error) break;
-      const match = data.users.find((u) => (u.email ?? "").toLowerCase() === email);
-      if (match) { userId = match.id; break; }
-      if (data.users.length < 1000) break;
+    try {
+      const lookup = await fetch(
+        `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${SERVICE_ROLE}`,
+            apikey: SERVICE_ROLE,
+          },
+        },
+      );
+      if (lookup.ok) {
+        const j = await lookup.json();
+        const list = Array.isArray(j?.users) ? j.users : [];
+        const match = list.find(
+          (u: any) => (u?.email ?? "").toLowerCase() === email,
+        );
+        if (match?.id) userId = match.id;
+      }
+    } catch (_) {
+      // fall through to createUser
     }
-    password = generatePassword(12);
     if (!userId) {
       const { data: created, error } = await admin.auth.admin.createUser({
         email,

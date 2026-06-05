@@ -3,6 +3,14 @@ import { useApp } from '../context/AppContext';
 import { Plus, MoreHorizontal, Edit, UserX, Mail, Trash2, X, ChevronDown, ChevronRight, Shield, LayoutDashboard, Users, MessageSquare, Ticket, Settings, Brain, Paintbrush, MessageCircle, CreditCard, User, Store } from 'lucide-react';
 import { supabase } from '../../integrations/supabase/client';
 import {
+  getCountries,
+  getCountryCallingCode,
+  isValidPhoneNumber,
+  parsePhoneNumberFromString,
+  AsYouType,
+  type CountryCode,
+} from 'libphonenumber-js';
+import {
   MemberPermissions,
   PermissionKey,
   countEnabled,
@@ -24,7 +32,8 @@ interface Member {
 interface FormData {
   name: string;
   email: string;
-  phone: string;
+  phone: string; // national digits as typed
+  country: CountryCode;
   permissions: MemberPermissions;
 }
 
@@ -175,6 +184,7 @@ function MemberModal({
   onSave,
   onClose,
   t,
+  saving,
 }: {
   title: string;
   formData: FormData;
@@ -183,13 +193,25 @@ function MemberModal({
   onSave: () => void;
   onClose: () => void;
   t: (en: string, ar: string) => string;
+  saving: boolean;
 }) {
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '').slice(0, 9);
-    setFormData(prev => ({ ...prev, phone: val }));
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 15);
+    setFormData(prev => ({ ...prev, phone: digits }));
   };
 
-  const canSave = countEnabled(formData.permissions) > 0;
+  const countries = React.useMemo(() => {
+    return getCountries()
+      .map(c => ({ code: c, dial: getCountryCallingCode(c) }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, []);
+
+  const formattedPreview = React.useMemo(() => {
+    if (!formData.phone) return '';
+    return new AsYouType(formData.country).input(formData.phone);
+  }, [formData.phone, formData.country]);
+
+  const canSave = countEnabled(formData.permissions) > 0 && !saving;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
@@ -233,17 +255,30 @@ function MemberModal({
             <div className={`flex items-center rounded-xl bg-input-background border overflow-hidden transition-all focus-within:ring-2 ${
               errors.phone ? 'border-red-500 focus-within:border-red-500 focus-within:ring-red-500/20' : 'border-border focus-within:border-[#043CC8] focus-within:ring-[#043CC8]/20'
             }`}>
-              <span className="px-3 py-3 text-[14px] text-muted-foreground bg-muted/40 border-e border-border shrink-0 select-none" dir="ltr" style={{ fontWeight: 500 }}>+966</span>
+              <select
+                value={formData.country}
+                onChange={e => setFormData(prev => ({ ...prev, country: e.target.value as CountryCode }))}
+                className="px-2 py-3 text-[13px] bg-muted/40 border-e border-border text-foreground outline-none cursor-pointer shrink-0"
+                dir="ltr"
+                style={{ fontWeight: 500, maxWidth: 120 }}
+              >
+                {countries.map(c => (
+                  <option key={c.code} value={c.code}>{c.code} +{c.dial}</option>
+                ))}
+              </select>
               <input
                 value={formData.phone}
                 onChange={handlePhoneChange}
-                placeholder="5XXXXXXXX"
+                placeholder={t('Phone number', 'رقم الهاتف')}
                 dir="ltr"
-                inputMode="numeric"
-                maxLength={9}
+                inputMode="tel"
+                maxLength={15}
                 className="flex-1 px-3 py-3 bg-transparent text-[14px] outline-none text-foreground"
               />
             </div>
+            {formattedPreview && (
+              <p className="text-[11px] text-muted-foreground mt-1.5" dir="ltr">+{getCountryCallingCode(formData.country)} {formattedPreview}</p>
+            )}
             {errors.phone && <p className="text-red-400 text-[12px] mt-1.5">{errors.phone}</p>}
           </div>
 
@@ -268,7 +303,7 @@ function MemberModal({
             style={{ fontWeight: 500 }}
             title={!canSave ? t('Select at least one permission to save', 'اختر صلاحية واحدة على الأقل للحفظ') : ''}
           >
-            {t('Save', 'حفظ')}
+            {saving ? t('Saving…', 'جارٍ الحفظ…') : t('Save', 'حفظ')}
           </button>
         </div>
         {!canSave && (
@@ -288,9 +323,10 @@ export function TeamPage() {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editMember, setEditMember] = useState<Member | null>(null);
-  const [formData, setFormData] = useState<FormData>({ name: '', email: '', phone: '', permissions: emptyPermissions() });
+  const [formData, setFormData] = useState<FormData>({ name: '', email: '', phone: '', country: 'SA', permissions: emptyPermissions() });
   const [errors, setErrors] = useState<FormErrors>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const menuButtonRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
   // Load members from Supabase
@@ -332,8 +368,11 @@ export function TeamPage() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = t('Please enter a valid email address', 'يرجى إدخال بريد إلكتروني صحيح');
     }
-    if (formData.phone && !/^5\d{8}$/.test(formData.phone)) {
-      newErrors.phone = t('Must start with 5, followed by 8 digits (e.g. 5XXXXXXXX)', 'يجب أن يبدأ بـ 5 متبوعاً بـ 8 أرقام');
+    if (formData.phone) {
+      const e164 = `+${getCountryCallingCode(formData.country)}${formData.phone}`;
+      if (!isValidPhoneNumber(e164, formData.country)) {
+        newErrors.phone = t('Enter a valid phone number for the selected country', 'أدخل رقم هاتف صحيح للدولة المختارة');
+      }
     }
     if (countEnabled(formData.permissions) === 0) {
       newErrors.permissions = t('Select at least one permission', 'اختر صلاحية واحدة على الأقل');
@@ -372,16 +411,18 @@ export function TeamPage() {
   };
 
   const openAddModal = () => {
-    setFormData({ name: '', email: '', phone: '', permissions: emptyPermissions() });
+    setFormData({ name: '', email: '', phone: '', country: 'SA', permissions: emptyPermissions() });
     setErrors({});
     setShowAdd(true);
   };
 
   const openEditModal = (member: Member) => {
+    const parsed = member.phone ? parsePhoneNumberFromString(member.phone.startsWith('+') ? member.phone : `+966${member.phone}`) : null;
     setFormData({
       name: member.name,
       email: member.email,
-      phone: member.phone,
+      phone: parsed?.nationalNumber?.toString() ?? '',
+      country: (parsed?.country as CountryCode) ?? 'SA',
       permissions: { ...(member.permissions || {}) },
     });
     setErrors({});
@@ -391,38 +432,66 @@ export function TeamPage() {
 
   const handleAdd = async () => {
     if (!validateForm() || !tenantId) return;
+    if (saving) return;
+    setSaving(true);
+    const phoneE164 = formData.phone
+      ? `+${getCountryCallingCode(formData.country)}${formData.phone}`
+      : null;
     const { data, error } = await supabase.functions.invoke('invite-employee', {
       body: {
         tenant_id: tenantId,
         name: formData.name,
         email: formData.email,
-        phone: formData.phone || null,
+        phone: phoneE164,
         permissions: formData.permissions,
       },
     });
+    setSaving(false);
     if (error || !data?.ok) {
       showToast(t('Failed to add member', 'فشل إضافة العضو'));
       return;
     }
-    setMembers([...members, { id: data.member_id, ...formData, status: 'active' }]);
+    setMembers([...members, {
+      id: data.member_id,
+      name: formData.name,
+      email: formData.email,
+      phone: phoneE164 ?? '',
+      status: 'active',
+      permissions: formData.permissions,
+    }]);
     setShowAdd(false);
     showToast(
       data.email_sent
         ? t(`Invitation email sent to ${formData.email}`, `تم إرسال دعوة بالبريد إلى ${formData.email}`)
-        : t(`Member added — email failed to send`, `تمت إضافة العضو — فشل إرسال البريد`),
+        : t(
+            `Member added — email failed: ${data.email_error ?? 'unknown'}`,
+            `تمت إضافة العضو — فشل إرسال البريد: ${data.email_error ?? 'غير معروف'}`,
+          ),
     );
   };
 
   const handleEdit = async () => {
     if (!editMember || !validateForm()) return;
+    if (saving) return;
+    setSaving(true);
+    const phoneE164 = formData.phone
+      ? `+${getCountryCallingCode(formData.country)}${formData.phone}`
+      : null;
     const { error } = await supabase.from('team_members').update({
       name: formData.name,
       email: formData.email,
-      phone: formData.phone || null,
+      phone: phoneE164,
       permissions: formData.permissions,
     }).eq('id', editMember.id);
+    setSaving(false);
     if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
-    setMembers(m => m.map(x => x.id === editMember.id ? { ...x, ...formData } : x));
+    setMembers(m => m.map(x => x.id === editMember.id ? {
+      ...x,
+      name: formData.name,
+      email: formData.email,
+      phone: phoneE164 ?? '',
+      permissions: formData.permissions,
+    } : x));
     setEditMember(null);
     showToast(t('Member updated successfully', 'تم تحديث العضو بنجاح'));
   };
@@ -440,7 +509,8 @@ export function TeamPage() {
       },
     });
     if (error || !data?.ok || !data.email_sent) {
-      showToast(t('Failed to resend invitation', 'فشل إعادة إرسال الدعوة'));
+      const detail = data?.email_error ?? error?.message ?? 'unknown';
+      showToast(t(`Failed to resend: ${detail}`, `فشل إعادة الإرسال: ${detail}`));
       return;
     }
     showToast(t(`Invitation sent to ${member.email}`, `تم إرسال الدعوة إلى ${member.email}`));
@@ -448,7 +518,8 @@ export function TeamPage() {
 
   const formatPhone = (phone: string) => {
     if (!phone) return '';
-    return `+966 ${phone}`;
+    const parsed = parsePhoneNumberFromString(phone.startsWith('+') ? phone : `+966${phone}`);
+    return parsed ? parsed.formatInternational() : phone;
   };
 
   return (
@@ -472,6 +543,7 @@ export function TeamPage() {
           onSave={handleAdd}
           onClose={() => setShowAdd(false)}
           t={t}
+          saving={saving}
         />
       )}
       {editMember && (
@@ -483,6 +555,7 @@ export function TeamPage() {
           onSave={handleEdit}
           onClose={() => setEditMember(null)}
           t={t}
+          saving={saving}
         />
       )}
 
