@@ -448,6 +448,11 @@ export function TeamPage() {
   const handleAdd = async () => {
     if (!validateForm() || !tenantId) return;
     if (saving) return;
+    const emailLower = formData.email.trim().toLowerCase();
+    if (members.some(m => m.email.toLowerCase() === emailLower)) {
+      setErrors(prev => ({ ...prev, email: t('This email is already a team member', 'هذا البريد مضاف مسبقًا كعضو') }));
+      return;
+    }
     setSaving(true);
     const phoneE164 = formData.phone
       ? `+${getCountryCallingCode(formData.country)}${formData.phone}`
@@ -463,7 +468,11 @@ export function TeamPage() {
     });
     setSaving(false);
     if (error || !data?.ok) {
-      showToast(t('Failed to add member', 'فشل إضافة العضو'));
+      if (data?.error === 'email_exists') {
+        setErrors(prev => ({ ...prev, email: t('This email is already a team member', 'هذا البريد مضاف مسبقًا كعضو') }));
+      } else {
+        showToast(t('Failed to add member', 'فشل إضافة العضو'));
+      }
       return;
     }
     setMembers([...members, {
