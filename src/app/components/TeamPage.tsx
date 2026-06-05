@@ -323,9 +323,10 @@ export function TeamPage() {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editMember, setEditMember] = useState<Member | null>(null);
-  const [formData, setFormData] = useState<FormData>({ name: '', email: '', phone: '', permissions: emptyPermissions() });
+  const [formData, setFormData] = useState<FormData>({ name: '', email: '', phone: '', country: 'SA', permissions: emptyPermissions() });
   const [errors, setErrors] = useState<FormErrors>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const menuButtonRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
   // Load members from Supabase
@@ -367,8 +368,11 @@ export function TeamPage() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = t('Please enter a valid email address', 'يرجى إدخال بريد إلكتروني صحيح');
     }
-    if (formData.phone && !/^5\d{8}$/.test(formData.phone)) {
-      newErrors.phone = t('Must start with 5, followed by 8 digits (e.g. 5XXXXXXXX)', 'يجب أن يبدأ بـ 5 متبوعاً بـ 8 أرقام');
+    if (formData.phone) {
+      const e164 = `+${getCountryCallingCode(formData.country)}${formData.phone}`;
+      if (!isValidPhoneNumber(e164, formData.country)) {
+        newErrors.phone = t('Enter a valid phone number for the selected country', 'أدخل رقم هاتف صحيح للدولة المختارة');
+      }
     }
     if (countEnabled(formData.permissions) === 0) {
       newErrors.permissions = t('Select at least one permission', 'اختر صلاحية واحدة على الأقل');
@@ -407,16 +411,18 @@ export function TeamPage() {
   };
 
   const openAddModal = () => {
-    setFormData({ name: '', email: '', phone: '', permissions: emptyPermissions() });
+    setFormData({ name: '', email: '', phone: '', country: 'SA', permissions: emptyPermissions() });
     setErrors({});
     setShowAdd(true);
   };
 
   const openEditModal = (member: Member) => {
+    const parsed = member.phone ? parsePhoneNumberFromString(member.phone.startsWith('+') ? member.phone : `+966${member.phone}`) : null;
     setFormData({
       name: member.name,
       email: member.email,
-      phone: member.phone,
+      phone: parsed?.nationalNumber?.toString() ?? '',
+      country: (parsed?.country as CountryCode) ?? 'SA',
       permissions: { ...(member.permissions || {}) },
     });
     setErrors({});
@@ -426,38 +432,66 @@ export function TeamPage() {
 
   const handleAdd = async () => {
     if (!validateForm() || !tenantId) return;
+    if (saving) return;
+    setSaving(true);
+    const phoneE164 = formData.phone
+      ? `+${getCountryCallingCode(formData.country)}${formData.phone}`
+      : null;
     const { data, error } = await supabase.functions.invoke('invite-employee', {
       body: {
         tenant_id: tenantId,
         name: formData.name,
         email: formData.email,
-        phone: formData.phone || null,
+        phone: phoneE164,
         permissions: formData.permissions,
       },
     });
+    setSaving(false);
     if (error || !data?.ok) {
       showToast(t('Failed to add member', 'فشل إضافة العضو'));
       return;
     }
-    setMembers([...members, { id: data.member_id, ...formData, status: 'active' }]);
+    setMembers([...members, {
+      id: data.member_id,
+      name: formData.name,
+      email: formData.email,
+      phone: phoneE164 ?? '',
+      status: 'active',
+      permissions: formData.permissions,
+    }]);
     setShowAdd(false);
     showToast(
       data.email_sent
         ? t(`Invitation email sent to ${formData.email}`, `تم إرسال دعوة بالبريد إلى ${formData.email}`)
-        : t(`Member added — email failed to send`, `تمت إضافة العضو — فشل إرسال البريد`),
+        : t(
+            `Member added — email failed: ${data.email_error ?? 'unknown'}`,
+            `تمت إضافة العضو — فشل إرسال البريد: ${data.email_error ?? 'غير معروف'}`,
+          ),
     );
   };
 
   const handleEdit = async () => {
     if (!editMember || !validateForm()) return;
+    if (saving) return;
+    setSaving(true);
+    const phoneE164 = formData.phone
+      ? `+${getCountryCallingCode(formData.country)}${formData.phone}`
+      : null;
     const { error } = await supabase.from('team_members').update({
       name: formData.name,
       email: formData.email,
-      phone: formData.phone || null,
+      phone: phoneE164,
       permissions: formData.permissions,
     }).eq('id', editMember.id);
+    setSaving(false);
     if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
-    setMembers(m => m.map(x => x.id === editMember.id ? { ...x, ...formData } : x));
+    setMembers(m => m.map(x => x.id === editMember.id ? {
+      ...x,
+      name: formData.name,
+      email: formData.email,
+      phone: phoneE164 ?? '',
+      permissions: formData.permissions,
+    } : x));
     setEditMember(null);
     showToast(t('Member updated successfully', 'تم تحديث العضو بنجاح'));
   };
@@ -475,7 +509,8 @@ export function TeamPage() {
       },
     });
     if (error || !data?.ok || !data.email_sent) {
-      showToast(t('Failed to resend invitation', 'فشل إعادة إرسال الدعوة'));
+      const detail = data?.email_error ?? error?.message ?? 'unknown';
+      showToast(t(`Failed to resend: ${detail}`, `فشل إعادة الإرسال: ${detail}`));
       return;
     }
     showToast(t(`Invitation sent to ${member.email}`, `تم إرسال الدعوة إلى ${member.email}`));
@@ -483,7 +518,8 @@ export function TeamPage() {
 
   const formatPhone = (phone: string) => {
     if (!phone) return '';
-    return `+966 ${phone}`;
+    const parsed = parsePhoneNumberFromString(phone.startsWith('+') ? phone : `+966${phone}`);
+    return parsed ? parsed.formatInternational() : phone;
   };
 
   return (
