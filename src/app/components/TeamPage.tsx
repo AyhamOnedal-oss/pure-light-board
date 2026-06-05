@@ -3,6 +3,14 @@ import { useApp } from '../context/AppContext';
 import { Plus, MoreHorizontal, Edit, UserX, Mail, Trash2, X, ChevronDown, ChevronRight, Shield, LayoutDashboard, Users, MessageSquare, Ticket, Settings, Brain, Paintbrush, MessageCircle, CreditCard, User, Store } from 'lucide-react';
 import { supabase } from '../../integrations/supabase/client';
 import {
+  getCountries,
+  getCountryCallingCode,
+  isValidPhoneNumber,
+  parsePhoneNumberFromString,
+  AsYouType,
+  type CountryCode,
+} from 'libphonenumber-js';
+import {
   MemberPermissions,
   PermissionKey,
   countEnabled,
@@ -24,7 +32,8 @@ interface Member {
 interface FormData {
   name: string;
   email: string;
-  phone: string;
+  phone: string; // national digits as typed
+  country: CountryCode;
   permissions: MemberPermissions;
 }
 
