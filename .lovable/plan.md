@@ -1,34 +1,26 @@
-## What I found
+## Problem
 
-- The current preview session in the network snapshot is logged in as `1dvxjdpzs6@zam-partner.email`, role `owner`, not Ayham. Owners correctly see no locks.
-- Ayham is correctly in the database as `viewer` on workspace `test 15` with only:
-  - `home: true`
-  - `team: true`
-- The published site is still serving an older frontend bundle (`assets/index-CFuS5b3r.js`). Frontend code changes require publishing/update to go live; database/RLS changes are already live.
-- The likely source of `فشل تحميل النشاط` is ticket activity loading (`tickets_activities`) after RLS was tightened. A user without `tickets` access must not be querying ticket activity at all.
+Clicking **تسجيل الدخول** in the invite email opens `/login?email=...&invite=1`. Today, if the browser already has a session for the invited email (e.g. the invitee previously signed in on that device, or simply reopened the link), `LoginPage` treats it as "same user" and immediately redirects to `/dashboard` — no password is ever entered.
 
-## Plan
+The user wants the invite link to always require an explicit password sign-in.
 
-1. **Make sidebar locks impossible to miss**
-   - Ensure non-owner/non-admin users with only `home` + `team` see locks on:
-     - conversations
-     - tickets
-     - all restricted settings items
-   - Locked items stay visible and show the Arabic no-access message when clicked.
+## Fix
 
-2. **Stop restricted pages from loading data**
-   - Update route/permission handling so users without `tickets` or `conversations` are redirected before those pages issue Supabase queries.
-   - This prevents restricted RLS queries from producing noisy errors/toasts.
+Edit `src/app/components/LoginPage.tsx` only — pure frontend behavior change.
 
-3. **Fix the activity toast source**
-   - In the tickets activity loading flow, handle Supabase errors explicitly.
-   - If the user lacks `tickets`, do not show `فشل تحميل النشاط`; show the lock/no-access behavior instead.
-   - If activity fails for a permitted user, show only one controlled app toast.
+1. **Always sign out on invite link arrival.** In the `isInviteLink` effect, remove the "sameUser → skip signOut" short-circuit. Whenever the page is loaded with `?invite=1`, call `supabase.auth.signOut()` once, then render the login form with the email pre-filled and the password field empty.
 
-4. **Verify database behavior**
-   - Confirm `member_can()` allows Ayham only for `home` and `team`.
-   - Confirm restricted table reads return no data/permission denial for Ayham and still work for owner/admin.
+2. **Block auto-redirect for invite links.** In the "already signed in → bounce to dashboard" effect, if `isInviteLink` is true, never auto-redirect based on an existing session. Only redirect after the user submits the form (i.e. after `handleLogin` succeeds).
 
-5. **Publish step**
-   - After implementation, you must click **Publish → Update** for the published URL to receive frontend changes.
-   - The DB permission changes do not need publishing; they are already live.
+3. **Clear the `invite=1` flag after a successful manual sign-in.** Inside `handleLogin`'s success branch, strip `invite` and `email` from the URL via `history.replaceState`, so any subsequent in-app navigation behaves normally and a later refresh of `/dashboard` doesn't re-trigger the forced sign-out.
+
+4. **Guard with a one-shot ref.** Use a `useRef` flag so the forced sign-out runs at most once per page load, preventing a sign-out/redirect loop if React re-runs the effect.
+
+No changes to the edge function, the email template, routing, RLS, or the database. The invite URL stays `/login?email=<email>&invite=1`.
+
+## Verification
+
+- Open the invite email link while already logged in as the invitee → login form appears, email pre-filled, password empty; entering the wrong password shows the error; entering the right password lands on `/dashboard`.
+- Open the link while logged in as the admin (different email) → same behavior (already works today, must keep working).
+- Open the link while logged out → login form appears, no console errors.
+- After successful sign-in, refresh `/dashboard` → stays signed in, no forced sign-out.

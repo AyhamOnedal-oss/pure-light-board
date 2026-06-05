@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
 import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -92,23 +92,26 @@ export function LoginPage() {
   // before showing the form so the invitee actually authenticates as
   // themselves. Also force sign-out when the prefilled invite email
   // doesn't match the currently signed-in user.
+  // Invite link: ALWAYS force a sign-out on arrival so the invitee must
+  // re-enter their password, even if a session already exists for the same
+  // email. Runs at most once per page load.
   const [inviteSignedOut, setInviteSignedOut] = useState<boolean>(!isInviteLink);
+  const inviteSignOutStarted = useRef(false);
+  const inviteJustAuthenticated = useRef(false);
   useEffect(() => {
     if (!isInviteLink) return;
+    if (inviteJustAuthenticated.current) return;
+    if (inviteSignOutStarted.current) return;
     if (authLoading) return;
+    inviteSignOutStarted.current = true;
     if (!session) { setInviteSignedOut(true); return; }
-    const sameUser =
-      prefillEmail &&
-      session.user?.email &&
-      session.user.email.toLowerCase() === prefillEmail.toLowerCase();
-    if (sameUser) { setInviteSignedOut(true); return; }
     let cancelled = false;
     (async () => {
       try { await signOut(); } catch { /* ignore */ }
       if (!cancelled) setInviteSignedOut(true);
     })();
     return () => { cancelled = true; };
-  }, [isInviteLink, authLoading, session, prefillEmail, signOut]);
+  }, [isInviteLink, authLoading, session, signOut]);
 
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
@@ -122,16 +125,9 @@ export function LoginPage() {
     // For invite links, never auto-redirect while we still need to clear
     // the stale session, or when the current session belongs to a
     // different user than the invited email.
-    if (isInviteLink) {
-      if (!inviteSignedOut) return;
-      if (
-        session?.user?.email &&
-        prefillEmail &&
-        session.user.email.toLowerCase() !== prefillEmail.toLowerCase()
-      ) {
-        return;
-      }
-    }
+    // Invite link: never auto-redirect based on a pre-existing session.
+    // Only redirect once the user explicitly submits the login form.
+    if (isInviteLink && !inviteJustAuthenticated.current) return;
     if (!authLoading && !roleLoading && session) {
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
@@ -161,6 +157,17 @@ export function LoginPage() {
       if (error) {
         setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
         return;
+      }
+      // For invite links, mark that the user has authenticated manually and
+      // strip the invite/email query params so a refresh of /dashboard does
+      // not re-trigger the forced sign-out.
+      if (isInviteLink) {
+        inviteJustAuthenticated.current = true;
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          ['invite', 'email'].forEach(k => url.searchParams.delete(k));
+          window.history.replaceState({}, '', url.pathname + (url.search || ''));
+        }
       }
       // Role-based destination is handled by the effect above once session/isSuperAdmin resolve.
     } else {
