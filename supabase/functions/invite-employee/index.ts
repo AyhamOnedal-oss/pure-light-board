@@ -263,16 +263,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    // If we just created the auth user, the handle_new_user trigger auto-
-    // provisioned a personal workspace. Clean it up so the invitee only sees
-    // the inviter's tenant — but only when the invitee is the sole member.
-    if (isNewUser && userId) {
+    // Clean up any solo "personal" workspaces the invitee owns so they only
+    // see the inviter's tenant. Runs for both newly-created users (where
+    // handle_new_user auto-provisioned a workspace) and previously-existing
+    // users that still carry a leftover personal workspace.
+    if (userId) {
       const { data: ownTenants } = await admin
         .from("auth_tenant_members")
         .select("tenant_id, role")
         .eq("user_id", userId);
       for (const row of ownTenants ?? []) {
         if (row.tenant_id === tenant_id) continue;
+        if (row.role !== "owner") continue;
         const { count } = await admin
           .from("auth_tenant_members")
           .select("user_id", { count: "exact", head: true })
