@@ -184,6 +184,7 @@ function MemberModal({
   onSave,
   onClose,
   t,
+  saving,
 }: {
   title: string;
   formData: FormData;
@@ -192,13 +193,25 @@ function MemberModal({
   onSave: () => void;
   onClose: () => void;
   t: (en: string, ar: string) => string;
+  saving: boolean;
 }) {
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '').slice(0, 9);
-    setFormData(prev => ({ ...prev, phone: val }));
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 15);
+    setFormData(prev => ({ ...prev, phone: digits }));
   };
 
-  const canSave = countEnabled(formData.permissions) > 0;
+  const countries = React.useMemo(() => {
+    return getCountries()
+      .map(c => ({ code: c, dial: getCountryCallingCode(c) }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, []);
+
+  const formattedPreview = React.useMemo(() => {
+    if (!formData.phone) return '';
+    return new AsYouType(formData.country).input(formData.phone);
+  }, [formData.phone, formData.country]);
+
+  const canSave = countEnabled(formData.permissions) > 0 && !saving;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
@@ -242,17 +255,30 @@ function MemberModal({
             <div className={`flex items-center rounded-xl bg-input-background border overflow-hidden transition-all focus-within:ring-2 ${
               errors.phone ? 'border-red-500 focus-within:border-red-500 focus-within:ring-red-500/20' : 'border-border focus-within:border-[#043CC8] focus-within:ring-[#043CC8]/20'
             }`}>
-              <span className="px-3 py-3 text-[14px] text-muted-foreground bg-muted/40 border-e border-border shrink-0 select-none" dir="ltr" style={{ fontWeight: 500 }}>+966</span>
+              <select
+                value={formData.country}
+                onChange={e => setFormData(prev => ({ ...prev, country: e.target.value as CountryCode }))}
+                className="px-2 py-3 text-[13px] bg-muted/40 border-e border-border text-foreground outline-none cursor-pointer shrink-0"
+                dir="ltr"
+                style={{ fontWeight: 500, maxWidth: 120 }}
+              >
+                {countries.map(c => (
+                  <option key={c.code} value={c.code}>{c.code} +{c.dial}</option>
+                ))}
+              </select>
               <input
                 value={formData.phone}
                 onChange={handlePhoneChange}
-                placeholder="5XXXXXXXX"
+                placeholder={t('Phone number', 'رقم الهاتف')}
                 dir="ltr"
-                inputMode="numeric"
-                maxLength={9}
+                inputMode="tel"
+                maxLength={15}
                 className="flex-1 px-3 py-3 bg-transparent text-[14px] outline-none text-foreground"
               />
             </div>
+            {formattedPreview && (
+              <p className="text-[11px] text-muted-foreground mt-1.5" dir="ltr">+{getCountryCallingCode(formData.country)} {formattedPreview}</p>
+            )}
             {errors.phone && <p className="text-red-400 text-[12px] mt-1.5">{errors.phone}</p>}
           </div>
 
@@ -277,7 +303,7 @@ function MemberModal({
             style={{ fontWeight: 500 }}
             title={!canSave ? t('Select at least one permission to save', 'اختر صلاحية واحدة على الأقل للحفظ') : ''}
           >
-            {t('Save', 'حفظ')}
+            {saving ? t('Saving…', 'جارٍ الحفظ…') : t('Save', 'حفظ')}
           </button>
         </div>
         {!canSave && (
