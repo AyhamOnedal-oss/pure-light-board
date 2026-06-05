@@ -1,32 +1,31 @@
-## Plan
+I understand the flow: the invited employee (ayhamonedal) should enter the same `test 15` workspace and see the same dashboard metrics, but only the sections granted in Team permissions should be usable; all other sidebar items should remain visible but locked/low-opacity.
 
-1. **Fix the invitation login link**
-   - Change employee invitation emails so the **تسجيل الدخول** link always opens the correct app login page with the invited employee email prefilled.
-   - Ensure the app uses the current preview/published app origin where appropriate instead of falling back to the Lovable/editor or old default domain.
-   - Clear any stale signed-in session before showing an invite login screen, so clicking an invite cannot keep/register the user as the old `zam-partner.email` account.
+Plan:
 
-2. **Harden invited employee workspace selection**
-   - Keep invited users locked to the inviter workspace (`test 15`) by prioritizing the `team_members.user_id + tenant_id` link.
-   - Prevent old owner/personal/Zid workspace sessions from winning tenant selection after sign-in.
-   - Add a safe session/tenant refresh path after login so permission checks wait until the correct workspace is resolved.
+1. Fix the permissions loading default
+- Change the current-user permissions hook so it never starts as `all` for a normal dashboard user.
+- Only return `all` after confirming the user is a super admin, owner, or admin.
+- While permissions are still loading, return an empty permission map so locked sections never briefly appear unlocked.
 
-3. **Fix permission locks for restricted sections**
-   - Treat invited employees as restricted whenever they have a `team_members` row, even if they also have another tenant membership.
-   - Keep Tickets locked when `tickets` is false and redirect blocked direct URLs away from `/dashboard/tickets`.
-   - Make the sidebar lock state wait for permission loading instead of briefly showing full access.
+2. Make the sidebar wait for real permissions
+- Update `Layout.tsx` to use the permission hook’s `loading` value.
+- During permission loading, render restricted navigation as locked instead of treating the user as admin.
+- Keep locked items visible with low opacity and a lock-style indicator, including Tickets.
 
-4. **Stop the repeated “فشل تحميل النشاط” error spam**
-   - Replace the toast behavior with true deduplication/throttling so the same error cannot stack repeatedly.
-   - Guard dashboard/activity loading so it runs only after auth + tenant + permissions are ready.
-   - Where activity data is optional or missing, show empty state silently instead of repeatedly raising failure toasts.
+3. Keep dashboard data shared, but restrict page access
+- Leave dashboard metric queries scoped by `tenant_id`, so the employee still sees the same `test 15` dashboard info.
+- Keep route protection for restricted pages, so direct navigation to `/dashboard/tickets` redirects to the first allowed page.
+- Do not tighten RLS for dashboard/tickets data reads, because that would break the “same dashboard info” requirement.
 
-5. **Database cleanup and verification**
-   - Verify the invited email is linked only to `test 15` as a restricted viewer and that `tickets` permission is false.
-   - If needed, clean up stale rows tied to the wrong `zam-partner.email`/personal workspace for this employee without deleting the admin owner account.
-   - Confirm duplicate phone invite protection remains active.
+4. Stop the repeated failure spam
+- Harden the toast system with a short cooldown per message, not just deduping currently visible toasts.
+- This prevents repeated Arabic `فشل...` messages from stacking when a restricted page/component retries or fails repeatedly.
 
-## Technical notes
+5. Clean up the current ayhamonedal workspace rows
+- Remove the stale personal workspace `ayhamonedal's Workspace` and any leftover owner membership for that user if still present.
+- Keep only the `test 15` membership as `viewer` plus the `team_members` row with the two selected permissions (`home`, `team`).
 
-- Main files to update: `AppContext.tsx`, `LoginPage.tsx`, `permissions.ts`, `Layout.tsx`, `RequirePermission.tsx`, and `supabase/functions/invite-employee/index.ts`.
-- I’ll also inspect/adjust the dashboard activity source if it is still querying a missing/optional activity table.
-- Edge function changes will need redeploy after editing.
+6. Verify the exact test user state
+- Confirm `ayhamonedal@icloud.com` resolves to `test 15`.
+- Confirm their effective permissions are only `home` and `team`.
+- Confirm Tickets appears locked in the sidebar and cannot be opened directly.

@@ -114,7 +114,10 @@ export function useCurrentMemberPermissions(
   tenantId: string | null | undefined,
   isSuperAdmin: boolean,
 ): { perms: ResolvedPermissions; loading: boolean } {
-  const [perms, setPerms] = useState<ResolvedPermissions>('all');
+  // Start locked-down. Never default to 'all' — otherwise the sidebar and
+  // route guards briefly treat invited employees as full admins on the
+  // initial render, before the async role/permission query resolves.
+  const [perms, setPerms] = useState<ResolvedPermissions>({});
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
