@@ -131,19 +131,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!session?.user) { setTenantId(null); return; }
     let cancelled = false;
     setTenantLoading(true);
-    supabase
-      .from('auth_tenant_members')
-      .select('tenant_id, role, created_at')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) {
-          setTenantId(data?.tenant_id ?? null);
-          setTenantLoading(false);
-        }
-      });
+    (async () => {
+      const uid = session.user.id;
+      // Priority:
+      //  1. A tenant where the user has a team_members row (= invited
+      //     employee) — keeps invited users in the inviter's workspace
+      //     instead of the personal one auto-provisioned at signup.
+      //  2. The oldest non-owner membership.
+      //  3. The oldest owner membership (normal signup).
+      const [memRes, invRes] = await Promise.all([
+        supabase
+          .from('auth_tenant_members')
+          .select('tenant_id, role, created_at')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('team_members')
+          .select('tenant_id, created_at')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false }),
+      ]);
+      if (cancelled) return;
+      const memberships = memRes.data ?? [];
+      const invites = invRes.data ?? [];
+      const inviteIds = new Set(invites.map((i: any) => i.tenant_id));
+      const pick =
+        memberships.find((m: any) => inviteIds.has(m.tenant_id)) ||
+        memberships.find((m: any) => m.role !== 'owner') ||
+        memberships[0];
+      setTenantId(pick?.tenant_id ?? null);
+      setTenantLoading(false);
+    })();
     return () => { cancelled = true; };
   }, [session?.user?.id]);
 
@@ -219,11 +237,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const showToast = useCallback((message: string) => {
-    const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 3000);
+    setToasts(prev => {
+      // Deduplicate: don't stack the same message repeatedly.
+      if (prev.some(t => t.message === message)) return prev;
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      // Hard cap to avoid runaway stacks.
+      const capped = prev.length >= 4 ? prev.slice(-3) : prev;
+      setTimeout(() => {
+        setToasts(cur => cur.filter(t => t.id !== id));
+      }, 3000);
+      return [...capped, { id, message }];
+    });
   }, []);
 
   return (
