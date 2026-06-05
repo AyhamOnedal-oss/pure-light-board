@@ -206,6 +206,11 @@ function MemberModal({
       .sort((a, b) => a.code.localeCompare(b.code));
   }, []);
 
+  const flagOf = (code: string) =>
+    code
+      .toUpperCase()
+      .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)));
+
   const formattedPreview = React.useMemo(() => {
     if (!formData.phone) return '';
     return new AsYouType(formData.country).input(formData.phone);
@@ -252,18 +257,22 @@ function MemberModal({
           {/* Phone — Saudi format */}
           <div>
             <label className="text-[13px] text-muted-foreground mb-2 block">{t('Phone Number', 'رقم الهاتف')}</label>
-            <div className={`flex items-center rounded-xl bg-input-background border overflow-hidden transition-all focus-within:ring-2 ${
-              errors.phone ? 'border-red-500 focus-within:border-red-500 focus-within:ring-red-500/20' : 'border-border focus-within:border-[#043CC8] focus-within:ring-[#043CC8]/20'
-            }`}>
+            <div
+              dir="ltr"
+              className={`flex items-center rounded-xl bg-input-background border overflow-hidden transition-all focus-within:ring-2 ${
+                errors.phone ? 'border-red-500 focus-within:border-red-500 focus-within:ring-red-500/20' : 'border-border focus-within:border-[#043CC8] focus-within:ring-[#043CC8]/20'
+              }`}
+            >
               <select
                 value={formData.country}
                 onChange={e => setFormData(prev => ({ ...prev, country: e.target.value as CountryCode }))}
-                className="px-2 py-3 text-[13px] bg-muted/40 border-e border-border text-foreground outline-none cursor-pointer shrink-0"
+                className="px-2 py-3 text-[13px] bg-muted/40 border-r border-border text-foreground outline-none cursor-pointer shrink-0"
                 dir="ltr"
-                style={{ fontWeight: 500, maxWidth: 120 }}
+                style={{ fontWeight: 500, width: 110 }}
+                aria-label="Country"
               >
                 {countries.map(c => (
-                  <option key={c.code} value={c.code}>{c.code} +{c.dial}</option>
+                  <option key={c.code} value={c.code}>{flagOf(c.code)} +{c.dial} ({c.code})</option>
                 ))}
               </select>
               <input
@@ -273,11 +282,11 @@ function MemberModal({
                 dir="ltr"
                 inputMode="tel"
                 maxLength={15}
-                className="flex-1 px-3 py-3 bg-transparent text-[14px] outline-none text-foreground"
+                className="flex-1 min-w-0 px-3 py-3 bg-transparent text-[14px] outline-none text-foreground"
               />
             </div>
             {formattedPreview && (
-              <p className="text-[11px] text-muted-foreground mt-1.5" dir="ltr">+{getCountryCallingCode(formData.country)} {formattedPreview}</p>
+              <p className="text-[11px] text-muted-foreground mt-1.5" dir="ltr">{flagOf(formData.country)} +{getCountryCallingCode(formData.country)} {formattedPreview}</p>
             )}
             {errors.phone && <p className="text-red-400 text-[12px] mt-1.5">{errors.phone}</p>}
           </div>
