@@ -57,7 +57,7 @@ function ResendResetLink({
 }
 
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, roleLoading } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, roleLoading, signOut } = useApp();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   // Pre-fill email when arriving from Zid/Salla install flow.
@@ -65,6 +65,7 @@ export function LoginPage() {
   const fromPlatform = initialQuery?.get('from') ?? '';
   const prefillEmail = initialQuery?.get('email') ?? '';
   const fromStatus = initialQuery?.get('status') ?? '';
+  const isInviteLink = initialQuery?.get('invite') === '1';
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -86,6 +87,29 @@ export function LoginPage() {
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
 
+  // Invite link: if the browser still holds a session for someone else
+  // (typically the admin who just sent the invite), sign that session out
+  // before showing the form so the invitee actually authenticates as
+  // themselves. Also force sign-out when the prefilled invite email
+  // doesn't match the currently signed-in user.
+  const [inviteSignedOut, setInviteSignedOut] = useState<boolean>(!isInviteLink);
+  useEffect(() => {
+    if (!isInviteLink) return;
+    if (authLoading) return;
+    if (!session) { setInviteSignedOut(true); return; }
+    const sameUser =
+      prefillEmail &&
+      session.user?.email &&
+      session.user.email.toLowerCase() === prefillEmail.toLowerCase();
+    if (sameUser) { setInviteSignedOut(true); return; }
+    let cancelled = false;
+    (async () => {
+      try { await signOut(); } catch { /* ignore */ }
+      if (!cancelled) setInviteSignedOut(true);
+    })();
+    return () => { cancelled = true; };
+  }, [isInviteLink, authLoading, session, prefillEmail, signOut]);
+
   // If already signed in, bounce to intended destination (or /dashboard).
   useEffect(() => {
     // Never auto-redirect while the install-success screen is showing — the
@@ -95,6 +119,19 @@ export function LoginPage() {
     const hasOAuthResult = typeof window !== 'undefined'
       && new URLSearchParams(window.location.search).get('oauth_result') !== null;
     if (showInstallSuccess || hasOAuthResult) return;
+    // For invite links, never auto-redirect while we still need to clear
+    // the stale session, or when the current session belongs to a
+    // different user than the invited email.
+    if (isInviteLink) {
+      if (!inviteSignedOut) return;
+      if (
+        session?.user?.email &&
+        prefillEmail &&
+        session.user.email.toLowerCase() !== prefillEmail.toLowerCase()
+      ) {
+        return;
+      }
+    }
     if (!authLoading && !roleLoading && session) {
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
@@ -105,7 +142,7 @@ export function LoginPage() {
             : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
