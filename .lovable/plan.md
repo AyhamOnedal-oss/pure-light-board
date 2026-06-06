@@ -1,47 +1,21 @@
-## What is happening
+## Make AI links clickable in Test Chat
 
-The reset pages are not missing. The app is redirecting away because an authenticated session exists or because Supabase is falling back to the app root.
+In `src/app/components/settings/TestChat.tsx`, AI replies are rendered as plain text inside a `<span className="whitespace-pre-wrap">{msg.text}</span>`. URLs come through as text and are not clickable.
 
-### 1. `إعادة التعيين عبر البريد`
-This link currently opens:
+### Change
 
-```text
-/login?forgot=1&email=...
-```
+1. Add a small inline renderer in `TestChat.tsx` (or a tiny helper component co-located in the same file) that splits `msg.text` on URL matches and renders:
+   - text segments as-is (preserve `whitespace-pre-wrap`)
+   - URL segments as `<a href={url} target="_blank" rel="noopener noreferrer nofollow">` styled blue + underline on hover
 
-`LoginPage` correctly reads `forgot=1` and starts in the forgot-password view. But the same component also has an auth effect that says: if there is already a session, navigate to `/dashboard`.
+2. URL detection regex: match `https?://...` and bare `www....` (prepend `https://` for the href in the `www.` case). Trim common trailing punctuation `.,;:!?)` so a link at end of a sentence doesn't include the period.
 
-Because this email is usually opened in a browser where the user is already signed in, the forgot-password view is immediately replaced by the dashboard.
+3. Replace the `<span className="whitespace-pre-wrap">{msg.text}</span>` for AI bubbles (and user bubbles too, for symmetry) with the new renderer. Keep the surrounding bubble styles unchanged.
 
-### 2. `إعادة تعيين كلمة المرور`
-The password-reset email uses a Supabase recovery link. That link should authenticate a temporary recovery session and then land on:
+4. Styling: use a token-friendly class like `text-sky-400 underline underline-offset-2 hover:text-sky-300 break-all` for AI bubbles (dark background), and `text-[#043CC8] underline` for user bubbles (light background). RTL/Arabic mixed with LTR URLs handled via `dir="ltr"` on the anchor + `unicode-bidi: isolate` so the URL doesn't reverse.
 
-```text
-/reset-password
-```
+### Out of scope
 
-If Supabase does not accept the redirect URL, or if the recovery link lands on the app root with recovery tokens, the app route `/` immediately redirects to `/dashboard`. That is why the reset-password form is skipped.
-
-## Best-practice fix
-
-1. **Make forgot-password mode override dashboard auto-redirect**
-   - When `/login?forgot=1` is present, `LoginPage` should not auto-send the user to `/dashboard`, even if a session already exists.
-   - It should keep showing the email reset form.
-
-2. **Make recovery links always route to `/reset-password`**
-   - Add recovery-token detection at app entry.
-   - If the URL contains Supabase recovery params, route to `/reset-password` and preserve the token/hash.
-   - This protects against Supabase landing on `/` instead of `/reset-password`.
-
-3. **Add a safety guard to `ResetPasswordPage`**
-   - If the user opens `/reset-password` without a valid recovery session/token, show an Arabic message telling them the link is expired/invalid and offer to request a new reset email.
-   - If a recovery session exists, show only new password + confirm password.
-
-4. **Check Supabase redirect configuration**
-   - Confirm the published URL allows this redirect:
-
-```text
-https://pure-light-board.lovable.app/reset-password
-```
-
-This may need to be added to Supabase Auth redirect allowlist if it is not already there.
+- No markdown rendering (no `react-markdown`) — keeping the change minimal.
+- No changes to the storefront widget or other chat surfaces.
+- No backend changes.
