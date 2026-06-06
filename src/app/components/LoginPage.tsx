@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../../integrations/supabase/client';
 import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
@@ -169,6 +170,9 @@ export function LoginPage() {
           window.history.replaceState({}, '', url.pathname + (url.search || ''));
         }
       }
+      // Fire-and-forget: send the "new login" notification email. Failures
+      // must never block sign-in UX.
+      supabase.functions.invoke('send-login-notification').catch(() => {});
       // Role-based destination is handled by the effect above once session/isSuperAdmin resolve.
     } else {
       const { error } = await signUp(email.trim(), password);
