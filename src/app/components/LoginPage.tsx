@@ -68,6 +68,7 @@ export function LoginPage() {
   const fromStatus = initialQuery?.get('status') ?? '';
   const isInviteLink = initialQuery?.get('invite') === '1';
   const redirectParam = initialQuery?.get('redirect') ?? '';
+  const forgotParam = initialQuery?.get('forgot') === '1';
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -77,14 +78,14 @@ export function LoginPage() {
   const [signupSuccess, setSignupSuccess] = useState(false);
 
   // Forgot password state
-  const [view, setView] = useState<'login' | 'forgot'>('login');
+  const [view, setView] = useState<'login' | 'forgot'>(forgotParam ? 'forgot' : 'login');
   // When arriving from a fresh Zid/Salla install, show a dedicated
   // "check your email" screen instead of the login form. The user can
   // dismiss it to reveal the sign-in form.
   const [showInstallSuccess, setShowInstallSuccess] = useState<boolean>(
     !!((fromPlatform === 'zid' || fromPlatform === 'salla') && prefillEmail && (fromStatus === 'new' || fromStatus === 'linked'))
   );
-  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotEmail, setForgotEmail] = useState(forgotParam ? prefillEmail : '');
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
