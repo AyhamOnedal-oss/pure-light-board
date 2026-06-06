@@ -1,26 +1,62 @@
-## Problem
+# Login Notification Email + Change Password from Dashboard
 
-Clicking **تسجيل الدخول** in the invite email opens `/login?email=...&invite=1`. Today, if the browser already has a session for the invited email (e.g. the invitee previously signed in on that device, or simply reopened the link), `LoginPage` treats it as "same user" and immediately redirects to `/dashboard` — no password is ever entered.
+Two features:
+1. Every successful sign-in sends the user the Arabic "تسجيل دخول جديد إلى حسابك" email shown in the mockup.
+2. Users can change their password from inside the dashboard (Account Settings), with the email CTA deep-linking there.
 
-The user wants the invite link to always require an explicit password sign-in.
+---
 
-## Fix
+## 1. Login Notification Email
 
-Edit `src/app/components/LoginPage.tsx` only — pure frontend behavior change.
+**Infrastructure:** Use Lovable's built-in email system on the existing `support@fuqah.net` / `fuqah.ai` setup. No third-party provider. Steps performed automatically:
+- Verify email domain status; if app email infra/templates aren't scaffolded yet, set them up (`setup_email_infra` + `scaffold_transactional_email`).
+- Add a new React Email template `login-notification.tsx` in `supabase/functions/_shared/transactional-email-templates/` matching the mockup exactly:
+  - Dark navy header (`#043CC8`-family) with lock icon and "تسجيل دخول جديد إلى حسابك"
+  - Arabic greeting using `store_name`
+  - Info card with rows: 📅 التاريخ, 🕐 الوقت, 📦 حالة الباقة
+  - Yellow warning box about changing password if it wasn't them
+  - Primary CTA button "تغيير كلمة المرور" → `https://<app>/dashboard/settings/account?changePassword=1`
+  - Footer: 🌐 www.fuqah.ai · 📧 support@fuqah.ai
+  - RTL `dir="rtl"`, IBM Plex Sans Arabic / Arial fallback
+- Register it in `registry.ts` and deploy `send-transactional-email`.
 
-1. **Always sign out on invite link arrival.** In the `isInviteLink` effect, remove the "sameUser → skip signOut" short-circuit. Whenever the page is loaded with `?invite=1`, call `supabase.auth.signOut()` once, then render the login form with the email pre-filled and the password field empty.
+**Trigger:** New thin edge function `send-login-notification` (auth-required) that:
+- Validates the caller's JWT, resolves their tenant, pulls `store_name` from `settings_workspace`, `package_status` from `settings_plans`, formats date/time in Arabic for Asia/Riyadh.
+- Invokes `send-transactional-email` with `templateName: 'login-notification'`, an idempotency key like `login-<user_id>-<timestamp_minute>` to avoid duplicates from token refresh.
 
-2. **Block auto-redirect for invite links.** In the "already signed in → bounce to dashboard" effect, if `isInviteLink` is true, never auto-redirect based on an existing session. Only redirect after the user submits the form (i.e. after `handleLogin` succeeds).
+**Client wiring:** In `LoginPage.handleLogin` success branch (and only there — not on token refresh), fire-and-forget `supabase.functions.invoke('send-login-notification')`. Errors are swallowed so login UX isn't blocked.
 
-3. **Clear the `invite=1` flag after a successful manual sign-in.** Inside `handleLogin`'s success branch, strip `invite` and `email` from the URL via `history.replaceState`, so any subsequent in-app navigation behaves normally and a later refresh of `/dashboard` doesn't re-trigger the forced sign-out.
+---
 
-4. **Guard with a one-shot ref.** Use a `useRef` flag so the forced sign-out runs at most once per page load, preventing a sign-out/redirect loop if React re-runs the effect.
+## 2. Change Password from Dashboard
 
-No changes to the edge function, the email template, routing, RLS, or the database. The invite URL stays `/login?email=<email>&invite=1`.
+**Location:** `src/app/components/settings/AccountSettings.tsx` — add a new "الأمان / Security" section:
+- Current password
+- New password (rules reused from `ResetPasswordPage`: min 8, upper, lower)
+- Confirm new password
+- Eye toggles, inline validation, live strength hints
+- Submit button "تحديث كلمة المرور"
 
-## Verification
+**Logic:**
+- Verify current password via `supabase.auth.signInWithPassword({ email, password: current })`.
+- On success → `supabase.auth.updateUser({ password: new })`.
+- Show success toast; clear fields.
+- Secondary link "نسيت كلمة المرور الحالية؟" → calls existing `sendPasswordReset(user.email)` and toasts that an email was sent.
 
-- Open the invite email link while already logged in as the invitee → login form appears, email pre-filled, password empty; entering the wrong password shows the error; entering the right password lands on `/dashboard`.
-- Open the link while logged in as the admin (different email) → same behavior (already works today, must keep working).
-- Open the link while logged out → login form appears, no console errors.
-- After successful sign-in, refresh `/dashboard` → stays signed in, no forced sign-out.
+**Deep-link from email:** If URL contains `?changePassword=1`, auto-scroll to the section and focus the current-password input.
+
+---
+
+## Files
+
+New:
+- `supabase/functions/_shared/transactional-email-templates/login-notification.tsx`
+- `supabase/functions/send-login-notification/index.ts`
+
+Edited:
+- `supabase/functions/_shared/transactional-email-templates/registry.ts` (register template)
+- `supabase/config.toml` (register new function)
+- `src/app/components/LoginPage.tsx` (invoke notification on successful sign-in)
+- `src/app/components/settings/AccountSettings.tsx` (password change section + deep-link)
+
+No DB schema changes. No new secrets required (LOVABLE_API_KEY already present).
