@@ -38,6 +38,19 @@ export function AccountSettings() {
   const [emailError, setEmailError] = useState('');
   const [phoneError, setPhoneError] = useState('');
 
+  // Deep-link from the login-notification email: ?changePassword=1 auto-opens
+  // the change-password modal so users can act on the CTA immediately.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('changePassword') === '1') {
+      setShowPassword(true);
+      params.delete('changePassword');
+      const next = window.location.pathname + (params.toString() ? `?${params}` : '');
+      window.history.replaceState({}, '', next);
+    }
+  }, []);
+
   // Change password state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
