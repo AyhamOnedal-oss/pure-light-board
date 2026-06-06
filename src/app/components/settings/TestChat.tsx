@@ -340,7 +340,7 @@ export function TestChat() {
                           ))}
                         </div>
                       )}
-                      <span className="whitespace-pre-wrap">{msg.text}</span>
+                      <LinkifiedText text={msg.text} variant={msg.sender} />
                       <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : msg.error ? 'text-red-500/60' : 'text-white/50'}`}>{msg.time}</p>
                     </>
                   )}
