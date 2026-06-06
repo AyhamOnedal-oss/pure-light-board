@@ -131,6 +131,10 @@ export function LoginPage() {
     // Invite link: never auto-redirect based on a pre-existing session.
     // Only redirect once the user explicitly submits the login form.
     if (isInviteLink && !inviteJustAuthenticated.current) return;
+    // Forgot-password mode: never auto-redirect away to /dashboard, even if
+    // the browser still holds a session. The user came here specifically to
+    // request a password reset email.
+    if (forgotParam || view === 'forgot') return;
     if (!authLoading && !roleLoading && session) {
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
@@ -143,7 +147,7 @@ export function LoginPage() {
             : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail, forgotParam, view]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
