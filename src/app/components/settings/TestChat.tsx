@@ -13,6 +13,48 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS = 4;
 
 const STORAGE_KEY = 'fuqah_test_chat_messages';
+
+// Render text with clickable URLs. Matches http(s)://… and bare www.…
+// Trims trailing punctuation so a link at the end of a sentence doesn't
+// swallow the period/comma. Anchors are isolated as LTR so URLs render
+// correctly inside Arabic/RTL paragraphs.
+const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<>]+)/gi;
+function LinkifiedText({ text, variant }: { text: string; variant: 'user' | 'ai' }) {
+  const linkClass = variant === 'ai'
+    ? 'text-sky-400 underline underline-offset-2 hover:text-sky-300 break-all'
+    : 'text-[#043CC8] underline underline-offset-2 hover:text-[#0330a0] break-all';
+  const parts = text.split(URL_REGEX);
+  return (
+    <span className="whitespace-pre-wrap">
+      {parts.map((part, i) => {
+        if (!part) return null;
+        if (i % 2 === 1) {
+          // Strip trailing punctuation that should not be part of the URL.
+          const m = part.match(/^(.*?)([.,;:!?)\]]+)$/);
+          const url = m ? m[1] : part;
+          const tail = m ? m[2] : '';
+          const href = url.startsWith('http') ? url : `https://${url}`;
+          return (
+            <React.Fragment key={i}>
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                dir="ltr"
+                style={{ unicodeBidi: 'isolate' }}
+                className={linkClass}
+              >
+                {url}
+              </a>
+              {tail}
+            </React.Fragment>
+          );
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+      })}
+    </span>
+  );
+}
 const CONV_KEY = 'fuqah_test_chat_conversation_id';
 
 function loadConversationId(): string {
@@ -298,7 +340,7 @@ export function TestChat() {
                           ))}
                         </div>
                       )}
-                      <span className="whitespace-pre-wrap">{msg.text}</span>
+                      <LinkifiedText text={msg.text} variant={msg.sender} />
                       <p className={`text-[9px] mt-1 ${msg.sender === 'user' ? 'text-muted-foreground' : msg.error ? 'text-red-500/60' : 'text-white/50'}`}>{msg.time}</p>
                     </>
                   )}
