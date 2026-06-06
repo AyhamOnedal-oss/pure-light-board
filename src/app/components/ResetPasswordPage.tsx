@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../../integrations/supabase/client';
 import { Eye, EyeOff, Globe, Moon, Sun, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
@@ -15,6 +16,7 @@ export function ResetPasswordPage() {
   const [errors, setErrors] = useState<{ newPassword?: string; confirmPassword?: string }>({});
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const logo = theme === 'dark' ? logoDark : logoLight;
 
@@ -42,10 +44,18 @@ export function ResetPasswordPage() {
     if (Object.keys(newErrors).length > 0) return;
 
     setLoading(true);
-    // TODO: Backend integration - call API to update password with reset token
-    // Example: await api.resetPassword({ token: tokenFromURL, newPassword });
-    await new Promise(r => setTimeout(r, 1200));
+    setSubmitError(null);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     setLoading(false);
+    if (error) {
+      setSubmitError(
+        error.message?.includes('session')
+          ? t('Reset link expired or invalid. Please request a new one.', 'انتهت صلاحية رابط إعادة التعيين أو أنه غير صالح. يرجى طلب رابط جديد.')
+          : error.message,
+      );
+      return;
+    }
+    await supabase.auth.signOut();
     setSuccess(true);
   };
 
@@ -178,6 +188,11 @@ export function ResetPasswordPage() {
                 >
                   {loading ? t('Updating...', 'جاري التحديث...') : t('Update Password', 'تحديث كلمة المرور')}
                 </button>
+                {submitError && (
+                  <p className="flex items-center gap-1 text-red-400 text-[12px] mt-2">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {submitError}
+                  </p>
+                )}
               </form>
             </>
           )}

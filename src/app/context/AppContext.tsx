@@ -208,10 +208,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const sendPasswordReset = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await supabase.functions.invoke('send-password-reset', {
+        body: {
+          email,
+          redirectTo: `${window.location.origin}/reset-password`,
+        },
+      });
+      return { error: error?.message ?? null };
+    } catch (e: any) {
+      return { error: e?.message ?? 'Failed to send reset email' };
+    }
   }, []);
 
   const setLanguage = (l: Language) => {
