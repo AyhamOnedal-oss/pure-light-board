@@ -28,6 +28,7 @@ function loginEmailHtml(opts: {
   loginTime: string;
   packageStatus: string;
   changePasswordUrl: string;
+  forgotPasswordUrl: string;
 }): string {
   const e = {
     store_name: escapeHtml(opts.storeName),
@@ -35,6 +36,7 @@ function loginEmailHtml(opts: {
     login_time: escapeHtml(opts.loginTime),
     package_status: escapeHtml(opts.packageStatus),
     change_password_url: escapeHtml(opts.changePasswordUrl),
+    forgot_password_url: escapeHtml(opts.forgotPasswordUrl),
   };
   return `<!doctype html>
 <html lang="ar" dir="rtl">
@@ -67,7 +69,12 @@ function loginEmailHtml(opts: {
               </div>
 
               <div style="text-align:center;margin:24px 0 8px;">
+                <div style="font-size:12.5px;color:#5a6b85;margin-bottom:10px;">ستحتاج إلى تسجيل الدخول أولاً</div>
                 <a href="${e.change_password_url}" style="display:inline-block;background:#1e3a6b;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:700;font-size:15px;">تغيير كلمة المرور</a>
+                <div style="margin-top:14px;font-size:12.5px;color:#5a6b85;">
+                  لا تتذكر كلمة المرور الحالية؟
+                  <a href="${e.forgot_password_url}" style="color:#1e3a5f;text-decoration:underline;font-weight:600;" target="_blank" rel="noopener noreferrer nofollow">إعادة التعيين عبر البريد</a>
+                </div>
               </div>
             </td>
           </tr>
@@ -198,9 +205,10 @@ Deno.serve(async (req) => {
     const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
     const dest = encodeURIComponent("/dashboard/settings/account?changePassword=1");
     const changePasswordUrl = `${APP_URL}/login?redirect=${dest}`;
+    const forgotPasswordUrl = `${APP_URL}/login?forgot=1&email=${encodeURIComponent(email)}`;
 
     const html = loginEmailHtml({
-      storeName, loginDate, loginTime, packageStatus, changePasswordUrl,
+      storeName, loginDate, loginTime, packageStatus, changePasswordUrl, forgotPasswordUrl,
     });
     const sent = await sendResend(email, "تسجيل دخول جديد إلى حسابك — فقاعة AI", html);
     return json({ ok: true, email_sent: sent.ok, email_error: sent.error });
