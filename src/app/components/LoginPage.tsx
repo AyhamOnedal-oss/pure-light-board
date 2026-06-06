@@ -67,6 +67,7 @@ export function LoginPage() {
   const prefillEmail = initialQuery?.get('email') ?? '';
   const fromStatus = initialQuery?.get('status') ?? '';
   const isInviteLink = initialQuery?.get('invite') === '1';
+  const redirectParam = initialQuery?.get('redirect') ?? '';
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -134,7 +135,9 @@ export function LoginPage() {
       // (which may point to /dashboard from an unauthenticated redirect).
       const dest = isSuperAdmin
         ? '/admin'
-        : (location.state?.from && !location.state.from.startsWith('/admin')
+        : (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//') && !redirectParam.startsWith('/admin')
+            ? redirectParam
+            : location.state?.from && !location.state.from.startsWith('/admin')
             ? location.state.from
             : '/dashboard');
       navigate(dest, { replace: true });

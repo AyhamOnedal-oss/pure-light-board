@@ -196,7 +196,8 @@ Deno.serve(async (req) => {
     }).format(now);
 
     const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
-    const changePasswordUrl = `${APP_URL}/dashboard/settings/account?changePassword=1`;
+    const dest = encodeURIComponent("/dashboard/settings/account?changePassword=1");
+    const changePasswordUrl = `${APP_URL}/login?redirect=${dest}`;
 
     const html = loginEmailHtml({
       storeName, loginDate, loginTime, packageStatus, changePasswordUrl,
