@@ -39,6 +39,24 @@ function RootEntry() {
   const hasOAuthResult =
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('oauth_result') !== null;
+
+  // Supabase password-recovery links can land on `/` instead of
+  // `/reset-password` (depends on the redirectTo allowlist + how the link
+  // is opened). If we detect recovery tokens in the URL, route to the
+  // reset page and preserve the hash/query so Supabase can establish the
+  // recovery session there.
+  if (typeof window !== 'undefined') {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const isRecovery =
+      /(?:^|[#&?])type=recovery(?:&|$)/.test(hash) ||
+      /(?:^|[?&])type=recovery(?:&|$)/.test(search) ||
+      /(?:^|[#&?])access_token=/.test(hash) && /type=recovery/.test(hash);
+    if (isRecovery) {
+      return <Navigate to={`/reset-password${search}${hash}`} replace />;
+    }
+  }
+
   const [signedOut, setSignedOut] = useState(!hasOAuthResult);
 
   useEffect(() => {

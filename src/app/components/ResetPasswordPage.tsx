@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../../integrations/supabase/client';
 import { Eye, EyeOff, Globe, Moon, Sun, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -17,6 +17,29 @@ export function ResetPasswordPage() {
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // 'checking' until we know whether a recovery session was established
+  // from the URL tokens; 'valid' when ready; 'invalid' when no session
+  // (link expired or opened in a different browser).
+  const [linkState, setLinkState] = useState<'checking' | 'valid' | 'invalid'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    // Give supabase-js a moment to parse tokens from the URL hash/query
+    // and establish the recovery session. We listen for PASSWORD_RECOVERY
+    // and also poll getSession() once as a fallback.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+        setLinkState('valid');
+      }
+    });
+    const timer = setTimeout(async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      setLinkState(data.session ? 'valid' : 'invalid');
+    }, 1200);
+    return () => { cancelled = true; sub.subscription.unsubscribe(); clearTimeout(timer); };
+  }, []);
 
   const logo = theme === 'dark' ? logoDark : logoLight;
 
@@ -87,7 +110,34 @@ export function ResetPasswordPage() {
             <img src={logo} alt="Fuqah AI" className="h-10 mb-3 object-contain" />
           </div>
 
-          {success ? (
+          {linkState === 'checking' ? (
+            <div className="flex flex-col items-center text-center py-10">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3" />
+              <p className="text-muted-foreground text-[13px]">
+                {t('Verifying reset link…', 'جاري التحقق من رابط إعادة التعيين…')}
+              </p>
+            </div>
+          ) : linkState === 'invalid' ? (
+            <div className="flex flex-col items-center text-center py-6">
+              <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
+              <h2 className="text-[18px] mb-2" style={{ fontWeight: 600 }}>
+                {t('Reset link invalid or expired', 'رابط إعادة التعيين غير صالح أو منتهي')}
+              </h2>
+              <p className="text-muted-foreground text-[14px] mb-6 leading-relaxed">
+                {t(
+                  'This password reset link is no longer valid. Please request a new one.',
+                  'انتهت صلاحية رابط إعادة تعيين كلمة المرور. يرجى طلب رابط جديد.',
+                )}
+              </p>
+              <button
+                onClick={() => navigate('/login?forgot=1')}
+                className="w-full py-3 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] active:scale-[0.98] transition-all text-[15px]"
+                style={{ fontWeight: 600 }}
+              >
+                {t('Request a new reset link', 'طلب رابط جديد')}
+              </button>
+            </div>
+          ) : success ? (
             <div className="flex flex-col items-center text-center py-6">
               <CheckCircle2 className="w-16 h-16 text-green-500 mb-4" />
               <h2 className="text-[18px] mb-2" style={{ fontWeight: 600 }}>
