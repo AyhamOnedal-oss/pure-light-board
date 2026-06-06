@@ -188,6 +188,11 @@ export function ResetPasswordPage() {
                 >
                   {loading ? t('Updating...', 'جاري التحديث...') : t('Update Password', 'تحديث كلمة المرور')}
                 </button>
+                {submitError && (
+                  <p className="flex items-center gap-1 text-red-400 text-[12px] mt-2">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {submitError}
+                  </p>
+                )}
               </form>
             </>
           )}
