@@ -173,3 +173,124 @@ ${simpleFooter}
 </tbody></table>
 </td></tr></tbody></table></body></html>`;
 }
+
+export function ticketStatusUpdatedHtml(v: {
+  store_name: string;
+  ticket_number: string;
+  new_status: string;
+  ticket_title: string;
+  ticket_category: string;
+  ticket_priority: string;
+  ticket_link: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">📩</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">تم تحديث حالة تذكرتك</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
+  <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.7">تم تحديث حالة تذكرتك رقم <strong>${esc(v.ticket_number)}</strong> إلى:</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#ecfdf5;border:1px solid #10b981;border-radius:10px"><tbody><tr><td align="center" style="padding:16px;text-align:center">
+    <p style="margin:0;color:#065f46;font-size:18px;font-weight:700">${esc(v.new_status)}</p>
+  </td></tr></tbody></table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#f0f7ff;border-radius:10px"><tbody><tr><td style="padding:16px">
+    <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody>
+      <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb"><p style="margin:0">📌 <span style="color:#6b7280">العنوان:</span> ${esc(v.ticket_title)}</p></td></tr>
+      <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb"><p style="margin:0">🏷 <span style="color:#6b7280">التصنيف:</span> ${esc(v.ticket_category)}</p></td></tr>
+      <tr><td style="padding:6px 0"><p style="margin:0">⚡ <span style="color:#6b7280">الأولوية:</span> ${esc(v.ticket_priority)}</p></td></tr>
+    </tbody></table>
+  </td></tr></tbody></table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="${esc(v.ticket_link)}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:12px 28px" target="_blank">🔗 عرض التذكرة</a>
+  </td></tr></tbody></table>
+</td></tr>
+${simpleFooter}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
+
+export function subscriptionExpiredHtml(v: {
+  store_name: string;
+  expiry_date: string;
+  renewal_link: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#6b7280 0%,#4b5563 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">😔</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">انتهى اشتراكك في فقاعة AI</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#fef2f2;border:1px solid #ef4444;border-radius:10px"><tbody><tr><td align="center" style="padding:16px;text-align:center">
+    <p style="margin:0;color:#991b1b;font-size:14px">انتهى اشتراكك بتاريخ ${esc(v.expiry_date)}</p>
+  </td></tr></tbody></table>
+  <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">جدد الآن قبل أن تتعثر رسائل عملائك وتفقد الخدمة السريعة.</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="${esc(v.renewal_link)}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 جدد اشتراكك الآن</a>
+  </td></tr></tbody></table>
+</td></tr>
+${simpleFooter}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
+
+export function subscriptionExpiryWarningHtml(v: {
+  store_name: string;
+  days_remaining: string;
+  package_name: string;
+  renewal_link: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">⏰</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">باقتك ستنتهي قريبًا!</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#fef3c7;border:1px solid #f59e0b;border-radius:10px"><tbody><tr><td align="center" style="padding:16px;text-align:center">
+    <p style="margin:0 0 8px;color:#92400e;font-size:24px;font-weight:700">${esc(v.days_remaining)} يوم</p>
+    <p style="margin:0;color:#92400e;font-size:14px">متبقية على انتهاء باقة ${esc(v.package_name)}</p>
+  </td></tr></tbody></table>
+  <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">جدد الآن لتجنب توقف الخدمة أو قم بالترقية لزيادة رصيد الرسائل.</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="${esc(v.renewal_link)}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 تجديد الآن</a>
+  </td></tr></tbody></table>
+</td></tr>
+${simpleFooter}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
+
+export function storeDisconnectedHtml(v: {
+  store_name: string;
+  platform_name: string;
+  disconnect_date: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">⚠</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">تم إلغاء ربط متجرك</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
+  <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">تم إلغاء ربط متجرك مع منصة <strong>${esc(v.platform_name)}</strong> بتاريخ ${esc(v.disconnect_date)}</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#fef2f2;border:1px solid #ef4444;border-radius:10px"><tbody><tr><td style="padding:16px">
+    <p style="margin:0;color:#991b1b;font-size:13px;line-height:1.6">❌ <strong>تنبيه:</strong> لن يتم استقبال أو إرسال أي ردود تلقائية حتى تتم إعادة الربط.</p>
+  </td></tr></tbody></table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="${DASHBOARD_URL}/integrations" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 إعادة الربط الآن</a>
+  </td></tr></tbody></table>
+</td></tr>
+${simpleFooter}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
