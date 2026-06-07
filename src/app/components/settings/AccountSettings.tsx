@@ -170,6 +170,8 @@ export function AccountSettings() {
       setPwErrors({ newPw: error.message });
       return;
     }
+    // Fire-and-forget password-change notification email.
+    supabase.functions.invoke('send-password-changed').catch(() => {});
     resetPasswordModal();
     showToast(t('Password updated successfully', 'تم تحديث كلمة المرور بنجاح'));
   };
