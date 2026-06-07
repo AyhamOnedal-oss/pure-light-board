@@ -43,3 +43,9 @@ verify_jwt = false
 
 [functions.send-service-paused]
 verify_jwt = false
+
+[functions.send-ticket-status-updated]
+verify_jwt = false
+
+[functions.process-subscription-expiry]
+verify_jwt = false

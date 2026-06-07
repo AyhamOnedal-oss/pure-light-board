@@ -1467,36 +1467,45 @@ export type Database = {
         Row: {
           channel_quota: number
           created_at: string
+          expired_emailed_at: string | null
+          expiry_warned_for_date: string | null
           id: string
           monthly_word_quota: number
           monthly_words_used: number
           period_start: string
           seat_quota: number
           service_paused_emailed_period: string | null
+          subscription_end_date: string | null
           tenant_id: string
           updated_at: string
         }
         Insert: {
           channel_quota?: number
           created_at?: string
+          expired_emailed_at?: string | null
+          expiry_warned_for_date?: string | null
           id?: string
           monthly_word_quota?: number
           monthly_words_used?: number
           period_start?: string
           seat_quota?: number
           service_paused_emailed_period?: string | null
+          subscription_end_date?: string | null
           tenant_id: string
           updated_at?: string
         }
         Update: {
           channel_quota?: number
           created_at?: string
+          expired_emailed_at?: string | null
+          expiry_warned_for_date?: string | null
           id?: string
           monthly_word_quota?: number
           monthly_words_used?: number
           period_start?: string
           seat_quota?: number
           service_paused_emailed_period?: string | null
+          subscription_end_date?: string | null
           tenant_id?: string
           updated_at?: string
         }
