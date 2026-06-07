@@ -143,8 +143,9 @@ export async function provisionMerchantAccount(opts: {
     }
     const expiresDate = periodStart ? new Date(periodStart) : new Date();
     expiresDate.setUTCMonth(expiresDate.getUTCMonth() + 1);
-    const expiresAt = new Intl.DateTimeFormat("ar-SA", {
-      timeZone: "Asia/Riyadh", year: "numeric", month: "long", day: "numeric",
+    // Always Gregorian English to avoid Hijri month names like "محرم".
+    const expiresAt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Riyadh", year: "numeric", month: "short", day: "2-digit",
     }).format(expiresDate);
     const charactersCount = monthlyWordQuota > 0
       ? new Intl.NumberFormat("ar-SA").format(monthlyWordQuota * 5)
