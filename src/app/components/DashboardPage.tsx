@@ -108,7 +108,7 @@ export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const { metrics } = useDashboardMetrics(range);
+  const { metrics, topSubjects } = useDashboardMetrics(range);
   // Mock AI feedback for "Last 3 months" preset (visual demo only).
   const feedback = rangePreset === 'last3m' ? mockAiFeedback : metrics.feedback;
   const feedbackAnimationKey = rangePreset === 'last3m' ? 'feedback-last3m-mock' : 'feedback-live';
@@ -120,7 +120,9 @@ export function DashboardPage() {
     [feedback.positive, feedback.negative, language],
   );
   const [openInsight, setOpenInsight] = useState<string | null>(null);
-  const [issues, setIssues] = useState(insightIssues);
+  // Locally dismissed/resolved issue IDs per category (session only).
+  const [dismissed, setDismissed] = useState<Record<string, Set<string>>>({});
+  const [resolvedIds, setResolvedIds] = useState<Record<string, Set<string>>>({});
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
 
   // Lock body scroll when modal is open
