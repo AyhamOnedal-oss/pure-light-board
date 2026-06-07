@@ -262,8 +262,8 @@ export function DashboardPage() {
                 const color = up ? 'text-green-500' : 'text-red-500';
                 const sign = up ? '+' : '';
                 return (
-                  <span className={`text-[11px] flex items-center gap-1 ${color}`} style={{ fontWeight: 600 }}>
-                    <Icon className="w-3 h-3" />
+                  <span className={`text-[10px] flex items-center gap-0.5 ${color}`} style={{ fontWeight: 600 }}>
+                    <Icon className="w-2.5 h-2.5" />
                     {sign}{g.toFixed(1)}%
                   </span>
                 );
@@ -458,7 +458,7 @@ export function DashboardPage() {
                   className="text-[20px]"
                   style={{ fontWeight: 700, color: ins.color }}
                 />
-                <p className="text-[11px] text-[#043CC8]" style={{ fontWeight: 600 }}>
+                <p className="text-[10px] text-[#043CC8]" style={{ fontWeight: 600 }}>
                   {ins.clickLabel} →
                 </p>
               </div>
