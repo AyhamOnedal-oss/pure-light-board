@@ -65,6 +65,8 @@ const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "ot
 type Category = typeof ALLOWED_CATEGORIES[number];
 const ALLOWED_INTENTS = ["complaint", "inquiry", "request", "suggestion"] as const;
 type Intent = typeof ALLOWED_INTENTS[number];
+const ALLOWED_PRIORITIES = ["low", "medium", "high"] as const;
+type Priority = typeof ALLOWED_PRIORITIES[number];
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -230,13 +232,21 @@ Deno.serve(async (req) => {
     `  "subject": string,           // <= 80 chars, in the conversation's language`,
     `  "close_reason": string,      // <= 120 chars, why the conversation ended`,
     `  "completion_score": number,  // 0-100, how completely the customer was helped`,
-    `  "goal_met": boolean           // did the customer get what they came for?`,
+    `  "goal_met": boolean,          // did the customer get what they came for?`,
+    `  "priority": "low" | "medium" | "high"  // urgency, see guide below`,
     "}",
     "Scoring guide for completion_score:",
     " 90-100 = fully resolved, customer satisfied.",
     " 70-89  = mostly resolved, minor follow-up possible.",
     " 40-69  = partially resolved or escalated.",
     " 0-39   = unresolved, abandoned, or AI failed to help.",
+    "",
+    "Priority guide (urgency + sentiment):",
+    " high   = angry/frustrated tone, damaged or lost order, payment problems,",
+    "          explicit refund/cancellation demands, repeated complaints,",
+    "          threats to leave, urgent time-sensitive request.",
+    " medium = clear complaint or actionable request without strong urgency cues.",
+    " low    = simple inquiry, suggestion, casual question, greeting only.",
   ].join("\n");
 
   let openaiRes: Response;
@@ -277,6 +287,7 @@ Deno.serve(async (req) => {
     close_reason?: string;
     completion_score?: number;
     goal_met?: boolean;
+    priority?: string;
   };
   try {
     parsed = JSON.parse(raw);
@@ -297,6 +308,9 @@ Deno.serve(async (req) => {
     completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
   }
   const goal_met: boolean | null = typeof parsed.goal_met === "boolean" ? parsed.goal_met : null;
+  const priority: Priority = (ALLOWED_PRIORITIES as readonly string[]).includes(parsed.priority ?? "")
+    ? (parsed.priority as Priority)
+    : "medium";
 
   const { error: updErr } = await supabase
     .from("conversations_main")
@@ -316,5 +330,15 @@ Deno.serve(async (req) => {
     return json({ error: "update_failed" }, 500);
   }
 
-  return json({ ok: true, category, intent_type, subject, completion_score, goal_met });
+  // Propagate priority (+ category) to any tickets linked to this conversation.
+  const { error: tkErr } = await supabase
+    .from("tickets_main")
+    .update({ priority, category: category === "other" ? null : category })
+    .eq("conversation_id", conversation_id)
+    .eq("tenant_id", tenant_id);
+  if (tkErr) {
+    console.error("classify-conversation: ticket priority update failed", tkErr);
+  }
+
+  return json({ ok: true, category, intent_type, subject, completion_score, goal_met, priority });
 });

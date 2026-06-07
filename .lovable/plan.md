@@ -1,23 +1,28 @@
-## Fix WhatsApp wa.me links in Tickets
+## AI-assigned ticket priority + priority sort
 
-The current WhatsApp link in Tickets strips `+` and spaces but leaves the local trunk `0` after the country code, producing invalid `wa.me` URLs like `9620796675249` instead of `962796675249`.
+Currently every ticket from the widget is saved with `priority='medium'` and the list is sorted purely by `created_at`. Add AI urgency-based priority and sort the list by priority.
 
 ### Changes
 
-1. **Widget — store correct international number**
-   - `widget/src/app/components/ChatWindow.tsx`
-   - In both `handleInlineTicketSubmit` and `handleTicketFormSubmit`, strip leading `0` from the local phone digits before concatenating with `dialCode`.
-   - This makes `customer_phone` store true E.164-ish format (e.g. `+962796675249`).
+1. **`supabase/functions/classify-conversation/index.ts`**
+   - Extend the system prompt to also output `priority: "high" | "medium" | "low"` based on customer urgency + sentiment:
+     - **high** — angry tone, escalation language, damaged/lost order, payment problem, repeated complaints, explicit refund/cancellation demands, threats to leave.
+     - **medium** — clear request or complaint without strong urgency cues.
+     - **low** — inquiries, suggestions, casual questions, greetings only.
+   - Validate the value against `['low','medium','high']`, default to `medium`.
+   - After updating `conversations_main`, also update the linked ticket(s):
+     `update tickets_main set priority = <priority> where conversation_id = <id> and tenant_id = <id>`.
 
-2. **Dashboard — robust wa.me normalization**
-   - `src/app/components/TicketsPage.tsx`
-   - Add a `toWhatsAppUrl(phone)` helper that:
-     - Keeps only digits
-     - Recognises the known MENA country codes used in the app (962, 966, 971, 965, 974, 973, 968, 967, 964, 20)
-     - Removes a leading `0` that appears immediately after the country code
-     - Produces `https://wa.me/<normalized>`
-   - Replace the inline `href={`https://wa.me/...`}` with this helper.
-   - This fixes existing tickets that were already saved with the extra `0`, and future tickets once the widget fix lands.
+2. **`src/app/components/TicketsPage.tsx`**
+   - In `loadTickets`, after mapping rows, sort by:
+     1. `status` — open first, closed last
+     2. `priority` — high (3) → medium (2) → low (1)
+     3. `createdAt` desc as final tie-breaker
+   - Remove reliance on DB `order by created_at` alone (keep the query for initial fetch, but resort in JS).
 
-### Result
-Clicking the WhatsApp icon in any ticket opens `wa.me/962796675249` (etc.) correctly.
+3. **Backfill** — none needed. Existing tickets keep their current `medium` priority; new conversations get AI-assigned priority going forward. Re-analyze button (already in the UI) will refresh priority for old tickets on demand.
+
+### Technical notes
+- The OpenAI JSON schema gains one field; cost impact is negligible.
+- Ticket priority is updated by service-role from the edge function, so it works even though the conversation owner isn't authenticated.
+- `priority` enum on `tickets_main` already includes `low|medium|high|urgent`. We map `urgent → high` in the UI (existing behavior), so no migration.
