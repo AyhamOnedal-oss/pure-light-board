@@ -417,7 +417,7 @@ export function ConversationsPage() {
                 {selected.chatStatus === 'open' ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                 {selected.chatStatus === 'open' ? t('Open', 'مفتوحة') : t('Closed', 'مغلقة')}
               </span>
-              {selected.chatStatus === 'closed' && selected.closeReason && (() => {
+              {selected.chatStatus === 'closed' && selected.closeReason && !selected.hasTicket && (() => {
                 const r = closeReasonMap[selected.closeReason];
                 const Icon = r.icon;
                 return (
