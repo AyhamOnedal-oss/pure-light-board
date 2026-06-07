@@ -552,11 +552,11 @@ export function DashboardPage() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <ThumbsUp className="w-4 h-4 text-green-500" />
-              <span className="text-[13px] text-green-500" style={{ fontWeight: 600 }}>847</span>
+              <span className="text-[13px] text-green-500" style={{ fontWeight: 600 }}>{feedback.positive}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ThumbsDown className="w-4 h-4 text-red-400" />
-              <span className="text-[13px] text-red-400" style={{ fontWeight: 600 }}>53</span>
+              <span className="text-[13px] text-red-400" style={{ fontWeight: 600 }}>{feedback.negative}</span>
             </div>
           </div>
         </div>
