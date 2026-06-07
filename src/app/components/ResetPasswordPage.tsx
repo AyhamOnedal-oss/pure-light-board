@@ -5,6 +5,7 @@ import { Eye, EyeOff, Globe, Moon, Sun, CheckCircle2, AlertCircle } from 'lucide
 import { useNavigate } from 'react-router';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
+import { normalizePassword } from '../utils/authInput';
 
 export function ResetPasswordPage() {
   const { t, theme, setTheme, language, setLanguage } = useApp();
@@ -54,12 +55,14 @@ export function ResetPasswordPage() {
     e.preventDefault();
     const newErrors: typeof errors = {};
 
-    const pwError = validatePassword(newPassword);
+    const normNew = normalizePassword(newPassword);
+    const normConfirm = normalizePassword(confirmPassword);
+    const pwError = validatePassword(normNew);
     if (pwError) newErrors.newPassword = pwError;
 
-    if (!confirmPassword) {
+    if (!normConfirm) {
       newErrors.confirmPassword = t('Please confirm your password', 'يرجى تأكيد كلمة المرور');
-    } else if (newPassword !== confirmPassword) {
+    } else if (normNew !== normConfirm) {
       newErrors.confirmPassword = t('Passwords do not match', 'كلمات المرور غير متطابقة');
     }
 
@@ -68,7 +71,7 @@ export function ResetPasswordPage() {
 
     setLoading(true);
     setSubmitError(null);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({ password: normNew });
     setLoading(false);
     if (error) {
       setSubmitError(
