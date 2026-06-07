@@ -276,50 +276,7 @@ export function StoreInfo() {
         )}
       </div>
 
-      {widgetSnippet && (
-        <div className="bg-card rounded-2xl p-6 border border-border shadow-sm space-y-3">
-          <div>
-            <h2 className="text-[16px]" style={{ fontWeight: 700 }}>
-              {t('Install widget on your Zid store', 'تركيب الفقاعة على متجر زد')}
-            </h2>
-            <p className="text-[12px] text-muted-foreground mt-1">
-              {t(
-                'If the chat bubble does not appear automatically on your storefront, paste this snippet into your Zid theme header (Theme Editor → Custom Code → Header).',
-                'إذا لم تظهر فقاعة الدردشة تلقائياً على متجرك، الصق هذا الكود في رأس قالب زد (محرر القالب ← الأكواد المخصصة ← Header).',
-              )}
-            </p>
-          </div>
-
-          <pre
-            dir="ltr"
-            className="text-[12px] bg-muted text-foreground rounded-xl p-4 overflow-x-auto leading-relaxed whitespace-pre"
-            style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-          >{widgetSnippet}</pre>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={copySnippet}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#043CC8] text-white text-[13px] hover:bg-[#0330a0] active:scale-[0.98] transition-all"
-              style={{ fontWeight: 500 }}
-            >
-              {snippetCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {snippetCopied ? t('Copied', 'تم النسخ') : t('Copy snippet', 'نسخ الكود')}
-            </button>
-            {zidStoreId && (
-              <span className="text-[11px] text-muted-foreground" dir="ltr">
-                Store ID: {zidStoreId}
-              </span>
-            )}
-          </div>
-
-          <p className="text-[11px] text-muted-foreground/80">
-            {t(
-              'Tip: the {{store.id}} and {{store.uuid}} placeholders are filled in automatically by Zid when the theme renders.',
-              'ملاحظة: العناصر {{store.id}} و{{store.uuid}} تُملأ تلقائياً من قِبل زد عند تحميل القالب.',
-            )}
-          </p>
-        </div>
-      )}
+    </div>
     </div>
   );
 }
