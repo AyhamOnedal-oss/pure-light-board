@@ -81,7 +81,13 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/check-email', element: <LoginPage /> },
   { path: '/admin/login', element: <AdminLoginPage /> },
-  { path: '/reset-password', element: <ResetPasswordPage /> },
+  {
+    path: '/reset-password',
+    element: <ResetPasswordPage />,
+    // Never let an upstream render error blank the reset page — render
+    // the form itself so the user can still set a new password.
+    errorElement: <ResetPasswordPage />,
+  },
   // Storefront chat iframe target — public, no auth, no dashboard chrome.
   // Used by supabase/functions/widget-loader as the iframe.src.
   { path: '/widget/chat', element: <WidgetChatPage /> },

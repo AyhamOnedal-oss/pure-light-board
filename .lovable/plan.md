@@ -1,23 +1,20 @@
-### Goal
-Make the Arabic password reset email button open the app’s `/reset-password` page directly with recovery tokens preserved, so the user always sees the new-password fields instead of landing on `lovable.dev/auth-bridge` or a blank bridge page.
+## Diagnosis
+The reset-password route and component exist in the published bundle, and the email button reaches `/reset-password` with Supabase recovery tokens in the URL hash. The blank page is likely caused by frontend startup/auth URL parsing failing before the reset form can render, leaving no visible fallback.
 
-### Plan
-1. Update `supabase/functions/send-password-reset/index.ts`
-   - Keep sending only the custom Arabic email.
-   - Stop placing Supabase’s raw `action_link` directly in the Arabic email button, because that link currently routes through `lovable.dev/auth-bridge`.
-   - Extract the token/hash portion from Supabase’s generated recovery link.
-   - Build the email button URL as: `https://<app-origin>/reset-password#access_token=...&refresh_token=...&type=recovery...`
-   - This keeps Supabase recovery credentials while bypassing the bridge page.
+## Plan
+1. Add a small route-level error fallback so `/reset-password` never renders a completely blank page if React/router/auth startup throws.
+2. Harden `ResetPasswordPage` so it:
+   - parses recovery tokens immediately from both hash and query;
+   - shows the reset form as soon as tokens are present;
+   - does not wait indefinitely on Supabase session restoration;
+   - keeps a visible invalid/expired-link state for failed links.
+3. Adjust the Supabase client auth options for this app’s custom recovery flow to prevent Supabase’s automatic URL parsing from racing with the reset page’s explicit token handling.
+4. Keep the email link format unchanged unless the above still exposes a redirect/session issue; then normalize the edge-function redirect to always land on `/reset-password#...` with tokens.
 
-2. Harden fallback behavior
-   - If token extraction fails for any reason, fall back safely to the original generated link rather than breaking email delivery.
-   - Continue returning `ok: true` to avoid email enumeration.
+## Files to update
+- `src/integrations/supabase/client.ts`
+- `src/app/components/ResetPasswordPage.tsx`
+- `src/app/routes.tsx`
 
-3. Update `src/app/components/ResetPasswordPage.tsx`
-   - Recognize recovery tokens arriving in either `hash` or query params.
-   - If the page is opened through `/auth-bridge` or with bridge-style params, redirect/normalize to `/reset-password` while preserving tokens.
-   - Keep the expired/single-use link message and “طلب رابط جديد” button for reused links.
-
-4. Validate the flow
-   - Confirm the login “forgot password” flow still calls `send-password-reset` with `/reset-password` as `redirectTo`.
-   - Verify the reset page renders the password fields when tokens are present, and shows the expired-link state when tokens are absent or invalid.
+## Verification
+After implementation, test the reset URL shape shown in the screenshot by loading `/reset-password#access_token=...&refresh_token=...&type=recovery` and confirm the reset form appears instead of a blank page.
