@@ -160,11 +160,12 @@ Deno.serve(async (req) => {
     } catch (_) { /* ignore */ }
 
     const now = new Date();
-    const requestDate = new Intl.DateTimeFormat("ar-SA-u-ca-gregory", {
-      timeZone: "Asia/Riyadh", year: "numeric", month: "long", day: "numeric",
+    // Always Gregorian English to avoid Hijri month names like "محرم".
+    const requestDate = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Riyadh", year: "numeric", month: "short", day: "2-digit",
     }).format(now);
-    const requestTime = new Intl.DateTimeFormat("ar-SA", {
-      timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: true,
+    const requestTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(now);
 
     const html = resetEmailHtml({

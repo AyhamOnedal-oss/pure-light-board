@@ -305,6 +305,7 @@ Deno.serve(async (req) => {
       is_active: true,
       connection_status: "connected",
       connected_at: new Date().toISOString(),
+      last_refreshed_at: new Date().toISOString(),
     };
     if (tenantId) upsertRow.tenant_id = tenantId;
 

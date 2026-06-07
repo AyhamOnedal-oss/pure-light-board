@@ -5,7 +5,9 @@ import {
   EMPTY_METRICS,
   fetchDashboardMetrics,
   fetchTopSubjectsByCategory,
+  fetchRecentAiFeedback,
   type TopSubject,
+  type RecentAiFeedback,
   type DashboardMetrics,
   type DateRange,
 } from '../services/metrics';
@@ -25,6 +27,7 @@ export function useDashboardMetrics(range?: DateRange) {
   const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>({
     complaint: [], inquiry: [], request: [], suggestion: [], other: [],
   });
+  const [recentFeedback, setRecentFeedback] = useState<RecentAiFeedback[]>([]);
   const [loading, setLoading] = useState(true);
   const refetchTimer = useRef<number | null>(null);
   const fromKey = range?.from.getTime();
@@ -39,13 +42,15 @@ export function useDashboardMetrics(range?: DateRange) {
 
     let cancelled = false;
     const load = async () => {
-      const [m, subs] = await Promise.all([
+      const [m, subs, fb] = await Promise.all([
         fetchDashboardMetrics(tenantId, range),
         fetchTopSubjectsByCategory(tenantId, range),
+        fetchRecentAiFeedback(tenantId, range),
       ]);
       if (!cancelled) {
         setMetrics(m);
         setTopSubjects(subs);
+        setRecentFeedback(fb);
         setLoading(false);
       }
     };
@@ -75,5 +80,5 @@ export function useDashboardMetrics(range?: DateRange) {
     };
   }, [tenantId, fromKey, toKey]);
 
-  return { metrics, topSubjects, loading };
+  return { metrics, topSubjects, recentFeedback, loading };
 }

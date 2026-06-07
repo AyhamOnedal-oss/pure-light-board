@@ -195,11 +195,12 @@ Deno.serve(async (req) => {
     }
 
     const now = new Date();
-    const loginDate = new Intl.DateTimeFormat("ar-SA-u-ca-gregory", {
-      timeZone: "Asia/Riyadh", year: "numeric", month: "long", day: "numeric",
+    // Always Gregorian English to avoid Hijri month names like "محرم".
+    const loginDate = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Riyadh", year: "numeric", month: "short", day: "2-digit",
     }).format(now);
-    const loginTime = new Intl.DateTimeFormat("ar-SA", {
-      timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: true,
+    const loginTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(now);
 
     const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";

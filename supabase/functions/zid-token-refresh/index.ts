@@ -17,14 +17,22 @@ Deno.serve(async (req) => {
 
   const clientId = Deno.env.get("ZID_CLIENT_ID")!;
   const clientSecret = Deno.env.get("ZID_CLIENT_SECRET")!;
+  const redirectUri = `${Deno.env.get("SUPABASE_URL")}/functions/v1/zid-oauth-callback`;
 
-  // Tenants whose access token expires within 30 days
-  const cutoff = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  // Zid access tokens & refresh tokens expire after 1 year. Per the docs we
+  // must refresh before ~10 months pass. We pick connections that either:
+  //   - expire within the next 60 days, OR
+  //   - haven't been refreshed in 270 days (≈ 9 months), OR
+  //   - are already in refresh_failed state (retry).
+  const cutoff = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+  const refreshAgeCutoff = new Date(Date.now() - 270 * 24 * 60 * 60 * 1000).toISOString();
   const { data: rows, error } = await supabase
     .from("zid_connections")
-    .select("tenant_id, refresh_token, token_expires_at")
+    .select("tenant_id, refresh_token, token_expires_at, last_refreshed_at, connection_status")
     .eq("is_active", true)
-    .lt("token_expires_at", cutoff);
+    .or(
+      `token_expires_at.lt.${cutoff},last_refreshed_at.lt.${refreshAgeCutoff},last_refreshed_at.is.null,connection_status.eq.refresh_failed`,
+    );
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
@@ -46,6 +54,7 @@ Deno.serve(async (req) => {
         refresh_token: row.refresh_token,
         client_id: clientId,
         client_secret: clientSecret,
+        redirect_uri: redirectUri,
       });
       const resp = await fetch(ZID_TOKEN_URL, {
         method: "POST",
@@ -74,6 +83,7 @@ Deno.serve(async (req) => {
       const expiresAt = new Date(
         Date.now() + (Number(json.expires_in) || 31536000) * 1000,
       ).toISOString();
+      const nowIso = new Date().toISOString();
 
       await supabase
         .from("zid_connections")
@@ -83,7 +93,8 @@ Deno.serve(async (req) => {
           refresh_token: json.refresh_token ?? row.refresh_token,
           token_expires_at: expiresAt,
           connection_status: "connected",
-          updated_at: new Date().toISOString(),
+          updated_at: nowIso,
+          last_refreshed_at: nowIso,
         })
         .eq("tenant_id", row.tenant_id);
 

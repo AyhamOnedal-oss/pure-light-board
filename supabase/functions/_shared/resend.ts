@@ -34,17 +34,19 @@ export async function sendResendEmail(opts: {
   }
 }
 
-// Format a Date in Asia/Riyadh using Arabic-Saudi locale.
+// Format a Date in Asia/Riyadh using the Gregorian English calendar.
+// We intentionally avoid `ar-SA` because it returns Hijri month names
+// (e.g. "محرم") which look broken in transactional emails.
 export function formatRiyadhDate(d: Date): string {
-  return new Intl.DateTimeFormat("ar-SA", {
+  return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Riyadh",
-    year: "numeric", month: "long", day: "numeric",
+    year: "numeric", month: "short", day: "2-digit",
   }).format(d);
 }
 
 export function formatRiyadhTime(d: Date): string {
-  return new Intl.DateTimeFormat("ar-SA", {
+  return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Riyadh",
-    hour: "2-digit", minute: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(d);
 }

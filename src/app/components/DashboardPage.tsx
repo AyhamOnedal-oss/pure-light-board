@@ -13,6 +13,7 @@ import {
   TooltipProps
 } from 'recharts';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
+import type { RecentAiFeedback } from '../services/metrics';
 import { DateRangePicker, computeRange, type RangePreset } from './dashboard/DateRangePicker';
 import type { DateRange } from '../services/metrics';
 
@@ -30,8 +31,6 @@ function formatSeconds(s: number): string {
   const rem = Math.round(s - m * 60);
   return `${m}m ${rem}s`;
 }
-
-const mockAiFeedback = { positive: 842, negative: 96, total: 938 };
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
 function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> & { isDark: boolean }) {
@@ -57,10 +56,9 @@ export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const { metrics, topSubjects } = useDashboardMetrics(range);
-  // Mock AI feedback for "Last 3 months" preset (visual demo only).
-  const feedback = rangePreset === 'last3m' ? mockAiFeedback : metrics.feedback;
-  const feedbackAnimationKey = rangePreset === 'last3m' ? 'feedback-last3m-mock' : 'feedback-live';
+  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range);
+  const feedback = metrics.feedback;
+  const feedbackAnimationKey = 'feedback-live';
   const feedbackPieData = useMemo(
     () => [
       { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
@@ -317,23 +315,42 @@ export function DashboardPage() {
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Customer Rating', 'تقييم العملاء')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Average customer satisfaction', 'متوسط رضا العملاء')}</p>
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="flex items-center gap-1.5 mb-3">
-              {[1, 2, 3, 4, 5].map(s => (
-                <motion.div
-                  key={s}
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.3, delay: 0.6 + s * 0.1 }}
-                >
-                  <Star className={`w-7 h-7 ${s <= 4 ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
-                </motion.div>
-              ))}
+          {metrics.csat.total === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-4 py-8">
+              <div className="text-[32px] mb-2">⭐</div>
+              <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                {t('No ratings yet', 'لا توجد تقييمات بعد')}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {t('Ratings will appear once customers rate conversations', 'ستظهر التقييمات بمجرد تقييم العملاء للمحادثات')}
+              </p>
             </div>
-            <AnimatedValue value="4.8" duration={2000} delay={800} className="text-[38px] block text-foreground" style={{ fontWeight: 800 }} />
-            <p className="text-muted-foreground text-[13px]" style={{ fontWeight: 500 }}>{t('out of 5.0', 'من 5.0')}</p>
-            <p className="text-muted-foreground/60 text-[11px] mt-1.5">{t('Based on 1,247 ratings', 'بناءً على 1,247 تقييم')}</p>
-          </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <div className="flex items-center gap-1.5 mb-3">
+                {[1, 2, 3, 4, 5].map(s => {
+                  const rounded = Math.round(metrics.csat.avg);
+                  return (
+                    <motion.div
+                      key={s}
+                      initial={{ opacity: 0, scale: 0 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, delay: 0.6 + s * 0.1 }}
+                    >
+                      <Star className={`w-7 h-7 ${s <= rounded ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
+                    </motion.div>
+                  );
+                })}
+              </div>
+              <AnimatedValue value={metrics.csat.avg.toFixed(1)} duration={2000} delay={800} className="text-[38px] block text-foreground" style={{ fontWeight: 800 }} />
+              <p className="text-muted-foreground text-[13px]" style={{ fontWeight: 500 }}>{t('out of 5.0', 'من 5.0')}</p>
+              <p className="text-muted-foreground/60 text-[11px] mt-1.5">
+                {language === 'ar'
+                  ? `بناءً على ${metrics.csat.total.toLocaleString('ar-EG')} تقييم`
+                  : `Based on ${metrics.csat.total.toLocaleString('en-US')} ratings`}
+              </p>
+            </div>
+          )}
         </motion.div>
 
         {/* AI Feedback Chart — positive vs negative donut */}
@@ -535,136 +552,56 @@ export function DashboardPage() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <ThumbsUp className="w-4 h-4 text-green-500" />
-              <span className="text-[13px] text-green-500" style={{ fontWeight: 600 }}>847</span>
+              <span className="text-[13px] text-green-500" style={{ fontWeight: 600 }}>{feedback.positive}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ThumbsDown className="w-4 h-4 text-red-400" />
-              <span className="text-[13px] text-red-400" style={{ fontWeight: 600 }}>53</span>
+              <span className="text-[13px] text-red-400" style={{ fontWeight: 600 }}>{feedback.negative}</span>
             </div>
           </div>
         </div>
         <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="overflow-y-auto" style={{ maxHeight: 'calc(5 * 88px)' }}>
-            {[
-              { id: 'fb1', msgEn: 'Your order #45231 has been shipped via Aramex and is expected to arrive within 2-3 business days. Here is your tracking link.', msgAr: 'تم شحن طلبك رقم #45231 عبر أرامكس ومن المتوقع وصوله خلال 2-3 أيام عمل. إليك رابط التتبع.', result: 'positive' as const, analysisEn: 'Accurate shipping info with tracking link provided.', analysisAr: 'معلومات شحن دقيقة مع رابط تتبع.',
-                convoEn: [
-                  { from: 'customer', text: 'Where is my order #45231?' },
-                  { from: 'ai', text: 'Your order #45231 has been shipped via Aramex and is expected to arrive within 2-3 business days. Here is your tracking link.' },
-                  { from: 'customer', text: 'Thank you so much!' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'وين طلبي رقم #45231؟' },
-                  { from: 'ai', text: 'تم شحن طلبك رقم #45231 عبر أرامكس ومن المتوقع وصوله خلال 2-3 أيام عمل. إليك رابط التتبع.' },
-                  { from: 'customer', text: 'شكراً جزيلاً!' },
-                ],
-              },
-              { id: 'fb2', msgEn: 'I understand your concern about the delayed delivery. I have escalated this to our logistics team and you will receive an update within 24 hours.', msgAr: 'أتفهم قلقك بشأن التأخر في التوصيل. لقد رفعت هذا الأمر لفريق الخدمات اللوجستية وستتلقى تحديثاً خلال 24 ساعة.', result: 'positive' as const, analysisEn: 'Empathetic response with clear escalation and timeline.', analysisAr: 'رد متعاطف مع تصعيد واضح وجدول زمني.',
-                convoEn: [
-                  { from: 'customer', text: 'My delivery is 5 days late! This is unacceptable.' },
-                  { from: 'ai', text: 'I understand your concern about the delayed delivery. I have escalated this to our logistics team and you will receive an update within 24 hours.' },
-                  { from: 'customer', text: 'Okay, please make it fast.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'طلبي متأخر 5 أيام! هذا غير مقبول.' },
-                  { from: 'ai', text: 'أتفهم قلقك بشأن التأخر في التوصيل. لقد رفعت هذا الأمر لفريق الخدمات اللوجستية وستتلقى تحديثاً خلال 24 ساعة.' },
-                  { from: 'customer', text: 'طيب، أرجو الإسراع.' },
-                ],
-              },
-              { id: 'fb3', msgEn: 'Based on our return policy, you can return this item within 14 days of delivery. I can initiate the return process for you right now.', msgAr: 'بناءً على سياسة الإرجاع، يمكنك إرجاع هذا المنتج خلال 14 يوماً من التسليم. يمكنني بدء عملية الإرجاع لك الآن.', result: 'positive' as const, analysisEn: 'Clear policy explanation with proactive assistance.', analysisAr: 'شرح واضح للسياسة مع مساعدة استباقية.',
-                convoEn: [
-                  { from: 'customer', text: "I want to return the shoes I bought. They don't fit." },
-                  { from: 'ai', text: 'Based on our return policy, you can return this item within 14 days of delivery. I can initiate the return process for you right now.' },
-                  { from: 'customer', text: 'Yes please, go ahead.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'أبي أرجع الحذاء اللي شريته. ما ناسبني.' },
-                  { from: 'ai', text: 'بناءً على سياسة الإرجاع، يمكنك إرجاع هذا المنتج خلال 14 يوماً من التسليم. يمكنني بدء عملية الإرجاع لك الآن.' },
-                  { from: 'customer', text: 'تمام، كمل.' },
-                ],
-              },
-              { id: 'fb4', msgEn: 'Your refund of 350 SAR has been processed successfully. It will reflect in your account within 5-7 business days.', msgAr: 'تم معالجة استرجاعك البالغ 350 ريال بنجاح. سينعكس في حسابك خلال 5-7 أيام عمل.', result: 'positive' as const, analysisEn: 'Confirmed refund with expected timeline.', analysisAr: 'تأكيد الاسترجاع مع الجدول الزمني المتوقع.',
-                convoEn: [
-                  { from: 'customer', text: 'When will I receive my refund?' },
-                  { from: 'ai', text: 'Your refund of 350 SAR has been processed successfully. It will reflect in your account within 5-7 business days.' },
-                  { from: 'customer', text: 'Perfect, thanks!' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'متى يوصلني الاسترجاع؟' },
-                  { from: 'ai', text: 'تم معالجة استرجاعك البالغ 350 ريال بنجاح. سينعكس في حسابك خلال 5-7 أيام عمل.' },
-                  { from: 'customer', text: 'ممتاز، شكراً!' },
-                ],
-              },
-              { id: 'fb5', msgEn: 'We currently accept Visa, Mastercard, Mada, Apple Pay, and cash on delivery for orders within Riyadh. Would you like help placing an order?', msgAr: 'نقبل حالياً فيزا وماستركارد ومدى وApple Pay والدفع عند الاستلام للطلبات داخل الرياض. هل تريد المساعدة في تقديم طلب؟', result: 'positive' as const, analysisEn: 'Comprehensive payment info with helpful follow-up.', analysisAr: 'معلومات دفع شاملة مع متابعة مفيدة.',
-                convoEn: [
-                  { from: 'customer', text: 'What payment methods do you accept?' },
-                  { from: 'ai', text: 'We currently accept Visa, Mastercard, Mada, Apple Pay, and cash on delivery for orders within Riyadh. Would you like help placing an order?' },
-                  { from: 'customer', text: 'Do you support STC Pay?' },
-                  { from: 'ai', text: 'Unfortunately STC Pay is not available at the moment, but we are working on adding it soon.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'ايش طرق الدفع عندكم؟' },
-                  { from: 'ai', text: 'نقبل حالياً فيزا وماستركارد ومدى وApple Pay والدفع عند الاستلام للطلبات داخل الرياض. هل تريد المساعدة في تقديم طلب؟' },
-                  { from: 'customer', text: 'عندكم STC Pay؟' },
-                  { from: 'ai', text: 'للأسف STC Pay غير متاح حالياً، لكن نعمل على إضافته قريباً.' },
-                ],
-              },
-              { id: 'fb6', msgEn: "I apologize but I'm unable to process warranty claims directly. Let me connect you with our specialized warranty team for faster resolution.", msgAr: 'أعتذر ولكن لا أستطيع معالجة مطالبات الضمان مباشرة. دعني أوصلك بفريق الضمان المتخصص لحل أسرع.', result: 'negative' as const, analysisEn: 'Failed to resolve directly — customer expressed frustration.', analysisAr: 'فشل في الحل المباشر — العميل أبدى إحباطه.',
-                convoEn: [
-                  { from: 'customer', text: 'My phone screen cracked after 2 weeks. I need warranty.' },
-                  { from: 'ai', text: "I apologize but I'm unable to process warranty claims directly. Let me connect you with our specialized warranty team for faster resolution." },
-                  { from: 'customer', text: "This is frustrating. Why can't you help me directly?" },
-                  { from: 'ai', text: 'I understand your frustration. Warranty claims require specialist verification. I have notified the team and they will contact you within 2 hours.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'شاشة جوالي انكسرت بعد أسبوعين. أبي الضمان.' },
-                  { from: 'ai', text: 'أعتذر ولكن لا أستطيع معالجة مطالبات الضمان مباشرة. دعني أوصلك بفريق الضمان المتخصص لحل أسرع.' },
-                  { from: 'customer', text: 'هذا محبط. ليه ما تقدر تساعدني مباشرة؟' },
-                  { from: 'ai', text: 'أتفهم إحباطك. مطالبات الضمان تحتاج تحقق متخصص. أبلغت الفريق وسيتواصلون معك خلال ساعتين.' },
-                ],
-              },
-              { id: 'fb7', msgEn: "The product you're looking for is currently out of stock. Based on our records, it's expected to be restocked by April 20, 2026. I can notify you when it's available.", msgAr: 'المنتج الذي تبحث عنه غير متوفر حالياً. بناءً على سجلاتنا، من المتوقع إعادة توفيره بحلول 20 أبريل 2026. يمكنني إخطارك عند توفره.', result: 'positive' as const, analysisEn: 'Helpful stock update with notification offer.', analysisAr: 'تحديث مفيد للمخزون مع عرض الإشعار.',
-                convoEn: [
-                  { from: 'customer', text: 'Is the Nike Air Max available in size 42?' },
-                  { from: 'ai', text: "The product you're looking for is currently out of stock. Based on our records, it's expected to be restocked by April 20, 2026. I can notify you when it's available." },
-                  { from: 'customer', text: 'Yes, please notify me.' },
-                  { from: 'ai', text: 'Done! You will receive a notification as soon as it is back in stock.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'هل Nike Air Max متوفر بمقاس 42؟' },
-                  { from: 'ai', text: 'المنتج الذي تبحث عنه غير متوفر حالياً. بناءً على سجلاتنا، من المتوقع إعادة توفيره بحلول 20 أبريل 2026. يمكنني إخطارك عند توفره.' },
-                  { from: 'customer', text: 'تمام، نبهني لو رجع.' },
-                  { from: 'ai', text: 'تم! ستصلك إشعار فور توفره مرة أخرى.' },
-                ],
-              },
-            ].map((row) => {
-              const isPositive = row.result === 'positive';
-              return (
-                <div
-                  key={row.id}
-                  className="px-5 py-3.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer flex items-start gap-3.5"
-                  onClick={() => setFeedbackConvo(row)}
-                >
-                  {/* Final feedback icon */}
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${isPositive ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
-                    {isPositive ? (
-                      <ThumbsUp className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <ThumbsDown className="w-4 h-4 text-red-400" />
-                    )}
+            {recentFeedback.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+                <div className="text-[32px] mb-2">💬</div>
+                <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                  {t('No AI feedback yet', 'لا توجد تقييمات على رسائل الذكاء الاصطناعي بعد')}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t('Customer thumbs up/down on AI replies will appear here', 'ستظهر هنا تقييمات العملاء على ردود الذكاء الاصطناعي')}
+                </p>
+              </div>
+            ) : (
+              recentFeedback.map((row) => {
+                const isPositive = row.feedback === 'positive';
+                return (
+                  <div
+                    key={row.id}
+                    className="px-5 py-3.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer flex items-start gap-3.5"
+                    onClick={() => setFeedbackConvo(row)}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${isPositive ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
+                      {isPositive ? (
+                        <ThumbsUp className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <ThumbsDown className="w-4 h-4 text-red-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
+                        {new Date(row.created_at).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-GB', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                        })}
+                      </p>
+                      <p className="text-[13px] text-foreground break-words line-clamp-5" style={{ fontWeight: 400 }}>
+                        {row.body || t('(empty message)', '(رسالة فارغة)')}
+                      </p>
+                    </div>
                   </div>
-
-                  {/* Analysis + Message */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
-                      {language === 'ar' ? row.analysisAr : row.analysisEn}
-                    </p>
-                    <p className="text-[13px] text-foreground break-words line-clamp-5" style={{ fontWeight: 400 }}>
-                      {language === 'ar' ? row.msgAr : row.msgEn}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       </motion.div>
@@ -690,17 +627,17 @@ export function DashboardPage() {
             >
               {/* Header */}
               <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border bg-muted/20 shrink-0">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${feedbackConvo.result === 'positive' ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
-                  {feedbackConvo.result === 'positive' ? (
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${feedbackConvo.feedback === 'positive' ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
+                  {feedbackConvo.feedback === 'positive' ? (
                     <ThumbsUp className="w-4 h-4 text-green-500" />
                   ) : (
                     <ThumbsDown className="w-4 h-4 text-red-400" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[15px] truncate" style={{ fontWeight: 600 }}>{t('Conversation Details', 'تفاصيل المحادثة')}</h3>
+                  <h3 className="text-[15px] truncate" style={{ fontWeight: 600 }}>{t('AI Reply', 'رد الذكاء الاصطناعي')}</h3>
                   <p className="text-[11px] text-muted-foreground">
-                    {feedbackConvo.result === 'positive' ? t('Positive feedback', 'تقييم إيجابي') : t('Negative feedback', 'تقييم سلبي')}
+                    {feedbackConvo.feedback === 'positive' ? t('Positive feedback', 'تقييم إيجابي') : t('Negative feedback', 'تقييم سلبي')}
                   </p>
                 </div>
                 <button onClick={() => setFeedbackConvo(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors shrink-0">
@@ -708,31 +645,18 @@ export function DashboardPage() {
                 </button>
               </div>
 
-              {/* Chat messages */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-3" dir="ltr">
-                {(language === 'ar' ? feedbackConvo.convoAr : feedbackConvo.convoEn)?.map((msg: any, i: number) => (
-                  <div key={i} className={`flex ${msg.from === 'customer' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-[13px] ${
-                        msg.from === 'customer'
-                          ? 'bg-[#043CC8] text-white rounded-br-md'
-                          : 'bg-muted text-foreground rounded-bl-md'
-                      }`}
-                      style={{ fontWeight: 400 }}
-                    >
-                      <p className="break-words">{msg.text}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Evaluated message highlight */}
-              <div className="px-5 py-3 border-t border-border bg-muted/20 shrink-0">
-                <p className="text-[11px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>{t('Evaluated AI Response', 'رد الذكاء الاصطناعي المُقيَّم')}</p>
-                <p className="text-[12px] text-foreground break-words" style={{ fontWeight: 400 }}>
-                  {language === 'ar' ? feedbackConvo.msgAr : feedbackConvo.msgEn}
+              {/* Message body */}
+              <div className="flex-1 overflow-y-auto p-5">
+                <div className="max-w-full px-4 py-3 rounded-2xl bg-muted text-foreground text-[13px]" style={{ fontWeight: 400 }}>
+                  <p className="break-words whitespace-pre-wrap">{feedbackConvo.body || t('(empty message)', '(رسالة فارغة)')}</p>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  {new Date(feedbackConvo.created_at).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                  })}
                 </p>
               </div>
+
             </motion.div>
           </motion.div>
         )}

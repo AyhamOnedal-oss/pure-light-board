@@ -1833,6 +1833,7 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          last_refreshed_at: string | null
           manager_token: string | null
           metadata: Json
           refresh_token: string | null
@@ -1842,6 +1843,7 @@ export type Database = {
           store_url: string | null
           store_uuid: string
           tenant_id: string | null
+          theme_script_id: string | null
           token_expires_at: string | null
           updated_at: string
         }
@@ -1852,6 +1854,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          last_refreshed_at?: string | null
           manager_token?: string | null
           metadata?: Json
           refresh_token?: string | null
@@ -1861,6 +1864,7 @@ export type Database = {
           store_url?: string | null
           store_uuid: string
           tenant_id?: string | null
+          theme_script_id?: string | null
           token_expires_at?: string | null
           updated_at?: string
         }
@@ -1871,6 +1875,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          last_refreshed_at?: string | null
           manager_token?: string | null
           metadata?: Json
           refresh_token?: string | null
@@ -1880,6 +1885,7 @@ export type Database = {
           store_url?: string | null
           store_uuid?: string
           tenant_id?: string | null
+          theme_script_id?: string | null
           token_expires_at?: string | null
           updated_at?: string
         }
