@@ -42,25 +42,6 @@ async function findUserByEmail(
   return null;
 }
 
-function linkedEmailHtml(opts: {
-  platform: Platform;
-  storeName: string | null;
-  email: string;
-  loginUrl: string;
-}): string {
-  const platformName = opts.platform === "zid" ? "Zid" : "Salla";
-  return `<!doctype html>
-<html>
-  <body style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#f6f7fb; padding:24px; color:#0b1320;">
-    <div style="max-width:520px; margin:0 auto; background:#fff; border-radius:14px; padding:28px; border:1px solid #e6e8ef;">
-      <h2 style="margin:0 0 8px; color:#043CC8;">Your ${platformName} store is connected</h2>
-      <p style="margin:0 0 16px; color:#444;">${opts.storeName ?? "Your store"} has been linked to your existing Fuqah AI account (${opts.email}). Sign in with your existing password.</p>
-      <a href="${opts.loginUrl}" style="display:inline-block; background:#043CC8; color:#fff; text-decoration:none; padding:12px 18px; border-radius:10px; font-weight:600;">Sign in to your dashboard</a>
-    </div>
-  </body>
-</html>`;
-}
-
 /**
  * Look up or create a Supabase auth user for the merchant's store_email.
  * Returns the resolved tenant_id (best-effort: most recent owned tenant).
@@ -126,7 +107,6 @@ export async function provisionMerchantAccount(opts: {
   // Send credentials / linked notice
   let emailSent = false;
   let emailError: string | undefined;
-  let send: { ok: boolean; error?: string };
   if (isNewUser) {
     // Pull plan metadata for the welcome email card
     let packageName = "تجريبية";
@@ -150,7 +130,7 @@ export async function provisionMerchantAccount(opts: {
     const charactersCount = monthlyWordQuota > 0
       ? new Intl.NumberFormat("ar-SA").format(monthlyWordQuota * 5)
       : "غير محدود";
-    send = await sendResendEmail({
+    const send = await sendResendEmail({
       to: email,
       subject: "تم تفعيل اشتراكك بنجاح",
       html: welcomeHtml({
@@ -163,20 +143,9 @@ export async function provisionMerchantAccount(opts: {
         characters_count: charactersCount,
       }),
     });
-  } else {
-    send = await sendResendEmail({
-        to: email,
-        subject: `Your ${opts.platform === "zid" ? "Zid" : "Salla"} store is now linked to Fuqah AI`,
-        html: linkedEmailHtml({
-          platform: opts.platform,
-          storeName: opts.storeName,
-          email,
-          loginUrl,
-        }),
-      });
+    emailSent = send.ok;
+    emailError = send.error;
   }
-  emailSent = send.ok;
-  emailError = send.error;
 
   return { tenantId, userId, isNewUser, generatedPassword, emailSent, emailError };
 }
