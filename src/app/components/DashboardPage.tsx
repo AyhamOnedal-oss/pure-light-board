@@ -657,13 +657,6 @@ export function DashboardPage() {
                 </p>
               </div>
 
-              {/* Evaluated message highlight */}
-              <div className="px-5 py-3 border-t border-border bg-muted/20 shrink-0">
-                <p className="text-[11px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>{t('Evaluated AI Response', 'رد الذكاء الاصطناعي المُقيَّم')}</p>
-                <p className="text-[12px] text-foreground break-words" style={{ fontWeight: 400 }}>
-                  {language === 'ar' ? feedbackConvo.msgAr : feedbackConvo.msgEn}
-                </p>
-              </div>
             </motion.div>
           </motion.div>
         )}
