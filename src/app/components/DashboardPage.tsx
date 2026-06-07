@@ -627,17 +627,17 @@ export function DashboardPage() {
             >
               {/* Header */}
               <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border bg-muted/20 shrink-0">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${feedbackConvo.result === 'positive' ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
-                  {feedbackConvo.result === 'positive' ? (
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${feedbackConvo.feedback === 'positive' ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
+                  {feedbackConvo.feedback === 'positive' ? (
                     <ThumbsUp className="w-4 h-4 text-green-500" />
                   ) : (
                     <ThumbsDown className="w-4 h-4 text-red-400" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[15px] truncate" style={{ fontWeight: 600 }}>{t('Conversation Details', 'تفاصيل المحادثة')}</h3>
+                  <h3 className="text-[15px] truncate" style={{ fontWeight: 600 }}>{t('AI Reply', 'رد الذكاء الاصطناعي')}</h3>
                   <p className="text-[11px] text-muted-foreground">
-                    {feedbackConvo.result === 'positive' ? t('Positive feedback', 'تقييم إيجابي') : t('Negative feedback', 'تقييم سلبي')}
+                    {feedbackConvo.feedback === 'positive' ? t('Positive feedback', 'تقييم إيجابي') : t('Negative feedback', 'تقييم سلبي')}
                   </p>
                 </div>
                 <button onClick={() => setFeedbackConvo(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors shrink-0">
@@ -645,22 +645,16 @@ export function DashboardPage() {
                 </button>
               </div>
 
-              {/* Chat messages */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-3" dir="ltr">
-                {(language === 'ar' ? feedbackConvo.convoAr : feedbackConvo.convoEn)?.map((msg: any, i: number) => (
-                  <div key={i} className={`flex ${msg.from === 'customer' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-[13px] ${
-                        msg.from === 'customer'
-                          ? 'bg-[#043CC8] text-white rounded-br-md'
-                          : 'bg-muted text-foreground rounded-bl-md'
-                      }`}
-                      style={{ fontWeight: 400 }}
-                    >
-                      <p className="break-words">{msg.text}</p>
-                    </div>
-                  </div>
-                ))}
+              {/* Message body */}
+              <div className="flex-1 overflow-y-auto p-5">
+                <div className="max-w-full px-4 py-3 rounded-2xl bg-muted text-foreground text-[13px]" style={{ fontWeight: 400 }}>
+                  <p className="break-words whitespace-pre-wrap">{feedbackConvo.body || t('(empty message)', '(رسالة فارغة)')}</p>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  {new Date(feedbackConvo.created_at).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
               </div>
 
               {/* Evaluated message highlight */}
