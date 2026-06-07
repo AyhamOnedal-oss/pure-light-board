@@ -1477,6 +1477,7 @@ export type Database = {
           service_paused_emailed_period: string | null
           subscription_end_date: string | null
           tenant_id: string
+          trial_ended_emailed_at: string | null
           updated_at: string
         }
         Insert: {
@@ -1492,6 +1493,7 @@ export type Database = {
           service_paused_emailed_period?: string | null
           subscription_end_date?: string | null
           tenant_id: string
+          trial_ended_emailed_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -1507,6 +1509,7 @@ export type Database = {
           service_paused_emailed_period?: string | null
           subscription_end_date?: string | null
           tenant_id?: string
+          trial_ended_emailed_at?: string | null
           updated_at?: string
         }
         Relationships: [
