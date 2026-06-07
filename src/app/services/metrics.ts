@@ -18,6 +18,46 @@ export interface TopSubject {
   count: number;
 }
 
+export interface RecentAiFeedback {
+  id: string;
+  conversation_id: string;
+  body: string;
+  feedback: 'positive' | 'negative';
+  created_at: string;
+}
+
+export async function fetchRecentAiFeedback(
+  tenantId: string,
+  range?: DateRange,
+  limit = 20,
+): Promise<RecentAiFeedback[]> {
+  let q = supabase
+    .from('conversations_messages')
+    .select('id, conversation_id, body, feedback, created_at')
+    .eq('tenant_id', tenantId)
+    .in('sender', ['ai', 'agent'])
+    .not('feedback', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (range) {
+    q = q.gte('created_at', range.from.toISOString()).lte('created_at', range.to.toISOString());
+  }
+  const { data, error } = await q;
+  if (error) {
+    console.warn('metrics: recent feedback failed', error);
+    return [];
+  }
+  return (data ?? [])
+    .filter((r: any) => r.feedback === 'positive' || r.feedback === 'negative')
+    .map((r: any) => ({
+      id: String(r.id),
+      conversation_id: String(r.conversation_id),
+      body: String(r.body ?? ''),
+      feedback: r.feedback as 'positive' | 'negative',
+      created_at: String(r.created_at),
+    }));
+}
+
 export interface DashboardMetrics {
   conversations: number;
   messagesIn: number;
