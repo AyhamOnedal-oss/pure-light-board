@@ -1,6 +1,8 @@
 // Zid lifecycle webhook (uninstall, subscription changes).
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders, jsonResponse, hmacSha256Hex, timingSafeEqualHex } from "../_shared/cors.ts";
+import { sendResendEmail, formatRiyadhDate } from "../_shared/resend.ts";
+import { storeDisconnectedHtml } from "../_shared/email-templates-ar.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -46,6 +48,36 @@ Deno.serve(async (req) => {
         .from("zid_connections")
         .update({ is_active: false, connection_status: "disconnected" })
         .eq("store_uuid", storeUuid);
+      try {
+        const { data: conn } = await supabase
+          .from("zid_connections")
+          .select("tenant_id, store_name")
+          .eq("store_uuid", storeUuid).maybeSingle();
+        if (conn?.tenant_id) {
+          const { data: ws } = await supabase.from("settings_workspace")
+            .select("name").eq("id", conn.tenant_id).maybeSingle();
+          const { data: member } = await supabase.from("auth_tenant_members")
+            .select("user_id").eq("tenant_id", conn.tenant_id).eq("role", "owner")
+            .order("created_at", { ascending: true }).limit(1).maybeSingle();
+          if (member?.user_id) {
+            const { data: userRes } = await supabase.auth.admin.getUserById(member.user_id);
+            const recipient = userRes?.user?.email;
+            if (recipient) {
+              await sendResendEmail({
+                to: recipient,
+                subject: "تم إلغاء ربط متجرك مع زد",
+                html: storeDisconnectedHtml({
+                  store_name: conn.store_name ?? ws?.name ?? "متجرك",
+                  platform_name: "زد",
+                  disconnect_date: formatRiyadhDate(new Date()),
+                }),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("zid-webhook: disconnect email failed", e);
+      }
     } else if (eventType.startsWith("subscription.") || eventType.startsWith("app.subscription.")) {
       const { data: existing } = await supabase
         .from("zid_connections")
