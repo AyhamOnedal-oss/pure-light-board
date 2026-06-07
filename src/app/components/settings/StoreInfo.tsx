@@ -98,7 +98,7 @@ export function StoreInfo() {
       try {
         const { data, error } = await supabase
           .from('settings_workspace')
-          .select('name, domain, logo_url, icon_url, platform, zid_store_uuid')
+          .select('name, domain, logo_url, icon_url')
           .eq('id', tenantId)
           .maybeSingle();
         if (cancelled) return;
