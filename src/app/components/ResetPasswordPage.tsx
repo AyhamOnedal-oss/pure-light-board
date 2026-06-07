@@ -30,18 +30,22 @@ export function ResetPasswordPage() {
   useEffect(() => {
     let cancelled = false;
 
-    // Parse recovery tokens directly from the URL hash. Supabase normally
+    // Parse recovery tokens directly from the URL hash/query. Supabase normally
     // does this automatically via detectSessionInUrl, but if that parsing
     // fails (race condition, hash already consumed, etc.) the page would
     // stay blank. Doing it explicitly guarantees the form shows up.
-    const parseHash = () => {
+    const parseRecoveryParams = () => {
       const hash = window.location.hash || '';
-      const raw = hash.startsWith('#') ? hash.slice(1) : hash;
-      const params = new URLSearchParams(raw);
+      const rawHash = hash.startsWith('#') ? hash.slice(1) : hash;
+      const hashParams = new URLSearchParams(rawHash);
+      const queryParams = new URLSearchParams(window.location.search || '');
+      const get = (key: string) => hashParams.get(key) || queryParams.get(key);
       return {
-        access_token: params.get('access_token'),
-        refresh_token: params.get('refresh_token'),
-        type: params.get('type'),
+        access_token: get('access_token'),
+        refresh_token: get('refresh_token'),
+        token_hash: get('token_hash'),
+        type: get('type'),
+        error_code: get('error_code'),
       };
     };
 
@@ -53,7 +57,26 @@ export function ResetPasswordPage() {
     });
 
     (async () => {
-      const { access_token, refresh_token, type } = parseHash();
+      const { access_token, refresh_token, token_hash, type, error_code } = parseRecoveryParams();
+
+      if (error_code) {
+        setLinkState('invalid');
+        return;
+      }
+
+      if (token_hash && (type === 'recovery' || !type)) {
+        const { error } = await supabase.auth.verifyOtp({ token_hash, type: 'recovery' });
+        if (cancelled) return;
+        if (error) {
+          setLinkState('invalid');
+          return;
+        }
+        setLinkState('valid');
+        try {
+          window.history.replaceState(null, '', window.location.pathname);
+        } catch { /* ignore */ }
+        return;
+      }
 
       // If recovery tokens are present in the URL, immediately show the
       // form. Don't block the UI on session restoration — we'll retry
