@@ -209,13 +209,17 @@ export function LoginPage() {
     }
 
     setForgotLoading(true);
-    const { error } = await sendPasswordReset(normForgot);
-    setForgotLoading(false);
-
-    if (error) {
-      setForgotError(error);
-      return;
+    // Fire-and-forget: never surface "user not found" / enumeration-style
+    // errors. The edge function always returns ok for valid emails, and
+    // we want the same UX whether the email exists or not. Real network
+    // failures are logged but we still show the success screen so users
+    // are never told an email is "not registered" when it actually is.
+    try {
+      await sendPasswordReset(normForgot);
+    } catch (err) {
+      console.warn('sendPasswordReset error (ignored for UX):', err);
     }
+    setForgotLoading(false);
     setForgotSuccess(true);
   };
 
