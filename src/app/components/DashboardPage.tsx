@@ -31,57 +31,6 @@ function formatSeconds(s: number): string {
   return `${m}m ${rem}s`;
 }
 
-interface InsightIssue {
-  id: string;
-  labelEn: string;
-  labelAr: string;
-  count: number;
-  resolved: boolean;
-}
-
-const insightIssues: Record<string, InsightIssue[]> = {
-  complaints: [
-    { id: 'c1', labelEn: 'Delivery delay', labelAr: 'تأخر التوصيل', count: 47, resolved: false },
-    { id: 'c2', labelEn: 'Cash on delivery not available', labelAr: 'الدفع عند الاستلام غير متاح', count: 38, resolved: false },
-    { id: 'c3', labelEn: 'Product arrived damaged', labelAr: 'المنتج وصل تالف', count: 29, resolved: false },
-    { id: 'c4', labelEn: 'Wrong item received', labelAr: 'تم استلام منتج خاطئ', count: 22, resolved: false },
-    { id: 'c5', labelEn: 'No response from support', labelAr: 'لا رد من الدعم', count: 18, resolved: false },
-    { id: 'c6', labelEn: 'Quality lower than expected', labelAr: 'الجودة أقل من المتوقع', count: 14, resolved: false },
-    { id: 'c7', labelEn: 'Incomplete order received', labelAr: 'طلب ناقص تم استلامه', count: 11, resolved: false },
-  ],
-  requests: [
-    { id: 'r1', labelEn: 'Track order status', labelAr: 'تتبع حالة الطلب', count: 63, resolved: false },
-    { id: 'r2', labelEn: 'Change delivery address', labelAr: 'تغيير عنوان التوصيل', count: 41, resolved: false },
-    { id: 'r3', labelEn: 'Process refund', labelAr: 'معالجة استرجاع', count: 35, resolved: false },
-    { id: 'r4', labelEn: 'Exchange for different size', labelAr: 'استبدال بمقاس مختلف', count: 28, resolved: false },
-    { id: 'r5', labelEn: 'Cancel order before shipping', labelAr: 'إلغاء الطلب قبل الشحن', count: 21, resolved: false },
-    { id: 'r6', labelEn: 'Update payment method', labelAr: 'تحديث طريقة الدفع', count: 16, resolved: false },
-  ],
-  inquiries: [
-    { id: 'i1', labelEn: 'Return policy details', labelAr: 'تفاصيل سياسة الإرجاع', count: 54, resolved: false },
-    { id: 'i2', labelEn: 'International shipping fees', labelAr: 'رسوم الشحن الدولي', count: 42, resolved: false },
-    { id: 'i3', labelEn: 'Product restock date', labelAr: 'تاريخ إعادة توفر المنتج', count: 33, resolved: false },
-    { id: 'i4', labelEn: 'Accepted payment methods', labelAr: 'طرق الدفع المقبولة', count: 27, resolved: false },
-    { id: 'i5', labelEn: 'Standard shipping duration', labelAr: 'مدة الشحن العادي', count: 19, resolved: false },
-    { id: 'i6', labelEn: 'Warranty coverage', labelAr: 'تغطية الضمان', count: 12, resolved: false },
-  ],
-  suggestions: [
-    { id: 's1', labelEn: 'Add live chat support', labelAr: 'إضافة دعم محادثة مباشرة', count: 31, resolved: false },
-    { id: 's2', labelEn: 'Add wishlist feature', labelAr: 'إضافة ميزة المفضلة', count: 24, resolved: false },
-    { id: 's3', labelEn: 'More payment options (Apple Pay)', labelAr: 'خيارات دفع أكثر (Apple Pay)', count: 19, resolved: false },
-    { id: 's4', labelEn: 'Mobile app', labelAr: 'تطبيق جوال', count: 15, resolved: false },
-    { id: 's5', labelEn: 'Loyalty rewards program', labelAr: 'برنامج مكافآت الولاء', count: 11, resolved: false },
-  ],
-  unknown: [
-    { id: 'u1', labelEn: 'asdhjk whats the thing?', labelAr: 'asdhjk ما الشيء؟', count: 8, resolved: false },
-    { id: 'u2', labelEn: 'can you do that thing from before', labelAr: 'هل يمكنك فعل ذلك الشيء من قبل', count: 6, resolved: false },
-    { id: 'u3', labelEn: 'blah blah something about order', labelAr: 'بلا بلا شيء عن الطلب', count: 5, resolved: false },
-    { id: 'u4', labelEn: 'hello??!!! I need xyz', labelAr: 'مرحبا??!!! أحتاج xyz', count: 4, resolved: false },
-    { id: 'u5', labelEn: 'where is the other page', labelAr: 'أين الصفحة الأخرى', count: 3, resolved: false },
-    { id: 'u6', labelEn: 'fjdksl;a random message', labelAr: 'fjdksl;a رسالة عشوائية', count: 2, resolved: false },
-  ],
-};
-
 const mockAiFeedback = { positive: 842, negative: 96, total: 938 };
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
