@@ -302,6 +302,18 @@ export function ConversationsPage() {
                   <p className="text-[11px] text-muted-foreground/60 mt-0.5" style={{ fontWeight: 500 }}>{c.id.slice(0, 8)}</p>
                   <p className="text-[13px] text-muted-foreground truncate mt-0.5">{c.lastMessage}</p>
                   <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                    {c.category && categoryMap[c.category] && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full"
+                        style={{
+                          backgroundColor: categoryMap[c.category].color + '1A',
+                          color: categoryMap[c.category].color,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {t(categoryMap[c.category].en, categoryMap[c.category].ar)}
+                      </span>
+                    )}
                     {c.chatStatus === 'closed' && <CompletionPill score={c.completionScore} size="sm" />}
                     {c.hasTicket && c.ticketStatus === 'open' ? (
                       <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full bg-red-500/10 text-red-400" style={{ fontWeight: 600 }}>
