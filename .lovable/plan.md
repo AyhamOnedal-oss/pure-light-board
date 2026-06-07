@@ -1,18 +1,27 @@
 ## Plan
 
-Fix the password reset page so recovery links open directly to the new-password form instead of a blank/invalid state.
+1. **Fix the generated reset URL**
+   - Update the password reset email function so the email sends users directly to the app’s `/reset-password` page, instead of sending a Supabase action link that can expire after being opened once or redirect incorrectly.
+   - Use Supabase’s generated recovery URL/token data correctly so the app receives a usable recovery session.
 
-### What I found
-- The published `/reset-password` route is loading the app bundle correctly.
-- The app currently waits for Supabase `setSession()` / `getSession()` before showing the form.
-- Recovery links generated through Supabase can have tokens that the page sees in the URL, but the browser session restoration can fail or be consumed before the component finishes checking. That makes the page show invalid/blank instead of the reset form.
+2. **Make the reset page handle both valid and expired links cleanly**
+   - Keep showing only the two password fields when a valid recovery token/session is present.
+   - If Supabase returns `otp_expired`, `access_denied`, or another recovery error in the URL hash, show the current “request a new link” state instead of getting stuck.
 
-### Implementation
-1. Update `src/app/components/ResetPasswordPage.tsx` so if the URL hash contains `type=recovery` with `access_token`, the page immediately treats the link as a recovery flow and renders the two password fields.
-2. Keep the session setup in the background using `supabase.auth.setSession(...)`, but do not block the form UI on it forever.
-3. On submit, retry session restoration from the captured URL tokens right before `supabase.auth.updateUser({ password })`, so the password update uses the recovery session.
-4. Improve the failure message only when the password update itself fails, telling the user to request a new link.
-5. Keep the route public and avoid changing Supabase settings or database schema.
+3. **Preserve the public route behavior**
+   - Keep `/reset-password` public and outside authenticated dashboard routing.
+   - Do not change database schema, RLS, or unrelated login behavior.
 
-### Expected result
-A valid reset URL like `/reset-password#access_token=...&refresh_token=...&type=recovery` will show exactly the new password and confirm password fields, then update the password and return the user to login.
+4. **Validate the flow**
+   - Check the reset email URL generation path and confirm the app route will receive the right parameters.
+   - Verify the reset page still renders the form for valid recovery links and the expired-link message for already-used/expired links.
+
+## Technical details
+
+The screenshot URL contains:
+
+```text
+#error=access_denied&error_code=otp_expired&error_description=Email link is invalid or has expired
+```
+
+That means Supabase rejected the recovery link before the app could create a password reset session. The app page is doing the right thing by showing an expired-link state for that URL, but the reset email generation likely needs to be adjusted so newly requested links land on `/reset-password` with usable recovery credentials instead of being consumed/invalidated before the password form can complete.
