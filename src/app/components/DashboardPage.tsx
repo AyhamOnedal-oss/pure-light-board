@@ -315,23 +315,42 @@ export function DashboardPage() {
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Customer Rating', 'تقييم العملاء')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Average customer satisfaction', 'متوسط رضا العملاء')}</p>
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="flex items-center gap-1.5 mb-3">
-              {[1, 2, 3, 4, 5].map(s => (
-                <motion.div
-                  key={s}
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.3, delay: 0.6 + s * 0.1 }}
-                >
-                  <Star className={`w-7 h-7 ${s <= 4 ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
-                </motion.div>
-              ))}
+          {metrics.csat.total === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-4 py-8">
+              <div className="text-[32px] mb-2">⭐</div>
+              <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                {t('No ratings yet', 'لا توجد تقييمات بعد')}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {t('Ratings will appear once customers rate conversations', 'ستظهر التقييمات بمجرد تقييم العملاء للمحادثات')}
+              </p>
             </div>
-            <AnimatedValue value="4.8" duration={2000} delay={800} className="text-[38px] block text-foreground" style={{ fontWeight: 800 }} />
-            <p className="text-muted-foreground text-[13px]" style={{ fontWeight: 500 }}>{t('out of 5.0', 'من 5.0')}</p>
-            <p className="text-muted-foreground/60 text-[11px] mt-1.5">{t('Based on 1,247 ratings', 'بناءً على 1,247 تقييم')}</p>
-          </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <div className="flex items-center gap-1.5 mb-3">
+                {[1, 2, 3, 4, 5].map(s => {
+                  const rounded = Math.round(metrics.csat.avg);
+                  return (
+                    <motion.div
+                      key={s}
+                      initial={{ opacity: 0, scale: 0 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, delay: 0.6 + s * 0.1 }}
+                    >
+                      <Star className={`w-7 h-7 ${s <= rounded ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
+                    </motion.div>
+                  );
+                })}
+              </div>
+              <AnimatedValue value={metrics.csat.avg.toFixed(1)} duration={2000} delay={800} className="text-[38px] block text-foreground" style={{ fontWeight: 800 }} />
+              <p className="text-muted-foreground text-[13px]" style={{ fontWeight: 500 }}>{t('out of 5.0', 'من 5.0')}</p>
+              <p className="text-muted-foreground/60 text-[11px] mt-1.5">
+                {language === 'ar'
+                  ? `بناءً على ${metrics.csat.total.toLocaleString('ar-EG')} تقييم`
+                  : `Based on ${metrics.csat.total.toLocaleString('en-US')} ratings`}
+              </p>
+            </div>
+          )}
         </motion.div>
 
         {/* AI Feedback Chart — positive vs negative donut */}
