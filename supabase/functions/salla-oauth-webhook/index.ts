@@ -4,6 +4,8 @@
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders, jsonResponse, hmacSha256Hex, timingSafeEqualHex } from "../_shared/cors.ts";
 import { provisionMerchantAccount } from "../_shared/provision-merchant.ts";
+import { sendResendEmail, formatRiyadhDate } from "../_shared/resend.ts";
+import { storeDisconnectedHtml } from "../_shared/email-templates-ar.ts";
 
 const APP_BASE_URL =
   Deno.env.get("APP_BASE_URL") ?? "https://pure-light-board.lovable.app";
@@ -214,6 +216,37 @@ Deno.serve(async (req) => {
           connection_status: "disconnected",
         })
         .eq("merchant_id", merchantId);
+      // Notify the store owner by email.
+      try {
+        const { data: conn } = await supabase
+          .from("salla_connections")
+          .select("tenant_id, store_name")
+          .eq("merchant_id", merchantId).maybeSingle();
+        if (conn?.tenant_id) {
+          const { data: ws } = await supabase.from("settings_workspace")
+            .select("name").eq("id", conn.tenant_id).maybeSingle();
+          const { data: member } = await supabase.from("auth_tenant_members")
+            .select("user_id").eq("tenant_id", conn.tenant_id).eq("role", "owner")
+            .order("created_at", { ascending: true }).limit(1).maybeSingle();
+          if (member?.user_id) {
+            const { data: userRes } = await supabase.auth.admin.getUserById(member.user_id);
+            const recipient = userRes?.user?.email;
+            if (recipient) {
+              await sendResendEmail({
+                to: recipient,
+                subject: "تم إلغاء ربط متجرك مع سلة",
+                html: storeDisconnectedHtml({
+                  store_name: conn.store_name ?? ws?.name ?? "متجرك",
+                  platform_name: "سلة",
+                  disconnect_date: formatRiyadhDate(new Date()),
+                }),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("salla-webhook: disconnect email failed", e);
+      }
     } else if (eventType.startsWith("app.subscription.")) {
       // Update subscription metadata
       const { data: existing } = await supabase
