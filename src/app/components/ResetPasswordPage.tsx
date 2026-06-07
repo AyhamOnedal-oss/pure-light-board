@@ -22,6 +22,10 @@ export function ResetPasswordPage() {
   // from the URL tokens; 'valid' when ready; 'invalid' when no session
   // (link expired or opened in a different browser).
   const [linkState, setLinkState] = useState<'checking' | 'valid' | 'invalid'>('checking');
+  // Tokens captured from the URL hash on mount. We keep them so we can
+  // retry setSession right before updateUser if the initial restore failed
+  // or got consumed by another listener.
+  const [recoveryTokens, setRecoveryTokens] = useState<{ access_token: string; refresh_token: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,21 +55,16 @@ export function ResetPasswordPage() {
     (async () => {
       const { access_token, refresh_token, type } = parseHash();
 
-      // If we have recovery tokens in the URL, set the session explicitly.
+      // If recovery tokens are present in the URL, immediately show the
+      // form. Don't block the UI on session restoration — we'll retry
+      // setSession at submit time if needed.
       if (access_token && refresh_token && (type === 'recovery' || !type)) {
-        const { data, error } = await supabase.auth.setSession({
-          access_token,
-          refresh_token,
-        });
-        if (cancelled) return;
-        if (!error && data.session) {
-          setLinkState('valid');
-          // Clean tokens out of the visible URL
-          try {
-            window.history.replaceState(null, '', window.location.pathname);
-          } catch { /* ignore */ }
-          return;
-        }
+        setRecoveryTokens({ access_token, refresh_token });
+        setLinkState('valid');
+        // Best-effort: try to establish the recovery session in the
+        // background so updateUser works without an extra round-trip.
+        supabase.auth.setSession({ access_token, refresh_token }).catch(() => {});
+        return;
       }
 
       // Fallback: check whether supabase-js already restored a session
@@ -115,6 +114,14 @@ export function ResetPasswordPage() {
 
     setLoading(true);
     setSubmitError(null);
+    // Make sure the recovery session is active right before updating. If
+    // the initial setSession failed or got overwritten, retry it now using
+    // the tokens captured from the URL hash.
+    if (recoveryTokens) {
+      try {
+        await supabase.auth.setSession(recoveryTokens);
+      } catch { /* ignore — updateUser will surface the real error */ }
+    }
     const { error } = await supabase.auth.updateUser({ password: normNew });
     setLoading(false);
     if (error) {

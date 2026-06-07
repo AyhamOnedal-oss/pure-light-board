@@ -1,29 +1,18 @@
-## What is happening
-
-The reset email link is working: it reaches `/reset-password` with valid Supabase recovery tokens in the URL. The blank page is caused by the app not reliably restoring/rendering the recovery session before the reset form appears.
-
 ## Plan
 
-1. **Make the reset page parse the recovery URL explicitly**
-   - On `/reset-password`, detect `access_token`, `refresh_token`, and `type=recovery` from the URL hash.
-   - Call Supabase session setup directly from those tokens instead of waiting only for the auth listener/timer.
+Fix the password reset page so recovery links open directly to the new-password form instead of a blank/invalid state.
 
-2. **Show the password form as soon as recovery is valid**
-   - Keep the existing Arabic/English reset password UI.
-   - If the recovery session is valid, render the new-password and confirm-password fields.
-   - If the link is expired/invalid, show the existing “request a new reset link” message.
+### What I found
+- The published `/reset-password` route is loading the app bundle correctly.
+- The app currently waits for Supabase `setSession()` / `getSession()` before showing the form.
+- Recovery links generated through Supabase can have tokens that the page sees in the URL, but the browser session restoration can fail or be consumed before the component finishes checking. That makes the page show invalid/blank instead of the reset form.
 
-3. **Clean the URL after the session is restored**
-   - Remove the long token hash from the browser address bar after Supabase stores the recovery session.
-   - This avoids leaving sensitive tokens visible in the URL.
+### Implementation
+1. Update `src/app/components/ResetPasswordPage.tsx` so if the URL hash contains `type=recovery` with `access_token`, the page immediately treats the link as a recovery flow and renders the two password fields.
+2. Keep the session setup in the background using `supabase.auth.setSession(...)`, but do not block the form UI on it forever.
+3. On submit, retry session restoration from the captured URL tokens right before `supabase.auth.updateUser({ password })`, so the password update uses the recovery session.
+4. Improve the failure message only when the password update itself fails, telling the user to request a new link.
+5. Keep the route public and avoid changing Supabase settings or database schema.
 
-4. **Keep submit behavior unchanged**
-   - Continue using `supabase.auth.updateUser({ password })`.
-   - Continue normalizing the password before update.
-   - Sign the user out after a successful reset and send them back to login.
-
-## Technical notes
-
-- The fix should be limited to `src/app/components/ResetPasswordPage.tsx` unless implementation shows a route-level adjustment is needed.
-- No database change is needed.
-- No Supabase auth setting change is needed.
+### Expected result
+A valid reset URL like `/reset-password#access_token=...&refresh_token=...&type=recovery` will show exactly the new password and confirm password fields, then update the password and return the user to login.
