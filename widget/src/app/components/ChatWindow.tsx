@@ -391,7 +391,7 @@ export function ChatWindow({
     }
     const res = await postTicket(
       { ...evCtx, ticketId },
-      { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone}` },
+      { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone.replace(/^0+/, '')}` },
     );
     if (!res?.ticketId) {
       injectErrorMessage('تعذّر إنشاء التذكرة، يرجى المحاولة مرة أخرى.');
@@ -476,7 +476,7 @@ export function ChatWindow({
     trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'form' });
     const res = await postTicket(
       { ...evCtx, ticketId },
-      { subject: 'تذكرة من المحادثة', phone: `${_code}${_phone}` },
+      { subject: 'تذكرة من المحادثة', phone: `${_code}${_phone.replace(/^0+/, '')}` },
     );
     if (!res?.ticketId) {
       ticketCreatingRef.current = false;
