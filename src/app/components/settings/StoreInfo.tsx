@@ -277,6 +277,5 @@ export function StoreInfo() {
       </div>
 
     </div>
-    </div>
   );
 }
