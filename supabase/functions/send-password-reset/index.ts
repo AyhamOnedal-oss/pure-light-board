@@ -91,11 +91,10 @@ function buildDirectResetUrl(opts: {
 }): string {
   try {
     if (!opts.tokenHash) return opts.actionLink;
-    const url = new URL(opts.appResetUrl);
-    url.pathname = "/reset-password";
-    url.searchParams.set("type", "recovery");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const url = new URL(`${supabaseUrl}/functions/v1/send-password-reset`);
     url.searchParams.set("token_hash", opts.tokenHash);
-    url.hash = "";
+    url.searchParams.set("redirect_to", opts.appResetUrl);
     return url.toString();
   } catch (_) {
     return opts.actionLink;
@@ -123,6 +122,46 @@ async function sendResend(to: string, subject: string, html: string) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  if (req.method === "GET") {
+    const fallbackAppUrl = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
+    const url = new URL(req.url);
+    const redirectTo = url.searchParams.get("redirect_to") || `${fallbackAppUrl}/reset-password`;
+    const safeRedirect = redirectTo.startsWith("http") ? redirectTo : `${fallbackAppUrl}/reset-password`;
+    const tokenHash = url.searchParams.get("token_hash") || "";
+
+    const redirectWithError = new URL(safeRedirect);
+    redirectWithError.searchParams.set("type", "recovery");
+    redirectWithError.searchParams.set("error_code", "otp_expired");
+
+    if (!tokenHash) {
+      return Response.redirect(redirectWithError.toString(), 302);
+    }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+    const auth = createClient(SUPABASE_URL, ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await auth.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+    const session = data?.session;
+    if (error || !session?.access_token || !session?.refresh_token) {
+      return Response.redirect(redirectWithError.toString(), 302);
+    }
+
+    const resetUrl = new URL(safeRedirect);
+    const hash = new URLSearchParams({
+      access_token: session.access_token,
+      expires_at: String(session.expires_at ?? Math.floor(Date.now() / 1000) + Number(session.expires_in ?? 3600)),
+      expires_in: String(session.expires_in ?? 3600),
+      refresh_token: session.refresh_token,
+      token_type: session.token_type ?? "bearer",
+      type: "recovery",
+    });
+    resetUrl.hash = hash.toString();
+    return Response.redirect(resetUrl.toString(), 302);
+  }
+
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
