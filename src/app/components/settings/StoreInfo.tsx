@@ -116,22 +116,6 @@ export function StoreInfo() {
           setLogo(next.logo);
           setIcon(next.icon);
           setSaved(next);
-          setPlatform(data.platform ?? null);
-          setZidStoreUuid((data as any).zid_store_uuid ?? null);
-        }
-
-        // Pull Zid store_id from zid_connections for the snippet
-        if (!cancelled) {
-          const { data: zc } = await supabase
-            .from('zid_connections')
-            .select('store_id, store_uuid')
-            .eq('tenant_id', tenantId)
-            .eq('is_active', true)
-            .maybeSingle();
-          if (!cancelled && zc) {
-            if (zc.store_id) setZidStoreId(String(zc.store_id));
-            if (zc.store_uuid && !zidStoreUuid) setZidStoreUuid(String(zc.store_uuid));
-          }
         }
       } finally {
         if (!cancelled) setLoading(false);
