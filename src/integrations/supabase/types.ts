@@ -1472,6 +1472,7 @@ export type Database = {
           monthly_words_used: number
           period_start: string
           seat_quota: number
+          service_paused_emailed_period: string | null
           tenant_id: string
           updated_at: string
         }
@@ -1483,6 +1484,7 @@ export type Database = {
           monthly_words_used?: number
           period_start?: string
           seat_quota?: number
+          service_paused_emailed_period?: string | null
           tenant_id: string
           updated_at?: string
         }
@@ -1494,6 +1496,7 @@ export type Database = {
           monthly_words_used?: number
           period_start?: string
           seat_quota?: number
+          service_paused_emailed_period?: string | null
           tenant_id?: string
           updated_at?: string
         }
