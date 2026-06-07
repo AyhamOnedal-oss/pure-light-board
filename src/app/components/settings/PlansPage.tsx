@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
@@ -122,7 +123,13 @@ export function PlansPage() {
           </div>
 
           <div className="flex-1 flex items-center justify-center py-2">
-            <div className="relative">
+            <motion.div
+              key={chartKey}
+              initial={{ opacity: 0.78, rotate: -360, scale: 0.94 }}
+              animate={{ opacity: 1, rotate: 0, scale: 1 }}
+              transition={{ duration: 1.65, ease: [0.22, 1, 0.36, 1] }}
+              className="relative"
+            >
               <ResponsiveContainer width={200} height={230}>
                 <PieChart key={chartKey} onMouseLeave={() => setActiveIdx(undefined)}>
                   {chartReady && (
@@ -184,7 +191,7 @@ export function PlansPage() {
               <div className="absolute flex items-center justify-center pointer-events-none" style={{ top: 0, left: 0, right: 0, height: '207px' }}>
                 <p className="text-[22px] text-foreground" style={{ fontWeight: 800 }}>{animatedPercent}%</p>
               </div>
-            </div>
+            </motion.div>
           </div>
 
           <div className="flex justify-center gap-8 mt-1">
