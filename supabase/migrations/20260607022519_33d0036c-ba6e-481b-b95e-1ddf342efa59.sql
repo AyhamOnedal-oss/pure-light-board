@@ -1,0 +1,1 @@
+ALTER TABLE public.settings_plans ADD COLUMN IF NOT EXISTS trial_ended_emailed_at timestamptz;
