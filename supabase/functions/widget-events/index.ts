@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
           .update({
             ticket_status: "open",
             status: "closed",
-            close_reason: "customer_manual",
+            close_reason: null,
             resolved_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
