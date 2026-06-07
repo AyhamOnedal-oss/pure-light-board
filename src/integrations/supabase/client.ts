@@ -13,5 +13,10 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    // We handle recovery-token parsing manually in ResetPasswordPage so
+    // supabase-js doesn't strip the hash before the page mounts and race
+    // the component into a blank state.
+    detectSessionInUrl: false,
+    flowType: 'implicit',
   }
 });

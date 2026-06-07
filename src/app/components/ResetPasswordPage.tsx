@@ -7,6 +7,26 @@ import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 import { normalizePassword } from '../utils/authInput';
 
+// Parse recovery tokens synchronously at module load so the form is ready
+// on the very first render — no useEffect race, no blank flash.
+function readRecoveryParamsFromUrl() {
+  if (typeof window === 'undefined') {
+    return { access_token: null, refresh_token: null, token_hash: null, type: null, error_code: null };
+  }
+  const hash = window.location.hash || '';
+  const rawHash = hash.startsWith('#') ? hash.slice(1) : hash;
+  const hashParams = new URLSearchParams(rawHash);
+  const queryParams = new URLSearchParams(window.location.search || '');
+  const get = (k: string) => hashParams.get(k) || queryParams.get(k);
+  return {
+    access_token: get('access_token'),
+    refresh_token: get('refresh_token'),
+    token_hash: get('token_hash'),
+    type: get('type'),
+    error_code: get('error_code'),
+  };
+}
+
 export function ResetPasswordPage() {
   const { t, theme, setTheme, language, setLanguage } = useApp();
   const navigate = useNavigate();
@@ -18,37 +38,21 @@ export function ResetPasswordPage() {
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // 'checking' until we know whether a recovery session was established
-  // from the URL tokens; 'valid' when ready; 'invalid' when no session
-  // (link expired or opened in a different browser).
-  const [linkState, setLinkState] = useState<'checking' | 'valid' | 'invalid'>('checking');
-  // Tokens captured from the URL hash on mount. We keep them so we can
-  // retry setSession right before updateUser if the initial restore failed
-  // or got consumed by another listener.
-  const [recoveryTokens, setRecoveryTokens] = useState<{ access_token: string; refresh_token: string } | null>(null);
+  // Compute initial state synchronously from the URL so the form renders
+  // on first paint when tokens are present. Avoids any blank flash and
+  // any race with Supabase's own URL parser.
+  const initial = readRecoveryParamsFromUrl();
+  const initialTokens =
+    initial.access_token && initial.refresh_token && !initial.error_code
+      ? { access_token: initial.access_token, refresh_token: initial.refresh_token }
+      : null;
+  const initialLinkState: 'checking' | 'valid' | 'invalid' =
+    initial.error_code ? 'invalid' : (initialTokens || initial.token_hash) ? 'valid' : 'checking';
+  const [linkState, setLinkState] = useState<'checking' | 'valid' | 'invalid'>(initialLinkState);
+  const [recoveryTokens, setRecoveryTokens] = useState<{ access_token: string; refresh_token: string } | null>(initialTokens);
 
   useEffect(() => {
     let cancelled = false;
-
-    // Parse recovery tokens directly from the URL hash/query. Supabase normally
-    // does this automatically via detectSessionInUrl, but if that parsing
-    // fails (race condition, hash already consumed, etc.) the page would
-    // stay blank. Doing it explicitly guarantees the form shows up.
-    const parseRecoveryParams = () => {
-      const hash = window.location.hash || '';
-      const rawHash = hash.startsWith('#') ? hash.slice(1) : hash;
-      const hashParams = new URLSearchParams(rawHash);
-      const queryParams = new URLSearchParams(window.location.search || '');
-      const get = (key: string) => hashParams.get(key) || queryParams.get(key);
-      return {
-        access_token: get('access_token'),
-        refresh_token: get('refresh_token'),
-        token_hash: get('token_hash'),
-        type: get('type'),
-        error_code: get('error_code'),
-      };
-    };
-
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
       if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
@@ -57,7 +61,7 @@ export function ResetPasswordPage() {
     });
 
     (async () => {
-      const { access_token, refresh_token, token_hash, type, error_code } = parseRecoveryParams();
+      const { access_token, refresh_token, token_hash, type, error_code } = readRecoveryParamsFromUrl();
 
       if (error_code) {
         setLinkState('invalid');
