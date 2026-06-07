@@ -13,6 +13,7 @@ import {
   TooltipProps
 } from 'recharts';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
+import type { RecentAiFeedback } from '../services/metrics';
 import { DateRangePicker, computeRange, type RangePreset } from './dashboard/DateRangePicker';
 import type { DateRange } from '../services/metrics';
 
@@ -30,8 +31,6 @@ function formatSeconds(s: number): string {
   const rem = Math.round(s - m * 60);
   return `${m}m ${rem}s`;
 }
-
-const mockAiFeedback = { positive: 842, negative: 96, total: 938 };
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
 function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> & { isDark: boolean }) {
@@ -57,10 +56,9 @@ export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const { metrics, topSubjects } = useDashboardMetrics(range);
-  // Mock AI feedback for "Last 3 months" preset (visual demo only).
-  const feedback = rangePreset === 'last3m' ? mockAiFeedback : metrics.feedback;
-  const feedbackAnimationKey = rangePreset === 'last3m' ? 'feedback-last3m-mock' : 'feedback-live';
+  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range);
+  const feedback = metrics.feedback;
+  const feedbackAnimationKey = 'feedback-live';
   const feedbackPieData = useMemo(
     () => [
       { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
