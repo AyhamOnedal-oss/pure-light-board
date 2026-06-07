@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Upload, Store, X, Image, Loader2, Copy, Check } from 'lucide-react';
+import { Upload, Store, X, Image, Loader2 } from 'lucide-react';
 import { supabase } from '../../../integrations/supabase/client';
 
 const DEFAULTS = { storeName: '', domain: '', logo: '', icon: '' };
@@ -87,10 +87,6 @@ export function StoreInfo() {
   const [saved, setSaved] = useState(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [platform, setPlatform] = useState<string | null>(null);
-  const [zidStoreUuid, setZidStoreUuid] = useState<string | null>(null);
-  const [zidStoreId, setZidStoreId] = useState<string | null>(null);
-  const [snippetCopied, setSnippetCopied] = useState(false);
 
   // Load from Supabase (settings_workspace) on mount / tenant change
   useEffect(() => {
@@ -102,7 +98,7 @@ export function StoreInfo() {
       try {
         const { data, error } = await supabase
           .from('settings_workspace')
-          .select('name, domain, logo_url, icon_url, platform, zid_store_uuid')
+          .select('name, domain, logo_url, icon_url')
           .eq('id', tenantId)
           .maybeSingle();
         if (cancelled) return;
@@ -120,22 +116,6 @@ export function StoreInfo() {
           setLogo(next.logo);
           setIcon(next.icon);
           setSaved(next);
-          setPlatform(data.platform ?? null);
-          setZidStoreUuid((data as any).zid_store_uuid ?? null);
-        }
-
-        // Pull Zid store_id from zid_connections for the snippet
-        if (!cancelled) {
-          const { data: zc } = await supabase
-            .from('zid_connections')
-            .select('store_id, store_uuid')
-            .eq('tenant_id', tenantId)
-            .eq('is_active', true)
-            .maybeSingle();
-          if (!cancelled && zc) {
-            if (zc.store_id) setZidStoreId(String(zc.store_id));
-            if (zc.store_uuid && !zidStoreUuid) setZidStoreUuid(String(zc.store_uuid));
-          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -203,24 +183,6 @@ export function StoreInfo() {
       </div>
     );
   }
-
-  const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://kdrcgusinkqgwaafcgnw.supabase.co';
-  const widgetSnippet =
-    platform === 'zid'
-      ? `<script async src="${supabaseUrl}/functions/v1/widget-loader"\n        data-platform="zid"\n        data-store-id="{{store.id}}"\n        data-store-uuid="{{store.uuid}}"></script>`
-      : null;
-
-  const copySnippet = async () => {
-    if (!widgetSnippet) return;
-    try {
-      await navigator.clipboard.writeText(widgetSnippet);
-      setSnippetCopied(true);
-      showToast(t('Snippet copied', 'تم نسخ الكود'));
-      setTimeout(() => setSnippetCopied(false), 1800);
-    } catch {
-      showToast(t('Copy failed — select and copy manually', 'فشل النسخ — حدّد الكود وانسخه يدوياً'));
-    }
-  };
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -314,50 +276,6 @@ export function StoreInfo() {
         )}
       </div>
 
-      {widgetSnippet && (
-        <div className="bg-card rounded-2xl p-6 border border-border shadow-sm space-y-3">
-          <div>
-            <h2 className="text-[16px]" style={{ fontWeight: 700 }}>
-              {t('Install widget on your Zid store', 'تركيب الفقاعة على متجر زد')}
-            </h2>
-            <p className="text-[12px] text-muted-foreground mt-1">
-              {t(
-                'If the chat bubble does not appear automatically on your storefront, paste this snippet into your Zid theme header (Theme Editor → Custom Code → Header).',
-                'إذا لم تظهر فقاعة الدردشة تلقائياً على متجرك، الصق هذا الكود في رأس قالب زد (محرر القالب ← الأكواد المخصصة ← Header).',
-              )}
-            </p>
-          </div>
-
-          <pre
-            dir="ltr"
-            className="text-[12px] bg-muted text-foreground rounded-xl p-4 overflow-x-auto leading-relaxed whitespace-pre"
-            style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-          >{widgetSnippet}</pre>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={copySnippet}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#043CC8] text-white text-[13px] hover:bg-[#0330a0] active:scale-[0.98] transition-all"
-              style={{ fontWeight: 500 }}
-            >
-              {snippetCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {snippetCopied ? t('Copied', 'تم النسخ') : t('Copy snippet', 'نسخ الكود')}
-            </button>
-            {zidStoreId && (
-              <span className="text-[11px] text-muted-foreground" dir="ltr">
-                Store ID: {zidStoreId}
-              </span>
-            )}
-          </div>
-
-          <p className="text-[11px] text-muted-foreground/80">
-            {t(
-              'Tip: the {{store.id}} and {{store.uuid}} placeholders are filled in automatically by Zid when the theme renders.',
-              'ملاحظة: العناصر {{store.id}} و{{store.uuid}} تُملأ تلقائياً من قِبل زد عند تحميل القالب.',
-            )}
-          </p>
-        </div>
-      )}
     </div>
   );
 }
