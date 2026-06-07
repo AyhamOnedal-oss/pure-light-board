@@ -1,63 +1,37 @@
 ## Goal
 
-Make the post-close analysis flow match the spec exactly:
+Wire the two new Arabic email templates from Batch 3:
 
-1. Any close path (customer / AI / inactivity) closes the conversation and triggers AI classification.
-2. Conversation list + card show **category**, **completion %**, and **close method**.
-3. Conversations never show priority (correct today — keep it that way).
-4. When a ticket is submitted, the conversation is closed and shown simply as "closed" (no customer/AI/inactivity label) and the ticket carries classification + priority + status.
-5. Dashboard "Most Frequent…" cards (Inquiries / Requests / Complaints / Suggestions / Unknown) read real classification data and their drill-down lists come from actual conversations + tickets.
+- **T12 — انتهاء التجربة المجانية (Free Trial Ended)** — new template.
+- **T13 — تنبيه انتهاء الباقة v2 (Subscription Expiry Warning v2)** — visual refresh of the existing warning we already send; replaces the current `subscriptionExpiryWarningHtml` markup.
 
-## Current state (verified)
-
-- `widget-events` already sets `close_reason` to `customer_manual` / `ai_request` / `idle` and closes the conversation. ✓
-- `notify_classify_conversation()` trigger fires `classify-conversation` edge function when status flips to resolved/closed with `analysis_done=false`. ✓
-- `classify-conversation` writes `category`, `subject`, `intent_type`, `completion_score`, `goal_met`, `analysis_done=true`. ✓
-- `dashboard_metrics` RPC already returns `classification` aggregated by `category`. ✓
-- Conversation list shows: completion pill, ticket badge, open/closed badge. **Missing: category badge.**
-- Conversation detail header shows intent + close-reason chip — must be hidden when a ticket exists.
-- Dashboard "Most Frequent" cards use **hardcoded counts** (`'320'`, `'420'`, …) and **mocked drill-down lists** (`insightIssues`).
-- `widget-events` ticket.created path sets `close_reason: "customer_manual"` even though the close was caused by a ticket submission, so the detail view incorrectly shows "Closed by customer".
+Sender stays `support@fuqah.net`; footer keeps `support@fuqah.ai` / `fuqah.ai`.
 
 ## Changes
 
-### 1. Ticket submission → conversation shown as just "closed"
-File: `supabase/functions/widget-events/index.ts`
-- In the `ticket.created` branch, set `close_reason: null` (instead of `customer_manual`) when closing the conversation. Trigger still fires (status flips to closed, analysis_done=false), so AI classification still runs on the transcript.
+### 1. `supabase/functions/_shared/email-templates-ar.ts`
+- **Add** `trialEndedHtml({ store_name, subscription_link })` — exact markup from T12: 🚀 hero, "انتهت تجربتك المجانية" headline, feature list bullets (ردود ذكية / تدريب / دعم فني), CTA "ابدأ اشتراكك الآن" linking to `subscription_link`, standard footer.
+- **Replace** the body of `subscriptionExpiryWarningHtml` with the T13 v2 markup (amber gradient hero ⏰, large days-remaining card, "تجديد الآن" CTA). Signature stays `{ store_name, days_remaining, package_name, renewal_link }` so the existing caller does not change.
 
-File: `src/app/components/ConversationsPage.tsx`
-- Hide the close-reason chip in the detail header when `selected.hasTicket` is true (only render the plain "Closed" chip).
-- Also drop the title tooltip on the list "Chat Closed" pill for ticketed conversations.
+### 2. `supabase/functions/process-subscription-expiry/index.ts`
+Add a trial-ended branch alongside the existing expired + warning logic:
 
-### 2. Show category on the conversation list card
-File: `src/app/components/ConversationsPage.tsx`
-- In the list row badges (around line 304), render a small category pill using the existing `categoryMap` when `c.category` is set: colored background, Arabic/English label, same sizing as the completion pill.
-- Order: category → completion → ticket badge → chat status badge.
+- For each `settings_plans` row already loaded, also read the tenant's `settings_workspace.status`.
+- If `status = 'trial'` AND `subscription_end_date <= today` AND `trial_ended_emailed_at IS NULL`:
+  - Render `trialEndedHtml({ store_name, subscription_link: "https://fuqah.ai/billing" })`.
+  - Subject: `انتهت تجربتك المجانية في فقاعة AI`.
+  - On success, stamp `settings_plans.trial_ended_emailed_at = now()`.
+- The trial branch takes precedence over the generic "expired" branch when `status='trial'`, so trial tenants get the trial-specific email instead of the paid-expiry one.
+- The warning branch keeps working for trial tenants too (days_remaining 1..7), so they get a heads-up before the trial ends.
 
-### 3. Real counts on dashboard "Most Frequent" cards
-File: `src/app/components/DashboardPage.tsx`
-- Replace the hard-coded `count` values in the `insights` array with values derived from `metrics.classification`:
-  - complaints → `classification.complaint ?? 0`
-  - requests → `classification.request ?? 0`
-  - inquiries → `classification.inquiry ?? 0`
-  - suggestions → `classification.suggestion ?? 0`
-  - unknown → `classification.other ?? 0`
-- Format with `formatNumber()` so it stays consistent with KPI cards.
+### 3. Migration — add one tracking column
+New migration adds `trial_ended_emailed_at timestamptz` to `settings_plans` (idempotency flag, mirrors `expired_emailed_at`). No backfill; existing rows stay `NULL`.
 
-### 4. Real drill-down lists for "Most Frequent" cards
-Files: `src/app/services/metrics.ts`, `src/app/hooks/useDashboardMetrics.ts` (new query), `src/app/components/DashboardPage.tsx`
-- Add a new fetch in the metrics layer: for the active tenant + date range, pull from `conversations_main` where `status in ('closed','resolved')` and `analysis_done=true`, selecting `category, subject`. Group client-side by `(category, subject)`, count occurrences, sort desc, take top 8 per category.
-- Map results to `{ id, labelEn: subject, labelAr: subject, count, resolved: false }` (subject is already in the conversation's language; we display the single string in both locales).
-- Replace the mocked `insightIssues` constant with the live grouped data; the `unknown` bucket uses `category = 'other'` or NULL.
-- Keep the existing resolve/delete local-state behavior so admins can dismiss items from the UI session (no DB column needed yet).
+No DB triggers, cron jobs, or secrets change. The daily 06:00 UTC cron that already calls `process-subscription-expiry` covers the new branch automatically.
 
-### 5. Verify and keep current behavior
-- Tickets page already shows classification + priority + status — no change.
-- Conversations never render priority — confirmed, no change.
-- Classifier already runs on every close path because all three reasons flip `status → closed` and `analysis_done=false`.
+### 4. No frontend changes
+Account settings / billing UI is untouched. Templates are server-side only.
 
 ## Out of scope
-
-- Persisting "resolved/deleted" state of insight items in the DB.
-- Translating customer-written subjects between Arabic/English.
-- Re-classifying historical conversations that closed before this flow existed (existing `Re-analyze` admin path already covers that one-off).
+- Trial duration / `subscription_end_date` provisioning for new tenants — assumed already set elsewhere (or set manually). If a trial tenant has no `subscription_end_date`, no email fires, same as today.
+- Re-sending the trial-ended email after a new trial.
