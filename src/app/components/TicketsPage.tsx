@@ -499,7 +499,7 @@ export function TicketsPage() {
                   </button>
                   {selected.customerId && (
                     <a
-                      href={`https://wa.me/${selected.customerId.replace(/\s|\+/g, '')}`}
+                      href={toWhatsAppUrl(selected.customerId)}
                       target="_blank"
                       rel="noreferrer"
                       className="p-1.5 hover:bg-green-500/10 rounded-xl transition-colors"
