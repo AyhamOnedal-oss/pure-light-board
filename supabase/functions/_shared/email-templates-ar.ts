@@ -239,12 +239,6 @@ ${simpleFooter}
 </td></tr></tbody></table></body></html>`;
 }
 
-export function subscriptionExpiryWarningHtml(v: {
-  store_name: string;
-  days_remaining: string;
-  package_name: string;
-  renewal_link: string;
-}): string;
 export function trialEndedHtml(v: {
   store_name: string;
   subscription_link: string;
@@ -257,7 +251,7 @@ export function trialEndedHtml(v: {
   <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">انتهت تجربتك المجانية</h1>
 </td></tr>
 <tr><td style="padding:24px;background:#ffffff">
-  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${'${esc(v.store_name)}'}،</p>
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
   <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">انتهت تجربتك المجانية على منصة فقاعة AI. جدد اشتراكك الآن لتستمر في استخدام الذكاء الصناعي في متجرك.</p>
   <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#f0f7ff;border-radius:10px"><tbody><tr><td style="padding:16px">
     <p style="margin:0 0 12px;color:#1e3a5f;font-size:14px;font-weight:600">✨ مميزات الاشتراك:</p>
@@ -268,11 +262,11 @@ export function trialEndedHtml(v: {
     </tbody></table>
   </td></tr></tbody></table>
   <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
-    <a href="${'${esc(v.subscription_link)}'}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 ابدأ اشتراكك الآن</a>
+    <a href="${esc(v.subscription_link)}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 ابدأ اشتراكك الآن</a>
   </td></tr></tbody></table>
   <p style="margin:20px 0 0;color:#6b7280;font-size:13px;line-height:1.6;text-align:center">إذا واجهت أي صعوبة، تواصل معنا. نحن هنا دائمًا لخدمتك ❤</p>
 </td></tr>
-${'${simpleFooter}'}
+${simpleFooter}
 </tbody></table>
 </td></tr></tbody></table></body></html>`;
 }
