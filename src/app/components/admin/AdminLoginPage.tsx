@@ -4,6 +4,7 @@ import { Eye, EyeOff, Globe, Moon, Sun, AlertCircle, ShieldCheck } from 'lucide-
 import { useNavigate } from 'react-router';
 import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
+import { normalizeEmail, normalizePassword } from '../../utils/authInput';
 
 export function AdminLoginPage() {
   const { t, theme, setTheme, language, setLanguage, signIn } = useApp();
@@ -18,14 +19,16 @@ export function AdminLoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normEmail = normalizeEmail(email);
+    const normPassword = normalizePassword(password);
     const newErrors: typeof errors = {};
-    if (!email) newErrors.email = t('Email is required', 'البريد الإلكتروني مطلوب');
-    if (!password) newErrors.password = t('Password is required', 'كلمة المرور مطلوبة');
+    if (!normEmail) newErrors.email = t('Email is required', 'البريد الإلكتروني مطلوب');
+    if (!normPassword) newErrors.password = t('Password is required', 'كلمة المرور مطلوبة');
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
     setLoading(true);
-    const { error } = await signIn(email.trim(), password);
+    const { error } = await signIn(normEmail, normPassword);
     setLoading(false);
     if (error) {
       setErrors({ general: t('Invalid admin credentials', 'بيانات الأدمن غير صحيحة') });
