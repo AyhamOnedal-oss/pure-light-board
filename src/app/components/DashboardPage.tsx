@@ -523,12 +523,12 @@ export function DashboardPage() {
 
               {/* Issue List — supports long text, scrollable */}
               <div className="flex-1 overflow-y-auto" style={{ maxHeight: 'calc(5 * 52px)' }}>
-                {issues[openInsight]?.length === 0 ? (
+                {currentIssues.length === 0 ? (
                   <div className="flex items-center justify-center py-16 text-muted-foreground text-[14px]">
                     {t('No issues in this category', 'لا توجد مشكلات في هذه الفئة')}
                   </div>
                 ) : (
-                  issues[openInsight]?.map((issue) => (
+                  currentIssues.map((issue) => (
                     <div
                       key={issue.id}
                       className={`flex items-start gap-3 px-5 py-3 border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${issue.resolved ? 'opacity-50' : ''}`}
@@ -536,7 +536,7 @@ export function DashboardPage() {
                       {/* Issue text — multi-line support */}
                       <div className="flex-1 min-w-0 pt-0.5">
                         <p className={`text-[13px] break-words ${issue.resolved ? 'line-through text-muted-foreground' : 'text-foreground'}`} style={{ fontWeight: 500 }}>
-                          {language === 'ar' ? issue.labelAr : issue.labelEn}
+                          {issue.subject}
                         </p>
                       </div>
 
