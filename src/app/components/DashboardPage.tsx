@@ -562,126 +562,46 @@ export function DashboardPage() {
         </div>
         <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="overflow-y-auto" style={{ maxHeight: 'calc(5 * 88px)' }}>
-            {[
-              { id: 'fb1', msgEn: 'Your order #45231 has been shipped via Aramex and is expected to arrive within 2-3 business days. Here is your tracking link.', msgAr: 'تم شحن طلبك رقم #45231 عبر أرامكس ومن المتوقع وصوله خلال 2-3 أيام عمل. إليك رابط التتبع.', result: 'positive' as const, analysisEn: 'Accurate shipping info with tracking link provided.', analysisAr: 'معلومات شحن دقيقة مع رابط تتبع.',
-                convoEn: [
-                  { from: 'customer', text: 'Where is my order #45231?' },
-                  { from: 'ai', text: 'Your order #45231 has been shipped via Aramex and is expected to arrive within 2-3 business days. Here is your tracking link.' },
-                  { from: 'customer', text: 'Thank you so much!' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'وين طلبي رقم #45231؟' },
-                  { from: 'ai', text: 'تم شحن طلبك رقم #45231 عبر أرامكس ومن المتوقع وصوله خلال 2-3 أيام عمل. إليك رابط التتبع.' },
-                  { from: 'customer', text: 'شكراً جزيلاً!' },
-                ],
-              },
-              { id: 'fb2', msgEn: 'I understand your concern about the delayed delivery. I have escalated this to our logistics team and you will receive an update within 24 hours.', msgAr: 'أتفهم قلقك بشأن التأخر في التوصيل. لقد رفعت هذا الأمر لفريق الخدمات اللوجستية وستتلقى تحديثاً خلال 24 ساعة.', result: 'positive' as const, analysisEn: 'Empathetic response with clear escalation and timeline.', analysisAr: 'رد متعاطف مع تصعيد واضح وجدول زمني.',
-                convoEn: [
-                  { from: 'customer', text: 'My delivery is 5 days late! This is unacceptable.' },
-                  { from: 'ai', text: 'I understand your concern about the delayed delivery. I have escalated this to our logistics team and you will receive an update within 24 hours.' },
-                  { from: 'customer', text: 'Okay, please make it fast.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'طلبي متأخر 5 أيام! هذا غير مقبول.' },
-                  { from: 'ai', text: 'أتفهم قلقك بشأن التأخر في التوصيل. لقد رفعت هذا الأمر لفريق الخدمات اللوجستية وستتلقى تحديثاً خلال 24 ساعة.' },
-                  { from: 'customer', text: 'طيب، أرجو الإسراع.' },
-                ],
-              },
-              { id: 'fb3', msgEn: 'Based on our return policy, you can return this item within 14 days of delivery. I can initiate the return process for you right now.', msgAr: 'بناءً على سياسة الإرجاع، يمكنك إرجاع هذا المنتج خلال 14 يوماً من التسليم. يمكنني بدء عملية الإرجاع لك الآن.', result: 'positive' as const, analysisEn: 'Clear policy explanation with proactive assistance.', analysisAr: 'شرح واضح للسياسة مع مساعدة استباقية.',
-                convoEn: [
-                  { from: 'customer', text: "I want to return the shoes I bought. They don't fit." },
-                  { from: 'ai', text: 'Based on our return policy, you can return this item within 14 days of delivery. I can initiate the return process for you right now.' },
-                  { from: 'customer', text: 'Yes please, go ahead.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'أبي أرجع الحذاء اللي شريته. ما ناسبني.' },
-                  { from: 'ai', text: 'بناءً على سياسة الإرجاع، يمكنك إرجاع هذا المنتج خلال 14 يوماً من التسليم. يمكنني بدء عملية الإرجاع لك الآن.' },
-                  { from: 'customer', text: 'تمام، كمل.' },
-                ],
-              },
-              { id: 'fb4', msgEn: 'Your refund of 350 SAR has been processed successfully. It will reflect in your account within 5-7 business days.', msgAr: 'تم معالجة استرجاعك البالغ 350 ريال بنجاح. سينعكس في حسابك خلال 5-7 أيام عمل.', result: 'positive' as const, analysisEn: 'Confirmed refund with expected timeline.', analysisAr: 'تأكيد الاسترجاع مع الجدول الزمني المتوقع.',
-                convoEn: [
-                  { from: 'customer', text: 'When will I receive my refund?' },
-                  { from: 'ai', text: 'Your refund of 350 SAR has been processed successfully. It will reflect in your account within 5-7 business days.' },
-                  { from: 'customer', text: 'Perfect, thanks!' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'متى يوصلني الاسترجاع؟' },
-                  { from: 'ai', text: 'تم معالجة استرجاعك البالغ 350 ريال بنجاح. سينعكس في حسابك خلال 5-7 أيام عمل.' },
-                  { from: 'customer', text: 'ممتاز، شكراً!' },
-                ],
-              },
-              { id: 'fb5', msgEn: 'We currently accept Visa, Mastercard, Mada, Apple Pay, and cash on delivery for orders within Riyadh. Would you like help placing an order?', msgAr: 'نقبل حالياً فيزا وماستركارد ومدى وApple Pay والدفع عند الاستلام للطلبات داخل الرياض. هل تريد المساعدة في تقديم طلب؟', result: 'positive' as const, analysisEn: 'Comprehensive payment info with helpful follow-up.', analysisAr: 'معلومات دفع شاملة مع متابعة مفيدة.',
-                convoEn: [
-                  { from: 'customer', text: 'What payment methods do you accept?' },
-                  { from: 'ai', text: 'We currently accept Visa, Mastercard, Mada, Apple Pay, and cash on delivery for orders within Riyadh. Would you like help placing an order?' },
-                  { from: 'customer', text: 'Do you support STC Pay?' },
-                  { from: 'ai', text: 'Unfortunately STC Pay is not available at the moment, but we are working on adding it soon.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'ايش طرق الدفع عندكم؟' },
-                  { from: 'ai', text: 'نقبل حالياً فيزا وماستركارد ومدى وApple Pay والدفع عند الاستلام للطلبات داخل الرياض. هل تريد المساعدة في تقديم طلب؟' },
-                  { from: 'customer', text: 'عندكم STC Pay؟' },
-                  { from: 'ai', text: 'للأسف STC Pay غير متاح حالياً، لكن نعمل على إضافته قريباً.' },
-                ],
-              },
-              { id: 'fb6', msgEn: "I apologize but I'm unable to process warranty claims directly. Let me connect you with our specialized warranty team for faster resolution.", msgAr: 'أعتذر ولكن لا أستطيع معالجة مطالبات الضمان مباشرة. دعني أوصلك بفريق الضمان المتخصص لحل أسرع.', result: 'negative' as const, analysisEn: 'Failed to resolve directly — customer expressed frustration.', analysisAr: 'فشل في الحل المباشر — العميل أبدى إحباطه.',
-                convoEn: [
-                  { from: 'customer', text: 'My phone screen cracked after 2 weeks. I need warranty.' },
-                  { from: 'ai', text: "I apologize but I'm unable to process warranty claims directly. Let me connect you with our specialized warranty team for faster resolution." },
-                  { from: 'customer', text: "This is frustrating. Why can't you help me directly?" },
-                  { from: 'ai', text: 'I understand your frustration. Warranty claims require specialist verification. I have notified the team and they will contact you within 2 hours.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'شاشة جوالي انكسرت بعد أسبوعين. أبي الضمان.' },
-                  { from: 'ai', text: 'أعتذر ولكن لا أستطيع معالجة مطالبات الضمان مباشرة. دعني أوصلك بفريق الضمان المتخصص لحل أسرع.' },
-                  { from: 'customer', text: 'هذا محبط. ليه ما تقدر تساعدني مباشرة؟' },
-                  { from: 'ai', text: 'أتفهم إحباطك. مطالبات الضمان تحتاج تحقق متخصص. أبلغت الفريق وسيتواصلون معك خلال ساعتين.' },
-                ],
-              },
-              { id: 'fb7', msgEn: "The product you're looking for is currently out of stock. Based on our records, it's expected to be restocked by April 20, 2026. I can notify you when it's available.", msgAr: 'المنتج الذي تبحث عنه غير متوفر حالياً. بناءً على سجلاتنا، من المتوقع إعادة توفيره بحلول 20 أبريل 2026. يمكنني إخطارك عند توفره.', result: 'positive' as const, analysisEn: 'Helpful stock update with notification offer.', analysisAr: 'تحديث مفيد للمخزون مع عرض الإشعار.',
-                convoEn: [
-                  { from: 'customer', text: 'Is the Nike Air Max available in size 42?' },
-                  { from: 'ai', text: "The product you're looking for is currently out of stock. Based on our records, it's expected to be restocked by April 20, 2026. I can notify you when it's available." },
-                  { from: 'customer', text: 'Yes, please notify me.' },
-                  { from: 'ai', text: 'Done! You will receive a notification as soon as it is back in stock.' },
-                ],
-                convoAr: [
-                  { from: 'customer', text: 'هل Nike Air Max متوفر بمقاس 42؟' },
-                  { from: 'ai', text: 'المنتج الذي تبحث عنه غير متوفر حالياً. بناءً على سجلاتنا، من المتوقع إعادة توفيره بحلول 20 أبريل 2026. يمكنني إخطارك عند توفره.' },
-                  { from: 'customer', text: 'تمام، نبهني لو رجع.' },
-                  { from: 'ai', text: 'تم! ستصلك إشعار فور توفره مرة أخرى.' },
-                ],
-              },
-            ].map((row) => {
-              const isPositive = row.result === 'positive';
-              return (
-                <div
-                  key={row.id}
-                  className="px-5 py-3.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer flex items-start gap-3.5"
-                  onClick={() => setFeedbackConvo(row)}
-                >
-                  {/* Final feedback icon */}
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${isPositive ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
-                    {isPositive ? (
-                      <ThumbsUp className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <ThumbsDown className="w-4 h-4 text-red-400" />
-                    )}
+            {recentFeedback.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+                <div className="text-[32px] mb-2">💬</div>
+                <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                  {t('No AI feedback yet', 'لا توجد تقييمات على رسائل الذكاء الاصطناعي بعد')}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t('Customer thumbs up/down on AI replies will appear here', 'ستظهر هنا تقييمات العملاء على ردود الذكاء الاصطناعي')}
+                </p>
+              </div>
+            ) : (
+              recentFeedback.map((row) => {
+                const isPositive = row.feedback === 'positive';
+                return (
+                  <div
+                    key={row.id}
+                    className="px-5 py-3.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer flex items-start gap-3.5"
+                    onClick={() => setFeedbackConvo(row)}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${isPositive ? 'bg-green-500/12' : 'bg-red-500/12'}`}>
+                      {isPositive ? (
+                        <ThumbsUp className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <ThumbsDown className="w-4 h-4 text-red-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
+                        {new Date(row.created_at).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-GB', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                        })}
+                      </p>
+                      <p className="text-[13px] text-foreground break-words line-clamp-5" style={{ fontWeight: 400 }}>
+                        {row.body || t('(empty message)', '(رسالة فارغة)')}
+                      </p>
+                    </div>
                   </div>
-
-                  {/* Analysis + Message */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
-                      {language === 'ar' ? row.analysisAr : row.analysisEn}
-                    </p>
-                    <p className="text-[13px] text-foreground break-words line-clamp-5" style={{ fontWeight: 400 }}>
-                      {language === 'ar' ? row.msgAr : row.msgEn}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       </motion.div>
