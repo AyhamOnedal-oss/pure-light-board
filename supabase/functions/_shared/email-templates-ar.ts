@@ -244,6 +244,44 @@ export function subscriptionExpiryWarningHtml(v: {
   days_remaining: string;
   package_name: string;
   renewal_link: string;
+}): string;
+export function trialEndedHtml(v: {
+  store_name: string;
+  subscription_link: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">🚀</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">انتهت تجربتك المجانية</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${'${esc(v.store_name)}'}،</p>
+  <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">انتهت تجربتك المجانية على منصة فقاعة AI. جدد اشتراكك الآن لتستمر في استخدام الذكاء الصناعي في متجرك.</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#f0f7ff;border-radius:10px"><tbody><tr><td style="padding:16px">
+    <p style="margin:0 0 12px;color:#1e3a5f;font-size:14px;font-weight:600">✨ مميزات الاشتراك:</p>
+    <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody>
+      <tr><td style="padding:4px 0;color:#374151;font-size:13px">✓ ردود ذكية غير محدودة</td></tr>
+      <tr><td style="padding:4px 0;color:#374151;font-size:13px">✓ تدريب مخصص للبوت</td></tr>
+      <tr><td style="padding:4px 0;color:#374151;font-size:13px">✓ دعم فني متميز</td></tr>
+    </tbody></table>
+  </td></tr></tbody></table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="${'${esc(v.subscription_link)}'}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 ابدأ اشتراكك الآن</a>
+  </td></tr></tbody></table>
+  <p style="margin:20px 0 0;color:#6b7280;font-size:13px;line-height:1.6;text-align:center">إذا واجهت أي صعوبة، تواصل معنا. نحن هنا دائمًا لخدمتك ❤</p>
+</td></tr>
+${'${simpleFooter}'}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
+
+export function subscriptionExpiryWarningHtml(v: {
+  store_name: string;
+  days_remaining: string;
+  package_name: string;
+  renewal_link: string;
 }): string {
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
 <body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
