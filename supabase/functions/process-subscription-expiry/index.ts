@@ -4,7 +4,7 @@
 // Header x-expiry-secret must match _app_secrets.subscription_expiry_webhook_secret.
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { sendResendEmail, formatRiyadhDate } from "../_shared/resend.ts";
-import { subscriptionExpiredHtml, subscriptionExpiryWarningHtml } from "../_shared/email-templates-ar.ts";
+import { subscriptionExpiredHtml, subscriptionExpiryWarningHtml, trialEndedHtml } from "../_shared/email-templates-ar.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const todayStr = today.toISOString().slice(0, 10);
 
     const { data: plans } = await admin.from("settings_plans")
-      .select("tenant_id, plan, subscription_end_date, expired_emailed_at, expiry_warned_for_date")
+      .select("tenant_id, plan, subscription_end_date, expired_emailed_at, expiry_warned_for_date, trial_ended_emailed_at")
       .not("subscription_end_date", "is", null);
 
     const results: Array<{ tenant: string; action: string; ok: boolean; error?: string }> = [];
@@ -35,13 +35,16 @@ Deno.serve(async (req) => {
       const endDate = new Date(end + "T00:00:00Z");
       const diffDays = Math.floor((endDate.getTime() - new Date(todayStr + "T00:00:00Z").getTime()) / 86400000);
 
-      const wantExpired = diffDays <= 0 && !p.expired_emailed_at;
+      const { data: ws } = await admin.from("settings_workspace").select("name, status").eq("id", p.tenant_id).maybeSingle();
+      const isTrial = ws?.status === "trial";
+
+      const wantTrialEnded = isTrial && diffDays <= 0 && !p.trial_ended_emailed_at;
+      const wantExpired = !isTrial && diffDays <= 0 && !p.expired_emailed_at;
       const wantWarn = diffDays > 0 && diffDays <= 7
         && (p.expiry_warned_for_date == null || String(p.expiry_warned_for_date) !== end);
 
-      if (!wantExpired && !wantWarn) continue;
+      if (!wantTrialEnded && !wantExpired && !wantWarn) continue;
 
-      const { data: ws } = await admin.from("settings_workspace").select("name").eq("id", p.tenant_id).maybeSingle();
       const { data: member } = await admin.from("auth_tenant_members")
         .select("user_id").eq("tenant_id", p.tenant_id).eq("role", "owner")
         .order("created_at", { ascending: true }).limit(1).maybeSingle();
@@ -50,7 +53,17 @@ Deno.serve(async (req) => {
       const recipient = userRes?.user?.email;
       if (!recipient) { results.push({ tenant: p.tenant_id, action: "skip", ok: false, error: "no email" }); continue; }
 
-      if (wantExpired) {
+      if (wantTrialEnded) {
+        const html = trialEndedHtml({
+          store_name: ws?.name ?? "متجرك",
+          subscription_link: RENEWAL_LINK,
+        });
+        const send = await sendResendEmail({ to: recipient, subject: "انتهت تجربتك المجانية في فقاعة AI", html });
+        if (send.ok) {
+          await admin.from("settings_plans").update({ trial_ended_emailed_at: new Date().toISOString() }).eq("tenant_id", p.tenant_id);
+        }
+        results.push({ tenant: p.tenant_id, action: "trial_ended", ok: send.ok, error: send.error });
+      } else if (wantExpired) {
         const html = subscriptionExpiredHtml({
           store_name: ws?.name ?? "متجرك",
           expiry_date: formatRiyadhDate(endDate),
