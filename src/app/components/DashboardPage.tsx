@@ -31,57 +31,6 @@ function formatSeconds(s: number): string {
   return `${m}m ${rem}s`;
 }
 
-interface InsightIssue {
-  id: string;
-  labelEn: string;
-  labelAr: string;
-  count: number;
-  resolved: boolean;
-}
-
-const insightIssues: Record<string, InsightIssue[]> = {
-  complaints: [
-    { id: 'c1', labelEn: 'Delivery delay', labelAr: 'تأخر التوصيل', count: 47, resolved: false },
-    { id: 'c2', labelEn: 'Cash on delivery not available', labelAr: 'الدفع عند الاستلام غير متاح', count: 38, resolved: false },
-    { id: 'c3', labelEn: 'Product arrived damaged', labelAr: 'المنتج وصل تالف', count: 29, resolved: false },
-    { id: 'c4', labelEn: 'Wrong item received', labelAr: 'تم استلام منتج خاطئ', count: 22, resolved: false },
-    { id: 'c5', labelEn: 'No response from support', labelAr: 'لا رد من الدعم', count: 18, resolved: false },
-    { id: 'c6', labelEn: 'Quality lower than expected', labelAr: 'الجودة أقل من المتوقع', count: 14, resolved: false },
-    { id: 'c7', labelEn: 'Incomplete order received', labelAr: 'طلب ناقص تم استلامه', count: 11, resolved: false },
-  ],
-  requests: [
-    { id: 'r1', labelEn: 'Track order status', labelAr: 'تتبع حالة الطلب', count: 63, resolved: false },
-    { id: 'r2', labelEn: 'Change delivery address', labelAr: 'تغيير عنوان التوصيل', count: 41, resolved: false },
-    { id: 'r3', labelEn: 'Process refund', labelAr: 'معالجة استرجاع', count: 35, resolved: false },
-    { id: 'r4', labelEn: 'Exchange for different size', labelAr: 'استبدال بمقاس مختلف', count: 28, resolved: false },
-    { id: 'r5', labelEn: 'Cancel order before shipping', labelAr: 'إلغاء الطلب قبل الشحن', count: 21, resolved: false },
-    { id: 'r6', labelEn: 'Update payment method', labelAr: 'تحديث طريقة الدفع', count: 16, resolved: false },
-  ],
-  inquiries: [
-    { id: 'i1', labelEn: 'Return policy details', labelAr: 'تفاصيل سياسة الإرجاع', count: 54, resolved: false },
-    { id: 'i2', labelEn: 'International shipping fees', labelAr: 'رسوم الشحن الدولي', count: 42, resolved: false },
-    { id: 'i3', labelEn: 'Product restock date', labelAr: 'تاريخ إعادة توفر المنتج', count: 33, resolved: false },
-    { id: 'i4', labelEn: 'Accepted payment methods', labelAr: 'طرق الدفع المقبولة', count: 27, resolved: false },
-    { id: 'i5', labelEn: 'Standard shipping duration', labelAr: 'مدة الشحن العادي', count: 19, resolved: false },
-    { id: 'i6', labelEn: 'Warranty coverage', labelAr: 'تغطية الضمان', count: 12, resolved: false },
-  ],
-  suggestions: [
-    { id: 's1', labelEn: 'Add live chat support', labelAr: 'إضافة دعم محادثة مباشرة', count: 31, resolved: false },
-    { id: 's2', labelEn: 'Add wishlist feature', labelAr: 'إضافة ميزة المفضلة', count: 24, resolved: false },
-    { id: 's3', labelEn: 'More payment options (Apple Pay)', labelAr: 'خيارات دفع أكثر (Apple Pay)', count: 19, resolved: false },
-    { id: 's4', labelEn: 'Mobile app', labelAr: 'تطبيق جوال', count: 15, resolved: false },
-    { id: 's5', labelEn: 'Loyalty rewards program', labelAr: 'برنامج مكافآت الولاء', count: 11, resolved: false },
-  ],
-  unknown: [
-    { id: 'u1', labelEn: 'asdhjk whats the thing?', labelAr: 'asdhjk ما الشيء؟', count: 8, resolved: false },
-    { id: 'u2', labelEn: 'can you do that thing from before', labelAr: 'هل يمكنك فعل ذلك الشيء من قبل', count: 6, resolved: false },
-    { id: 'u3', labelEn: 'blah blah something about order', labelAr: 'بلا بلا شيء عن الطلب', count: 5, resolved: false },
-    { id: 'u4', labelEn: 'hello??!!! I need xyz', labelAr: 'مرحبا??!!! أحتاج xyz', count: 4, resolved: false },
-    { id: 'u5', labelEn: 'where is the other page', labelAr: 'أين الصفحة الأخرى', count: 3, resolved: false },
-    { id: 'u6', labelEn: 'fjdksl;a random message', labelAr: 'fjdksl;a رسالة عشوائية', count: 2, resolved: false },
-  ],
-};
-
 const mockAiFeedback = { positive: 842, negative: 96, total: 938 };
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
@@ -108,7 +57,7 @@ export function DashboardPage() {
   const { t, theme, language, showToast } = useApp();
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const { metrics } = useDashboardMetrics(range);
+  const { metrics, topSubjects } = useDashboardMetrics(range);
   // Mock AI feedback for "Last 3 months" preset (visual demo only).
   const feedback = rangePreset === 'last3m' ? mockAiFeedback : metrics.feedback;
   const feedbackAnimationKey = rangePreset === 'last3m' ? 'feedback-last3m-mock' : 'feedback-live';
@@ -120,7 +69,9 @@ export function DashboardPage() {
     [feedback.positive, feedback.negative, language],
   );
   const [openInsight, setOpenInsight] = useState<string | null>(null);
-  const [issues, setIssues] = useState(insightIssues);
+  // Locally dismissed/resolved issue IDs per category (session only).
+  const [dismissed, setDismissed] = useState<Record<string, Set<string>>>({});
+  const [resolvedIds, setResolvedIds] = useState<Record<string, Set<string>>>({});
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
 
   // Lock body scroll when modal is open
@@ -169,28 +120,47 @@ export function DashboardPage() {
     { name: t('Closed', 'مغلقة'), value: metrics.ticketsClosed, fill: '#10b981' },
   ];
 
+  // Map insight keys to classification bucket keys used by the AI classifier.
+  const insightBucket: Record<string, string> = {
+    complaints: 'complaint',
+    requests: 'request',
+    inquiries: 'inquiry',
+    suggestions: 'suggestion',
+    unknown: 'other',
+  };
   const insights = [
-    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: '320', clickLabel: t('Click to view complaints', 'اضغط لعرض الشكاوى'), color: '#ff4466' },
-    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: '420', clickLabel: t('Click to view requests', 'اضغط لعرض الطلبات'), color: '#f59e0b' },
-    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: '580', clickLabel: t('Click to view inquiries', 'اضغط لعرض الاستفسارات'), color: '#043CC8' },
-    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: '180', clickLabel: t('Click to view suggestions', 'اضغط لعرض الاقتراحات'), color: '#10b981' },
-    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: '28', clickLabel: t('Click to view unknown questions', 'اضغط لعرض الأسئلة غير المعروفة'), color: '#8b5cf6' },
+    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view complaints', 'اضغط لعرض الشكاوى'), color: '#ff4466' },
+    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view requests', 'اضغط لعرض الطلبات'), color: '#f59e0b' },
+    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view inquiries', 'اضغط لعرض الاستفسارات'), color: '#043CC8' },
+    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view suggestions', 'اضغط لعرض الاقتراحات'), color: '#10b981' },
+    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view unknown questions', 'اضغط لعرض الأسئلة غير المعروفة'), color: '#8b5cf6' },
   ];
 
+  const currentIssues = useMemo(() => {
+    if (!openInsight) return [];
+    const bucketKey = insightBucket[openInsight] ?? 'other';
+    const items = topSubjects[bucketKey] ?? [];
+    const dismissedSet = dismissed[openInsight] ?? new Set<string>();
+    const resolvedSet = resolvedIds[openInsight] ?? new Set<string>();
+    return items
+      .filter(it => !dismissedSet.has(it.id))
+      .map(it => ({ ...it, resolved: resolvedSet.has(it.id) }));
+  }, [openInsight, topSubjects, dismissed, resolvedIds]);
+
   const resolveIssue = (category: string, id: string) => {
-    setIssues(prev => ({
-      ...prev,
-      [category]: prev[category].map(item =>
-        item.id === id ? { ...item, resolved: !item.resolved } : item
-      ),
-    }));
+    setResolvedIds(prev => {
+      const next = new Set(prev[category] ?? []);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return { ...prev, [category]: next };
+    });
   };
 
   const deleteIssue = (category: string, id: string) => {
-    setIssues(prev => ({
-      ...prev,
-      [category]: prev[category].filter(item => item.id !== id),
-    }));
+    setDismissed(prev => {
+      const next = new Set(prev[category] ?? []);
+      next.add(id);
+      return { ...prev, [category]: next };
+    });
     showToast(t('Issue deleted', 'تم حذف المشكلة'));
   };
 
@@ -502,12 +472,12 @@ export function DashboardPage() {
 
               {/* Issue List — supports long text, scrollable */}
               <div className="flex-1 overflow-y-auto" style={{ maxHeight: 'calc(5 * 52px)' }}>
-                {issues[openInsight]?.length === 0 ? (
+                {currentIssues.length === 0 ? (
                   <div className="flex items-center justify-center py-16 text-muted-foreground text-[14px]">
                     {t('No issues in this category', 'لا توجد مشكلات في هذه الفئة')}
                   </div>
                 ) : (
-                  issues[openInsight]?.map((issue) => (
+                  currentIssues.map((issue) => (
                     <div
                       key={issue.id}
                       className={`flex items-start gap-3 px-5 py-3 border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${issue.resolved ? 'opacity-50' : ''}`}
@@ -515,7 +485,7 @@ export function DashboardPage() {
                       {/* Issue text — multi-line support */}
                       <div className="flex-1 min-w-0 pt-0.5">
                         <p className={`text-[13px] break-words ${issue.resolved ? 'line-through text-muted-foreground' : 'text-foreground'}`} style={{ fontWeight: 500 }}>
-                          {language === 'ar' ? issue.labelAr : issue.labelEn}
+                          {issue.subject}
                         </p>
                       </div>
 

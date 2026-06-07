@@ -4,6 +4,8 @@ import { useApp } from '../context/AppContext';
 import {
   EMPTY_METRICS,
   fetchDashboardMetrics,
+  fetchTopSubjectsByCategory,
+  type TopSubject,
   type DashboardMetrics,
   type DateRange,
 } from '../services/metrics';
@@ -20,6 +22,9 @@ import {
 export function useDashboardMetrics(range?: DateRange) {
   const { tenantId } = useApp();
   const [metrics, setMetrics] = useState<DashboardMetrics>(EMPTY_METRICS);
+  const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>({
+    complaint: [], inquiry: [], request: [], suggestion: [], other: [],
+  });
   const [loading, setLoading] = useState(true);
   const refetchTimer = useRef<number | null>(null);
   const fromKey = range?.from.getTime();
@@ -34,9 +39,13 @@ export function useDashboardMetrics(range?: DateRange) {
 
     let cancelled = false;
     const load = async () => {
-      const m = await fetchDashboardMetrics(tenantId, range);
+      const [m, subs] = await Promise.all([
+        fetchDashboardMetrics(tenantId, range),
+        fetchTopSubjectsByCategory(tenantId, range),
+      ]);
       if (!cancelled) {
         setMetrics(m);
+        setTopSubjects(subs);
         setLoading(false);
       }
     };
@@ -66,5 +75,5 @@ export function useDashboardMetrics(range?: DateRange) {
     };
   }, [tenantId, fromKey, toKey]);
 
-  return { metrics, loading };
+  return { metrics, topSubjects, loading };
 }

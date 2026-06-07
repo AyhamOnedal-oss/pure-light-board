@@ -1,83 +1,63 @@
-
 ## Goal
 
-Wire the 4 Arabic templates from the uploaded file (`fuqah-email-templates.html`) as live transactional emails. Use the uploaded HTML **verbatim** (only `{{{var}}}` → real values, and normalize the few `fugah.ai` typos to `fuqah.ai`). Sender: `Fuqah AI <support@fuqah.net>`. Footer always shows `support@fuqah.ai` and `fuqah.ai` (already correct in the HTML).
+Make the post-close analysis flow match the spec exactly:
 
-## What gets built
+1. Any close path (customer / AI / inactivity) closes the conversation and triggers AI classification.
+2. Conversation list + card show **category**, **completion %**, and **close method**.
+3. Conversations never show priority (correct today — keep it that way).
+4. When a ticket is submitted, the conversation is closed and shown simply as "closed" (no customer/AI/inactivity label) and the ticket carries classification + priority + status.
+5. Dashboard "Most Frequent…" cards (Inquiries / Requests / Complaints / Suggestions / Unknown) read real classification data and their drill-down lists come from actual conversations + tickets.
 
-### 1. Welcome — "تم تفعيل اشتراكك بنجاح" (Zid + Salla install, new user)
+## Current state (verified)
 
-Replace `welcomeEmailHtml()` in `supabase/functions/_shared/provision-merchant.ts` with template #1 HTML. Subject: `تم تفعيل اشتراكك بنجاح`.
+- `widget-events` already sets `close_reason` to `customer_manual` / `ai_request` / `idle` and closes the conversation. ✓
+- `notify_classify_conversation()` trigger fires `classify-conversation` edge function when status flips to resolved/closed with `analysis_done=false`. ✓
+- `classify-conversation` writes `category`, `subject`, `intent_type`, `completion_score`, `goal_met`, `analysis_done=true`. ✓
+- `dashboard_metrics` RPC already returns `classification` aggregated by `category`. ✓
+- Conversation list shows: completion pill, ticket badge, open/closed badge. **Missing: category badge.**
+- Conversation detail header shows intent + close-reason chip — must be hidden when a ticket exists.
+- Dashboard "Most Frequent" cards use **hardcoded counts** (`'320'`, `'420'`, …) and **mocked drill-down lists** (`insightIssues`).
+- `widget-events` ticket.created path sets `close_reason: "customer_manual"` even though the close was caused by a ticket submission, so the detail view incorrectly shows "Closed by customer".
 
-Placeholders → data source:
-- `store_name` → `opts.storeName`
-- `email` → `opts.email`
-- `password` → `generatedPassword`
-- `package_name` → `settings_workspace.plan` (fallback "تجريبية")
-- `expires_at` → `settings_plans.period_start + 30 days` formatted ar-SA
-- `conversations_count` → "غير محدود" (no per-plan column exists)
-- `characters_count` → `settings_plans.monthly_word_quota * 5` formatted
+## Changes
 
-Also re-theme `linkedEmailHtml` (existing-user install) with the same header/footer style so both paths feel consistent.
+### 1. Ticket submission → conversation shown as just "closed"
+File: `supabase/functions/widget-events/index.ts`
+- In the `ticket.created` branch, set `close_reason: null` (instead of `customer_manual`) when closing the conversation. Trigger still fires (status flips to closed, analysis_done=false), so AI classification still runs on the transcript.
 
-### 2. Ticket received — "تم استلام تذكرتك"
+File: `src/app/components/ConversationsPage.tsx`
+- Hide the close-reason chip in the detail header when `selected.hasTicket` is true (only render the plain "Closed" chip).
+- Also drop the title tooltip on the list "Chat Closed" pill for ticketed conversations.
 
-New edge function `supabase/functions/send-ticket-received/index.ts` (verify_jwt=false, secret-gated). Renders template #2 with values from a `tickets_main` row + tenant owner email.
+### 2. Show category on the conversation list card
+File: `src/app/components/ConversationsPage.tsx`
+- In the list row badges (around line 304), render a small category pill using the existing `categoryMap` when `c.category` is set: colored background, Arabic/English label, same sizing as the completion pill.
+- Order: category → completion → ticket badge → chat status badge.
 
-Wiring via DB trigger (follows the existing `notify_classify_conversation` pattern using `pg_net` + `_app_secrets`):
-- New migration: `AFTER INSERT ON tickets_main` → fires `net.http_post` to the function URL with `x-ticket-secret` header and `{tenant_id, ticket_id}`.
-- Two new rows in `_app_secrets`: `ticket_email_webhook_url`, `ticket_email_webhook_secret` (secret also added to Edge Function env).
+### 3. Real counts on dashboard "Most Frequent" cards
+File: `src/app/components/DashboardPage.tsx`
+- Replace the hard-coded `count` values in the `insights` array with values derived from `metrics.classification`:
+  - complaints → `classification.complaint ?? 0`
+  - requests → `classification.request ?? 0`
+  - inquiries → `classification.inquiry ?? 0`
+  - suggestions → `classification.suggestion ?? 0`
+  - unknown → `classification.other ?? 0`
+- Format with `formatNumber()` so it stays consistent with KPI cards.
 
-Function looks up: ticket fields, owner email (`auth.users` via service role on owner from `auth_tenant_members`), `settings_workspace.name`. Subject: `تم استلام تذكرتك #{display_code}`.
+### 4. Real drill-down lists for "Most Frequent" cards
+Files: `src/app/services/metrics.ts`, `src/app/hooks/useDashboardMetrics.ts` (new query), `src/app/components/DashboardPage.tsx`
+- Add a new fetch in the metrics layer: for the active tenant + date range, pull from `conversations_main` where `status in ('closed','resolved')` and `analysis_done=true`, selecting `category, subject`. Group client-side by `(category, subject)`, count occurrences, sort desc, take top 8 per category.
+- Map results to `{ id, labelEn: subject, labelAr: subject, count, resolved: false }` (subject is already in the conversation's language; we display the single string in both locales).
+- Replace the mocked `insightIssues` constant with the live grouped data; the `unknown` bucket uses `category = 'other'` or NULL.
+- Keep the existing resolve/delete local-state behavior so admins can dismiss items from the UI session (no DB column needed yet).
 
-### 3. Service paused — "تم إيقاف الخدمة مؤقتًا"
+### 5. Verify and keep current behavior
+- Tickets page already shows classification + priority + status — no change.
+- Conversations never render priority — confirmed, no change.
+- Classifier already runs on every close path because all three reasons flip `status → closed` and `analysis_done=false`.
 
-New edge function `supabase/functions/send-service-paused/index.ts`. Renders template #3 (`store_name`, `renewal_link` → `https://fuqah.ai/?settings=plans`).
+## Out of scope
 
-Wiring: extend the existing `bump_word_usage()` PL/pgSQL function — after the `UPDATE settings_plans`, detect the threshold cross (previous `monthly_words_used < monthly_word_quota` AND new value `>= monthly_word_quota`). When it crosses, fire `net.http_post` to the function (same `_app_secrets` pattern).
-
-Add `service_paused_emailed_period date` column to `settings_plans` and set it inside the trigger to the current `period_start` so we only email **once per billing period** (auto-resets when period rolls over).
-
-Subject: `تم إيقاف خدمة فقاعة AI مؤقتًا — اشحن رصيدك`.
-
-### 4. Password changed — "تم تغيير كلمة المرور بنجاح"
-
-New edge function `supabase/functions/send-password-changed/index.ts` (verify_jwt=true, uses caller's JWT to identify the user). Renders template #4 with `store_name` (display_name fallback to email local-part), `change_date`, `change_time` (Asia/Riyadh, ar-SA formatting).
-
-Wiring in `src/app/components/settings/AccountSettings.tsx`: after the successful `supabase.auth.updateUser({ password })` call, fire-and-forget `supabase.functions.invoke('send-password-changed')`.
-
-Subject: `تم تغيير كلمة المرور بنجاح`.
-
-## Shared helper
-
-Move `sendResendEmail()` from `provision-merchant.ts` into a new `supabase/functions/_shared/resend.ts` and reuse it from the 3 new functions (sender stays `Fuqah AI <support@fuqah.net>`).
-
-## Migrations
-
-One migration:
-1. `ALTER TABLE settings_plans ADD COLUMN service_paused_emailed_period date;`
-2. Rewrite `bump_word_usage()` with threshold-cross detection + `net.http_post` call.
-3. Create `notify_ticket_received()` trigger function + `AFTER INSERT` trigger on `tickets_main`.
-4. Insert webhook URL/secret rows into `_app_secrets`.
-
-## Secrets to add
-
-- `TICKET_EMAIL_WEBHOOK_SECRET`
-- `SERVICE_PAUSED_WEBHOOK_SECRET`
-
-(Both also inserted into `_app_secrets` so the triggers can pass them as headers.)
-
-## Out of scope (left for next batch)
-
-Emails #9–#16 from the previous inventory: trial-ended, renewal confirmation, ticket-status-updated, low-credit warning, subscription expired/nearing-expiry, platform disconnected. Those need separate HTML templates + a billing/cron source-of-truth decision that's still open.
-
-## Files touched
-
-- `supabase/functions/_shared/provision-merchant.ts` (replace `welcomeEmailHtml` + `linkedEmailHtml`, switch to shared helper)
-- `supabase/functions/_shared/resend.ts` (new)
-- `supabase/functions/send-ticket-received/index.ts` (new)
-- `supabase/functions/send-service-paused/index.ts` (new)
-- `supabase/functions/send-password-changed/index.ts` (new)
-- `supabase/config.toml` (verify_jwt=false for ticket + service-paused)
-- `supabase/migrations/<ts>_email_triggers.sql` (new)
-- `src/app/components/settings/AccountSettings.tsx` (invoke after password update)
+- Persisting "resolved/deleted" state of insight items in the DB.
+- Translating customer-written subjects between Arabic/English.
+- Re-classifying historical conversations that closed before this flow existed (existing `Re-analyze` admin path already covers that one-off).

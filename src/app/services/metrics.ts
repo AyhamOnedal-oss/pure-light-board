@@ -12,6 +12,12 @@ export interface DateRange {
   to: Date;
 }
 
+export interface TopSubject {
+  id: string;
+  subject: string;
+  count: number;
+}
+
 export interface DashboardMetrics {
   conversations: number;
   messagesIn: number;
@@ -75,6 +81,63 @@ async function count(table: string, build: (q: any) => any): Promise<number> {
     return 0;
   }
   return count ?? 0;
+}
+
+/**
+ * Fetches the top subjects (most frequent) grouped by category from
+ * AI-analyzed closed conversations in the given window. Used by the
+ * Dashboard "Most Frequent…" insight cards.
+ *
+ * Returns up to `limitPerCategory` items per bucket:
+ *   complaint | inquiry | request | suggestion | other
+ * Conversations with category=NULL fall into `other` (treated as
+ * "Unknown" on the dashboard).
+ */
+export async function fetchTopSubjectsByCategory(
+  tenantId: string,
+  range?: DateRange,
+  limitPerCategory = 8,
+): Promise<Record<string, TopSubject[]>> {
+  const buckets: Record<string, TopSubject[]> = {
+    complaint: [], inquiry: [], request: [], suggestion: [], other: [],
+  };
+  if (!tenantId) return buckets;
+  const day = 24 * 60 * 60 * 1000;
+  const to = range?.to ?? new Date();
+  const from = range?.from ?? new Date(to.getTime() - 30 * day);
+  const { data, error } = await supabase
+    .from('conversations_main')
+    .select('category, subject')
+    .eq('tenant_id', tenantId)
+    .eq('is_test', false)
+    .in('status', ['closed', 'resolved'])
+    .gte('created_at', from.toISOString())
+    .lte('created_at', to.toISOString())
+    .limit(2000);
+  if (error) {
+    console.warn('metrics: top subjects fetch failed', error);
+    return buckets;
+  }
+  const tallies: Record<string, Map<string, number>> = {
+    complaint: new Map(), inquiry: new Map(), request: new Map(),
+    suggestion: new Map(), other: new Map(),
+  };
+  for (const row of data ?? []) {
+    const cat = (row as any).category as string | null;
+    const subjRaw = ((row as any).subject as string | null) ?? '';
+    const subj = subjRaw.trim();
+    if (!subj) continue;
+    const bucket = cat && tallies[cat] ? cat : 'other';
+    const m = tallies[bucket];
+    m.set(subj, (m.get(subj) ?? 0) + 1);
+  }
+  for (const k of Object.keys(buckets)) {
+    buckets[k] = Array.from(tallies[k].entries())
+      .map(([subject, count], i) => ({ id: `${k}-${i}-${subject.slice(0, 20)}`, subject, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limitPerCategory);
+  }
+  return buckets;
 }
 
 export async function fetchDashboardMetrics(
