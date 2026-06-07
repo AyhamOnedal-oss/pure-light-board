@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Upload, Store, X, Image, Loader2, Copy, Check } from 'lucide-react';
+import { Upload, Store, X, Image, Loader2 } from 'lucide-react';
 import { supabase } from '../../../integrations/supabase/client';
 
 const DEFAULTS = { storeName: '', domain: '', logo: '', icon: '' };
