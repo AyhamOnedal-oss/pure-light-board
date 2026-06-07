@@ -184,24 +184,6 @@ export function StoreInfo() {
     );
   }
 
-  const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://kdrcgusinkqgwaafcgnw.supabase.co';
-  const widgetSnippet =
-    platform === 'zid'
-      ? `<script async src="${supabaseUrl}/functions/v1/widget-loader"\n        data-platform="zid"\n        data-store-id="{{store.id}}"\n        data-store-uuid="{{store.uuid}}"></script>`
-      : null;
-
-  const copySnippet = async () => {
-    if (!widgetSnippet) return;
-    try {
-      await navigator.clipboard.writeText(widgetSnippet);
-      setSnippetCopied(true);
-      showToast(t('Snippet copied', 'تم نسخ الكود'));
-      setTimeout(() => setSnippetCopied(false), 1800);
-    } catch {
-      showToast(t('Copy failed — select and copy manually', 'فشل النسخ — حدّد الكود وانسخه يدوياً'));
-    }
-  };
-
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
