@@ -171,28 +171,47 @@ export function DashboardPage() {
     { name: t('Closed', 'مغلقة'), value: metrics.ticketsClosed, fill: '#10b981' },
   ];
 
+  // Map insight keys to classification bucket keys used by the AI classifier.
+  const insightBucket: Record<string, string> = {
+    complaints: 'complaint',
+    requests: 'request',
+    inquiries: 'inquiry',
+    suggestions: 'suggestion',
+    unknown: 'other',
+  };
   const insights = [
-    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: '320', clickLabel: t('Click to view complaints', 'اضغط لعرض الشكاوى'), color: '#ff4466' },
-    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: '420', clickLabel: t('Click to view requests', 'اضغط لعرض الطلبات'), color: '#f59e0b' },
-    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: '580', clickLabel: t('Click to view inquiries', 'اضغط لعرض الاستفسارات'), color: '#043CC8' },
-    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: '180', clickLabel: t('Click to view suggestions', 'اضغط لعرض الاقتراحات'), color: '#10b981' },
-    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: '28', clickLabel: t('Click to view unknown questions', 'اضغط لعرض الأسئلة غير المعروفة'), color: '#8b5cf6' },
+    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view complaints', 'اضغط لعرض الشكاوى'), color: '#ff4466' },
+    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view requests', 'اضغط لعرض الطلبات'), color: '#f59e0b' },
+    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view inquiries', 'اضغط لعرض الاستفسارات'), color: '#043CC8' },
+    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view suggestions', 'اضغط لعرض الاقتراحات'), color: '#10b981' },
+    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view unknown questions', 'اضغط لعرض الأسئلة غير المعروفة'), color: '#8b5cf6' },
   ];
 
+  const currentIssues = useMemo(() => {
+    if (!openInsight) return [];
+    const bucketKey = insightBucket[openInsight] ?? 'other';
+    const items = topSubjects[bucketKey] ?? [];
+    const dismissedSet = dismissed[openInsight] ?? new Set<string>();
+    const resolvedSet = resolvedIds[openInsight] ?? new Set<string>();
+    return items
+      .filter(it => !dismissedSet.has(it.id))
+      .map(it => ({ ...it, resolved: resolvedSet.has(it.id) }));
+  }, [openInsight, topSubjects, dismissed, resolvedIds]);
+
   const resolveIssue = (category: string, id: string) => {
-    setIssues(prev => ({
-      ...prev,
-      [category]: prev[category].map(item =>
-        item.id === id ? { ...item, resolved: !item.resolved } : item
-      ),
-    }));
+    setResolvedIds(prev => {
+      const next = new Set(prev[category] ?? []);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return { ...prev, [category]: next };
+    });
   };
 
   const deleteIssue = (category: string, id: string) => {
-    setIssues(prev => ({
-      ...prev,
-      [category]: prev[category].filter(item => item.id !== id),
-    }));
+    setDismissed(prev => {
+      const next = new Set(prev[category] ?? []);
+      next.add(id);
+      return { ...prev, [category]: next };
+    });
     showToast(t('Issue deleted', 'تم حذف المشكلة'));
   };
 
