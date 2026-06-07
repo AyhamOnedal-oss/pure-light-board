@@ -340,7 +340,7 @@ export function ConversationsPage() {
                       <span
                         className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full bg-muted text-muted-foreground"
                         style={{ fontWeight: 600 }}
-                        title={c.closeReason ? t(closeReasonMap[c.closeReason].en, closeReasonMap[c.closeReason].ar) : ''}
+                        title={c.closeReason && !c.hasTicket ? t(closeReasonMap[c.closeReason].en, closeReasonMap[c.closeReason].ar) : ''}
                       >
                         <Lock className="w-2.5 h-2.5" />
                         {t('Chat Closed', 'محادثة مغلقة')}
