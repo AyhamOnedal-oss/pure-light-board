@@ -5,6 +5,7 @@ import { supabase } from '../../integrations/supabase/client';
 import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
+import { normalizeEmail, normalizePassword } from '../utils/authInput';
 
 function ResendResetLink({
   email,
@@ -154,14 +155,17 @@ export function LoginPage() {
     setLoginError('');
     setSignupSuccess(false);
 
-    if (!email || !password) {
+    const normEmail = normalizeEmail(email);
+    const normPassword = normalizePassword(password);
+
+    if (!normEmail || !normPassword) {
       setLoginError(t('Please enter email and password', 'يرجى إدخال البريد الإلكتروني وكلمة المرور'));
       return;
     }
 
     setLoginLoading(true);
     if (mode === 'signin') {
-      const { error } = await signIn(email.trim(), password);
+      const { error } = await signIn(normEmail, normPassword);
       setLoginLoading(false);
       if (error) {
         setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
@@ -183,7 +187,7 @@ export function LoginPage() {
       supabase.functions.invoke('send-login-notification').catch(() => {});
       // Role-based destination is handled by the effect above once session/isSuperAdmin resolve.
     } else {
-      const { error } = await signUp(email.trim(), password);
+      const { error } = await signUp(normEmail, normPassword);
       setLoginLoading(false);
       if (error) {
         setLoginError(error);
@@ -198,13 +202,14 @@ export function LoginPage() {
     e.preventDefault();
     setForgotError('');
 
-    if (!forgotEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail)) {
+    const normForgot = normalizeEmail(forgotEmail);
+    if (!normForgot || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normForgot)) {
       setForgotError(t('Please enter a valid email address', 'يرجى إدخال بريد إلكتروني صحيح'));
       return;
     }
 
     setForgotLoading(true);
-    const { error } = await sendPasswordReset(forgotEmail.trim());
+    const { error } = await sendPasswordReset(normForgot);
     setForgotLoading(false);
 
     if (error) {
