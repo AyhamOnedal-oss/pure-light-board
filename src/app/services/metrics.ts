@@ -12,6 +12,12 @@ export interface DateRange {
   to: Date;
 }
 
+export interface TopSubject {
+  id: string;
+  subject: string;
+  count: number;
+}
+
 export interface DashboardMetrics {
   conversations: number;
   messagesIn: number;
