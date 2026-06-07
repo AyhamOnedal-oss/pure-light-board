@@ -210,12 +210,47 @@ export async function fetchDashboardMetrics(
   });
   if (!rpc.error && rpc.data) {
     const m = rpc.data as any;
-    const { data: trendRows } = await supabase
-      .from('dashboard_usage_daily')
-      .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
-      .eq('tenant_id', tenantId)
-      .gte('day', prevFromDate)
-      .lte('day', toDate);
+    const [{ data: trendRows }, { data: msgTimingRows }] = await Promise.all([
+      supabase
+        .from('dashboard_usage_daily')
+        .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
+        .eq('tenant_id', tenantId)
+        .gte('day', prevFromDate)
+        .lte('day', toDate),
+      supabase
+        .from('conversations_messages')
+        .select('conversation_id, sender, created_at')
+        .eq('tenant_id', tenantId)
+        .gte('created_at', prevFromIso)
+        .lte('created_at', toIso)
+        .order('created_at', { ascending: true })
+        .limit(5000),
+    ]);
+    // Compute real avg response time from message timing (customer -> ai/agent gap)
+    const computeAvgResp = (rows: any[], fromMs: number) => {
+      const byConv: Record<string, Array<{ s: string; t: number }>> = {};
+      for (const r of rows ?? []) {
+        const t = new Date(r.created_at).getTime();
+        if (t < fromMs) continue;
+        const k = r.conversation_id as string;
+        (byConv[k] ||= []).push({ s: r.sender, t });
+      }
+      let total = 0, pairs = 0;
+      for (const arr of Object.values(byConv)) {
+        for (let i = 0; i < arr.length - 1; i++) {
+          if (arr[i].s === 'customer' && (arr[i + 1].s === 'ai' || arr[i + 1].s === 'agent')) {
+            const d = (arr[i + 1].t - arr[i].t) / 1000;
+            if (d >= 0 && d < 3600) { total += d; pairs++; }
+          }
+        }
+      }
+      return pairs > 0 ? total / pairs : 0;
+    };
+    const curAvgResp = computeAvgResp(msgTimingRows ?? [], from.getTime());
+    const prevAvgResp = computeAvgResp(
+      (msgTimingRows ?? []).filter((r: any) => new Date(r.created_at).getTime() < from.getTime()),
+      prevFrom.getTime(),
+    );
     const pct = (cur: number, prev: number): number | null => {
       if (prev <= 0) return cur > 0 ? 100 : null;
       return ((cur - prev) / prev) * 100;
@@ -237,10 +272,22 @@ export async function fetchDashboardMetrics(
     }
     const curRate = sums.cur.opened > 0 ? sums.cur.resolved / sums.cur.opened : 0;
     const prevRate = sums.prev.opened > 0 ? sums.prev.resolved / sums.prev.opened : 0;
-    const curResp = sums.cur.respDays > 0 ? sums.cur.respSum / sums.cur.respDays : 0;
-    const prevResp = sums.prev.respDays > 0 ? sums.prev.respSum / sums.prev.respDays : 0;
+    // Prefer real message-timing computation; fall back to the daily aggregate.
+    const curResp = curAvgResp > 0 ? curAvgResp : (sums.cur.respDays > 0 ? sums.cur.respSum / sums.cur.respDays : 0);
+    const prevResp = prevAvgResp > 0 ? prevAvgResp : (sums.prev.respDays > 0 ? sums.prev.respSum / sums.prev.respDays : 0);
     const respGrowthRaw = pct(curResp, prevResp);
     const respGrowth = respGrowthRaw == null ? null : -respGrowthRaw;
+    // Tickets growth from RPC (needs separate trend query)
+    const { data: ticketTrend } = await supabase
+      .from('tickets_main')
+      .select('created_at')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', prevFromIso)
+      .lte('created_at', toIso);
+    let curTk = 0, prevTk = 0;
+    for (const r of ticketTrend ?? []) {
+      if ((r as any).created_at >= fromIso) curTk++; else prevTk++;
+    }
     return {
       conversations: m.conversations ?? 0,
       messagesIn: m.messagesIn ?? 0,
@@ -271,7 +318,7 @@ export async function fetchDashboardMetrics(
         conversations: pct(sums.cur.opened, sums.prev.opened),
         completionRate:
           prevRate <= 0 ? (curRate > 0 ? 100 : null) : ((curRate - prevRate) / prevRate) * 100,
-        ticketsTotal: null,
+        ticketsTotal: pct(curTk, prevTk),
         wordsUsed: pct(sums.cur.words, sums.prev.words),
         widgetClicks: pct(sums.cur.clicks, sums.prev.clicks),
         avgResponseSeconds: respGrowth,
