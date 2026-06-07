@@ -198,6 +198,15 @@ export function TicketsPage() {
         };
       });
 
+      // Sort: open first, then by priority (high→low), then by recency.
+      const PRIORITY_RANK: Record<UIPriority, number> = { high: 3, medium: 2, low: 1 };
+      mapped.sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
+        const pr = PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority];
+        if (pr !== 0) return pr;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+
       setTickets(mapped);
       if (selected) {
         const fresh = mapped.find(m => m.id === selected.id);
