@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Lock, X, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../../../integrations/supabase/client';
+import { normalizePassword } from '../../utils/authInput';
 
 export function AccountSettings() {
   const { t, showToast, user } = useApp();
@@ -134,29 +135,36 @@ export function AccountSettings() {
   const handleChangePassword = async () => {
     const errors: typeof pwErrors = {};
 
-    if (!currentPassword) {
+    const normCurrent = normalizePassword(currentPassword);
+    const normNew = normalizePassword(newPassword);
+    const normConfirm = normalizePassword(confirmPassword);
+
+    if (!normCurrent) {
       errors.current = t('Please enter your current password', 'يرجى إدخال كلمة المرور الحالية');
     } else if (user?.email) {
       // Verify current password by re-authenticating
       const { error: signInErr } = await supabase.auth.signInWithPassword({
         email: user.email,
-        password: currentPassword,
+        password: normCurrent,
       });
       if (signInErr) {
         errors.current = t('Incorrect current password', 'كلمة المرور الحالية غير صحيحة');
+        setCurrentPwStatus('incorrect');
+      } else {
+        setCurrentPwStatus('correct');
       }
     }
 
-    if (!newPassword) {
+    if (!normNew) {
       errors.newPw = t('Please enter a new password', 'يرجى إدخال كلمة المرور الجديدة');
     } else {
-      const pwError = validatePasswordRules(newPassword);
+      const pwError = validatePasswordRules(normNew);
       if (pwError) errors.newPw = pwError;
     }
 
-    if (!confirmPassword) {
+    if (!normConfirm) {
       errors.confirm = t('Please confirm your password', 'يرجى تأكيد كلمة المرور');
-    } else if (newPassword !== confirmPassword) {
+    } else if (normNew !== normConfirm) {
       errors.confirm = t('Passwords do not match', 'كلمات المرور غير متطابقة');
     }
 
@@ -164,7 +172,7 @@ export function AccountSettings() {
     if (Object.keys(errors).length > 0) return;
 
     setPwLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({ password: normNew });
     setPwLoading(false);
     if (error) {
       setPwErrors({ newPw: error.message });
@@ -255,17 +263,6 @@ export function AccountSettings() {
                   type={showCurrent ? 'text' : 'password'}
                   value={currentPassword}
                   onChange={e => { setCurrentPassword(e.target.value); setPwErrors(prev => ({ ...prev, current: undefined })); setCurrentPwStatus('idle'); }}
-                  onBlur={() => {
-                    if (!currentPassword) { setCurrentPwStatus('idle'); return; }
-                    // TODO: Backend integration - validate current password against server
-                    const MOCK_CURRENT_PASSWORD = '123456Aa';
-                    if (currentPassword === MOCK_CURRENT_PASSWORD) {
-                      setCurrentPwStatus('correct');
-                      setPwErrors(prev => ({ ...prev, current: undefined }));
-                    } else {
-                      setCurrentPwStatus('incorrect');
-                    }
-                  }}
                   placeholder="••••••••"
                   className={pwErrors.current || currentPwStatus === 'incorrect' ? inputErrorClass : currentPwStatus === 'correct' ? "w-full px-4 py-3 rounded-xl bg-input-background border border-green-500 text-[14px] outline-none focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all text-foreground" : inputClass}
                 />
