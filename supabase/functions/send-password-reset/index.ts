@@ -84,6 +84,24 @@ function resetEmailHtml(opts: {
 </html>`;
 }
 
+function buildDirectResetUrl(opts: {
+  appResetUrl: string;
+  actionLink: string;
+  tokenHash?: string | null;
+}): string {
+  try {
+    if (!opts.tokenHash) return opts.actionLink;
+    const url = new URL(opts.appResetUrl);
+    url.pathname = "/reset-password";
+    url.searchParams.set("type", "recovery");
+    url.searchParams.set("token_hash", opts.tokenHash);
+    url.hash = "";
+    return url.toString();
+  } catch (_) {
+    return opts.actionLink;
+  }
+}
+
 async function sendResend(to: string, subject: string, html: string) {
   const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (!apiKey) return { ok: false, error: "RESEND_API_KEY missing" };
@@ -131,10 +149,15 @@ Deno.serve(async (req) => {
     });
 
     // Always return ok to avoid email enumeration.
-    if (linkErr || !linkData?.properties?.action_link) {
+    const props = linkData?.properties as { action_link?: string; hashed_token?: string } | undefined;
+    if (linkErr || !props?.action_link) {
       return json({ ok: true });
     }
-    const resetUrl = linkData.properties.action_link;
+    const resetUrl = buildDirectResetUrl({
+      appResetUrl: redirect,
+      actionLink: props.action_link,
+      tokenHash: props.hashed_token,
+    });
 
     // Resolve store name (best-effort).
     let storeName = "متجرك";
