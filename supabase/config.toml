@@ -37,3 +37,9 @@ verify_jwt = false
 
 [functions.zid-token-refresh]
 verify_jwt = false
+
+[functions.send-ticket-received]
+verify_jwt = false
+
+[functions.send-service-paused]
+verify_jwt = false
