@@ -1,42 +1,19 @@
-## Goal
+## What’s happening
 
-Prevent Arabic-keyboard / RTL users from being locked out of login when their browser silently injects Arabic-Indic digits or invisible BiDi/zero-width characters into the email or password field.
+The password field in **Account Settings → Change Password** is doing two different checks:
 
-## Root cause recap
+1. **On blur**, it compares the typed password against a hardcoded mock value: `123456Aa`.
+2. **On submit**, it correctly asks Supabase to re-authenticate with the current password.
 
-On an Arabic keyboard layout, pressing `3` / `9` produces `٣` / `٩` (U+0663 / U+0669). Copy-paste from WhatsApp, Notes, or RTL email apps can also inject invisible control chars (LRM/RLM, zero-width space, NBSP). The password field hides these, so the user sees the "right" password but Supabase receives different bytes and returns `invalid_credentials`.
+That is why the password can work at login but still show “Incorrect password” in this modal: the red error in the screenshot is coming from the old mock validation, not from Supabase.
 
-## Change
+## Plan
 
-Add a small shared helper and call it right before `signIn` on both login pages. No backend / Supabase changes.
+1. Update `AccountSettings.tsx` so the current-password field no longer uses the hardcoded mock password check.
+2. Reuse the same password normalization helper used by login, so Arabic/RTL invisible characters and digit variants are handled consistently.
+3. Keep the real Supabase re-authentication check when the user submits the password-change form.
+4. Adjust the UI state so it only shows “incorrect current password” after the real Supabase check fails, not simply when the field loses focus.
 
-### New file: `src/app/utils/authInput.ts`
+## Expected result
 
-Two pure functions:
-
-- `normalizeEmail(raw)` — `trim()` + `toLowerCase()` + strip zero-width and BiDi control chars.
-- `normalizePassword(raw)` — strip zero-width and BiDi control chars, replace NBSP with regular space, and convert Arabic-Indic (`٠-٩`) and Persian (`۰-۹`) digits to Latin (`0-9`). Do **not** trim or lowercase — passwords are case- and whitespace-sensitive.
-
-Characters stripped: `\u200B-\u200F`, `\u202A-\u202E`, `\u2066-\u2069`, `\uFEFF`.
-
-### Edits
-
-1. `src/app/components/LoginPage.tsx` — import the helpers, call `signIn(normalizeEmail(email), normalizePassword(password))`. Also normalize before the empty-field validation so a password of only invisible chars is treated as empty.
-2. `src/app/components/admin/AdminLoginPage.tsx` — same change.
-3. (Optional, same PR) `src/app/components/ResetPasswordPage.tsx` — apply `normalizePassword` to the new password before `supabase.auth.updateUser({ password })` so users don't set a password full of Arabic digits they can never re-type from an English keyboard.
-
-### Not changing
-
-- Signup flow is left alone (changing password normalization there could lock out existing users whose passwords were stored with Arabic digits). We can revisit if you want.
-- No UI copy changes, no autofill attribute changes, no toast/warning when normalization actually rewrites a character — silent fix. If you'd rather show a small hint ("we converted Arabic digits in your password"), say so and I'll add it.
-
-## Verification
-
-- Manually paste `pA٣kWF٩!HGMviySR` into the password field with email `w8jkkchmfb@zam-partner.email` → login succeeds.
-- Existing English-only logins continue to work unchanged (helpers are no-ops on already-Latin input).
-- Admin login behaves the same way.
-
-## Out of scope
-
-- Server-side normalization (not possible — Supabase Auth hashes the password as-sent).
-- Detecting/warning the user about active Arabic keyboard layout (browser doesn't expose this reliably).
+The current password will no longer be falsely marked wrong while typing/leaving the field. If the user can log in with that password, the change-password modal should accept it too.
