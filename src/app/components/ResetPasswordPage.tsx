@@ -25,21 +25,65 @@ export function ResetPasswordPage() {
 
   useEffect(() => {
     let cancelled = false;
-    // Give supabase-js a moment to parse tokens from the URL hash/query
-    // and establish the recovery session. We listen for PASSWORD_RECOVERY
-    // and also poll getSession() once as a fallback.
+
+    // Parse recovery tokens directly from the URL hash. Supabase normally
+    // does this automatically via detectSessionInUrl, but if that parsing
+    // fails (race condition, hash already consumed, etc.) the page would
+    // stay blank. Doing it explicitly guarantees the form shows up.
+    const parseHash = () => {
+      const hash = window.location.hash || '';
+      const raw = hash.startsWith('#') ? hash.slice(1) : hash;
+      const params = new URLSearchParams(raw);
+      return {
+        access_token: params.get('access_token'),
+        refresh_token: params.get('refresh_token'),
+        type: params.get('type'),
+      };
+    };
+
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
       if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
         setLinkState('valid');
       }
     });
-    const timer = setTimeout(async () => {
+
+    (async () => {
+      const { access_token, refresh_token, type } = parseHash();
+
+      // If we have recovery tokens in the URL, set the session explicitly.
+      if (access_token && refresh_token && (type === 'recovery' || !type)) {
+        const { data, error } = await supabase.auth.setSession({
+          access_token,
+          refresh_token,
+        });
+        if (cancelled) return;
+        if (!error && data.session) {
+          setLinkState('valid');
+          // Clean tokens out of the visible URL
+          try {
+            window.history.replaceState(null, '', window.location.pathname);
+          } catch { /* ignore */ }
+          return;
+        }
+      }
+
+      // Fallback: check whether supabase-js already restored a session
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
-      setLinkState(data.session ? 'valid' : 'invalid');
-    }, 1200);
-    return () => { cancelled = true; sub.subscription.unsubscribe(); clearTimeout(timer); };
+      if (data.session) {
+        setLinkState('valid');
+        try {
+          if (window.location.hash) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        } catch { /* ignore */ }
+      } else {
+        setLinkState('invalid');
+      }
+    })();
+
+    return () => { cancelled = true; sub.subscription.unsubscribe(); };
   }, []);
 
   const logo = theme === 'dark' ? logoDark : logoLight;
