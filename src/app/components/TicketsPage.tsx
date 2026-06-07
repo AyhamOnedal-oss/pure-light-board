@@ -62,6 +62,20 @@ function dbStatusToUI(s: string): UIStatus {
   return s === 'closed' || s === 'resolved' ? 'closed' : 'open';
 }
 
+/** Build a wa.me URL from a stored phone, stripping leading 0 after the country code. */
+const KNOWN_DIAL_CODES = ['966', '971', '965', '974', '973', '968', '967', '964', '962', '20'];
+function toWhatsAppUrl(rawPhone: string): string {
+  const digits = (rawPhone || '').replace(/\D/g, '');
+  if (!digits) return '#';
+  for (const cc of KNOWN_DIAL_CODES) {
+    if (digits.startsWith(cc)) {
+      const local = digits.slice(cc.length).replace(/^0+/, '');
+      return `https://wa.me/${cc}${local}`;
+    }
+  }
+  return `https://wa.me/${digits}`;
+}
+
 export function TicketsPage() {
   const { t, showToast, dir, tenantId } = useApp();
   const [tickets, setTickets] = useState<TicketItem[]>([]);
@@ -485,7 +499,7 @@ export function TicketsPage() {
                   </button>
                   {selected.customerId && (
                     <a
-                      href={`https://wa.me/${selected.customerId.replace(/\s|\+/g, '')}`}
+                      href={toWhatsAppUrl(selected.customerId)}
                       target="_blank"
                       rel="noreferrer"
                       className="p-1.5 hover:bg-green-500/10 rounded-xl transition-colors"
