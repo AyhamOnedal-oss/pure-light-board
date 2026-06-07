@@ -87,10 +87,6 @@ export function StoreInfo() {
   const [saved, setSaved] = useState(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [platform, setPlatform] = useState<string | null>(null);
-  const [zidStoreUuid, setZidStoreUuid] = useState<string | null>(null);
-  const [zidStoreId, setZidStoreId] = useState<string | null>(null);
-  const [snippetCopied, setSnippetCopied] = useState(false);
 
   // Load from Supabase (settings_workspace) on mount / tenant change
   useEffect(() => {
