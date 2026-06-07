@@ -25,11 +25,9 @@ function formatNumber(n: number): string {
 }
 
 function formatSeconds(s: number): string {
-  if (!s || s < 0) return '0s';
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
-  const m = Math.floor(s / 60);
-  const rem = Math.round(s - m * 60);
-  return `${m}m ${rem}s`;
+  if (!s || s < 0) return '0 ث';
+  const value = s < 10 ? s.toFixed(1) : Math.round(s).toString();
+  return `${value} ث`;
 }
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
