@@ -105,9 +105,12 @@ const VISITOR_PLACEHOLDERS = new Set<string>([
 export function resolveVisitorName(
   name: string | null | undefined,
   t: (en: string, ar: string) => string,
+  phone?: string | null,
 ): string {
   const v = (name ?? '').trim();
-  if (!v) return visitorCustomerLabel(t);
-  if (VISITOR_PLACEHOLDERS.has(v.toLowerCase())) return visitorCustomerLabel(t);
+  const phoneFallback = (phone ?? '').trim();
+  const fallback = phoneFallback || visitorCustomerLabel(t);
+  if (!v) return fallback;
+  if (VISITOR_PLACEHOLDERS.has(v.toLowerCase())) return fallback;
   return v;
 }

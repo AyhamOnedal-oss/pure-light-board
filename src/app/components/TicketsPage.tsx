@@ -187,7 +187,7 @@ export function TicketsPage() {
           status: dbStatusToUI(r.status),
           createdAt: formatDateTime(r.created_at),
           closedAt: r.resolved_at ? formatDateTime(r.resolved_at) : undefined,
-          customerName: resolveVisitorName(r.customer_name, t),
+          customerName: resolveVisitorName(r.customer_name, t, r.customer_phone),
           avatarColor: r.customer_avatar_color || '#043CC8',
           conversationId: r.conversation_id || undefined,
           messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
