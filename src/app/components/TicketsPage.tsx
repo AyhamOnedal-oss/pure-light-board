@@ -198,12 +198,9 @@ export function TicketsPage() {
         };
       });
 
-      // Sort: open first, then by priority (high→low), then by recency.
-      const PRIORITY_RANK: Record<UIPriority, number> = { high: 3, medium: 2, low: 1 };
+      // Default sort: newest first (by ticket number, falls back to createdAt).
       mapped.sort((a, b) => {
-        if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
-        const pr = PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority];
-        if (pr !== 0) return pr;
+        if (b.number !== a.number) return b.number - a.number;
         return b.createdAt.localeCompare(a.createdAt);
       });
 
