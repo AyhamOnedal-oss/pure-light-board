@@ -541,12 +541,9 @@ export function TicketsPage() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap ps-12 md:ps-0">
-                {selected.status === 'closed' && <CompletionPill score={selected.completionScore} size="md" />}
+                <CompletionPill score={selected.completionScore} size="md" />
                 {selected.intentType && <IntentBadge type={selected.intentType} size="md" />}
                 <GoalMetBadge met={selected.goalMet} />
-                <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: categoryMap[selected.category].color + '12', color: categoryMap[selected.category].color, fontWeight: 600 }}>
-                  {t(categoryMap[selected.category].en, categoryMap[selected.category].ar)}
-                </span>
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: priorityMap[selected.priority].color + '12', color: priorityMap[selected.priority].color, fontWeight: 600 }}>
                   {t(priorityMap[selected.priority].en, priorityMap[selected.priority].ar)}
                 </span>
