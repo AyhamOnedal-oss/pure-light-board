@@ -501,7 +501,7 @@ export function ConversationsPage() {
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
-                        <div className="px-4 py-3">{msg.text}</div>
+                        <div className="px-4 py-3 whitespace-pre-wrap break-words">{msg.text}</div>
                       )}
                       <p className={`px-4 pb-2 text-[10px] ${msg.sender === 'customer' ? 'text-muted-foreground' : 'text-white/50'}`}>
                         {msg.time}
