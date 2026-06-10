@@ -33,6 +33,7 @@ interface TicketItem {
   customerName: string;
   avatarColor: string;
   conversationId?: string;
+  conversationDisplayCode?: string;
   messages: Message[];
   activities: Activity[];
   completionScore?: number | null;
@@ -120,9 +121,9 @@ export function TicketsPage() {
           : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string }> }),
         convIds.length > 0
           ? supabase.from('conversations_main')
-              .select('id, completion_score, intent_type, goal_met')
+              .select('id, completion_score, intent_type, goal_met, display_code')
               .in('id', convIds)
-          : Promise.resolve({ data: [] as Array<{ id: string; completion_score: number | null; intent_type: string | null; goal_met: boolean | null }> }),
+          : Promise.resolve({ data: [] as Array<{ id: string; completion_score: number | null; intent_type: string | null; goal_met: boolean | null; display_code: string | null }> }),
       ]);
 
       // Tie-break: when timestamps are equal, customer messages render first.
@@ -137,7 +138,7 @@ export function TicketsPage() {
         return a.id.localeCompare(b.id);
       });
 
-      const analysisByConv = new Map<string, { completion_score: number | null; intent_type: string | null; goal_met: boolean | null }>();
+      const analysisByConv = new Map<string, { completion_score: number | null; intent_type: string | null; goal_met: boolean | null; display_code: string | null }>();
       (convAnalysis || []).forEach(a => analysisByConv.set(a.id, a));
 
       const actsByTk = new Map<string, Activity[]>();
@@ -190,6 +191,7 @@ export function TicketsPage() {
           customerName: resolveVisitorName(r.customer_name, t, r.customer_phone),
           avatarColor: r.customer_avatar_color || '#043CC8',
           conversationId: r.conversation_id || undefined,
+          conversationDisplayCode: a?.display_code || undefined,
           messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
           activities: actsByTk.get(r.id) || [],
           completionScore: typeof a?.completion_score === 'number' ? a.completion_score : null,
@@ -451,6 +453,9 @@ export function TicketsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-[14px]" style={{ fontWeight: 600 }}>{getDisplayName(selected.customerName)}</p>
                     <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.displayCode}</span>
+                    {selected.conversationDisplayCode && (
+                      <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.conversationDisplayCode}</span>
+                    )}
                   </div>
                   <button
                     type="button"
