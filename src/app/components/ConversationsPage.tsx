@@ -174,7 +174,46 @@ export function ConversationsPage() {
     }
   };
 
-  useEffect(() => { loadConversations(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId, language]);
+  useEffect(() => {
+    loadConversations();
+    if (!tenantId) return;
+
+    // Debounced refetch so rapid events / focus don't spam the API.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleReload = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { loadConversations(); }, 400);
+    };
+
+    // Realtime: any UPDATE to this tenant's conversations (e.g. status -> closed)
+    const channel = supabase
+      .channel(`conversations-main-${tenantId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations_main', filter: `tenant_id=eq.${tenantId}` },
+        scheduleReload,
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'conversations_main', filter: `tenant_id=eq.${tenantId}` },
+        scheduleReload,
+      )
+      .subscribe();
+
+    // Safety net: refresh when the tab regains focus / visibility.
+    const onFocus = () => scheduleReload();
+    const onVisible = () => { if (document.visibilityState === 'visible') scheduleReload(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(channel);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [tenantId, language]);
 
   const handleReanalyze = async (conv: Conversation) => {
     if (!tenantId || reanalyzing) return;
