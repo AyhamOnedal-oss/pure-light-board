@@ -123,7 +123,7 @@ export function TicketsPage() {
           ? supabase.from('conversations_main')
               .select('id, completion_score, intent_type, goal_met, display_code')
               .in('id', convIds)
-          : Promise.resolve({ data: [] as Array<{ id: string; completion_score: number | null; intent_type: string | null; goal_met: boolean | null }> }),
+          : Promise.resolve({ data: [] as Array<{ id: string; completion_score: number | null; intent_type: string | null; goal_met: boolean | null; display_code: string | null }> }),
       ]);
 
       // Tie-break: when timestamps are equal, customer messages render first.
