@@ -453,6 +453,9 @@ export function TicketsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-[14px]" style={{ fontWeight: 600 }}>{getDisplayName(selected.customerName)}</p>
                     <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.displayCode}</span>
+                    {selected.conversationDisplayCode && (
+                      <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md" style={{ fontWeight: 500 }}>{selected.conversationDisplayCode}</span>
+                    )}
                   </div>
                   <button
                     type="button"
