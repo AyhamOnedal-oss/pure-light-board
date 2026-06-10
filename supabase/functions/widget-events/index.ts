@@ -50,6 +50,21 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true });
     }
 
+    // ── Message feedback (thumbs up/down) from widget
+    if (event === "message.feedback") {
+      const messageId = payload?.messageId ? String(payload.messageId) : null;
+      const raw = payload?.feedback as "up" | "down" | null | undefined;
+      const fb = raw === "up" ? "positive" : raw === "down" ? "negative" : null;
+      if (!messageId) return jsonResponse({ ok: false, error: "missing_message_id" }, 400);
+      const { error } = await supabase
+        .from("conversations_messages")
+        .update({ feedback: fb })
+        .eq("id", messageId)
+        .eq("tenant_id", tenant_id);
+      if (error) console.error("widget-events: feedback update failed", error);
+      return jsonResponse({ ok: !error });
+    }
+
     // ── Ticket created from widget (inline form or modal)
     if (event === "ticket.created") {
       const subject = String(payload?.subject ?? payload?.message ?? "تذكرة جديدة من المحادثة").slice(0, 200);

@@ -191,7 +191,7 @@ export function TicketsPage() {
           customerName: resolveVisitorName(r.customer_name, t, r.customer_phone),
           avatarColor: r.customer_avatar_color || '#043CC8',
           conversationId: r.conversation_id || undefined,
-          conversationDisplayCode: a?.display_code || (r.conversation_id ? `CV-${r.conversation_id.slice(0, 6).toUpperCase()}` : undefined),
+          conversationDisplayCode: a?.display_code || (r.conversation_id ? r.conversation_id.slice(0, 8) : undefined),
           messages: r.conversation_id ? (msgsByConv.get(r.conversation_id) || []) : [],
           activities: actsByTk.get(r.id) || [],
           completionScore: typeof a?.completion_score === 'number' ? a.completion_score : null,
@@ -582,7 +582,7 @@ export function TicketsPage() {
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
-                        <div className="px-4 py-3">{msg.text}</div>
+                        <div className="px-4 py-3 whitespace-pre-wrap break-words">{msg.text}</div>
                       )}
                       <p className={`px-4 pb-2 text-[10px] ${msg.sender === 'customer' ? 'text-muted-foreground' : 'text-white/50'}`}>
                         {msg.time}

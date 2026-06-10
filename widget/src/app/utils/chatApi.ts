@@ -49,6 +49,8 @@ export interface SendMessageResult {
   /** Server-decided intent: 'closed' means the conversation row was already
    * closed server-side and the widget should advance to the rating screen. */
   intent?: "offer_ticket" | "closed" | "continue";
+  /** DB id of the persisted AI message — used to attach thumbs feedback. */
+  aiMessageId?: string;
 }
 
 export async function sendMessage(
@@ -101,6 +103,7 @@ export async function sendMessage(
       attachments: Array.isArray(data.attachments) ? data.attachments : [],
       action: data.action && typeof data.action === "object" ? data.action : undefined,
       intent: typeof data.intent === "string" ? data.intent : undefined,
+      aiMessageId: typeof data.ai_message_id === "string" ? data.ai_message_id : undefined,
     };
   } catch (err) {
     console.log("[FuqahChat] chat-ai threw:", err);
