@@ -33,6 +33,7 @@ interface TicketItem {
   customerName: string;
   avatarColor: string;
   conversationId?: string;
+  conversationDisplayCode?: string;
   messages: Message[];
   activities: Activity[];
   completionScore?: number | null;
