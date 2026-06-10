@@ -13,17 +13,40 @@
 import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getStoreContext } from "../config/supabase";
 
 function post(route: string, body: unknown): void {
+  const url = `${FUNCTIONS_BASE}${route}`;
+  const payload = JSON.stringify(body);
+  // For close events, prefer sendBeacon so it survives tab close. Beacon
+  // can't set custom headers, so we POST as text/plain — widget-events
+  // parses JSON from the raw body regardless of content type.
+  const isClose =
+    typeof body === "object" &&
+    body !== null &&
+    (body as { event?: string }).event === "conversation.closed";
+  if (isClose && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    try {
+      const blob = new Blob([payload], { type: "text/plain" });
+      const ok = navigator.sendBeacon(url, blob);
+      if (ok) return;
+    } catch (err) {
+      console.log(`[FuqahChat] sendBeacon ${route} failed:`, err);
+    }
+  }
   try {
-    fetch(`${FUNCTIONS_BASE}${route}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
-      keepalive: true,
-    }).catch((err) => console.log(`[FuqahChat] POST ${route} failed:`, err));
+    const doFetch = () =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: payload,
+        keepalive: true,
+      });
+    doFetch().catch((err) => {
+      console.log(`[FuqahChat] POST ${route} failed, retrying:`, err);
+      if (isClose) doFetch().catch((err2) => console.log(`[FuqahChat] retry failed:`, err2));
+    });
   } catch (err) {
     console.log(`[FuqahChat] POST ${route} threw:`, err);
   }

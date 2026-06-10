@@ -335,6 +335,15 @@ export function ChatWindow({
       timestamp: response.timestamp.toISOString(),
     });
     trackEvent('message.received', evCtx);
+
+    // Server-side close: chat-ai already marked the conversation closed
+    // (AI farewell or user end_conversation). Advance to rating and emit
+    // a telemetry-only event — do NOT re-send `conversation.closed` since
+    // the DB row is already closed.
+    if (result.intent === 'closed') {
+      trackEvent('conversation.closed_by_ai', evCtx, { reason: result.action?.type ?? 'offer_close' });
+      setTimeout(() => setCurrentScreen('rating'), 700);
+    }
   };
 
   const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {

@@ -739,11 +739,30 @@ Deno.serve(async (req) => {
     await persistMessages(message, reply);
 
     // Map internal action → public widget intent.
-    // offer_ticket → ask for phone form. offer_close → keep "continue"
-    // (the AI is asking the user; we only end after user's NEXT message
-    // is classified as end_conversation).
-    const intent: "offer_ticket" | "closed" | "continue" =
-      action.type === "offer_ticket" ? "offer_ticket" : "continue";
+    // offer_ticket  → ask for phone form
+    // offer_close   → AI is wrapping up. Mark conversation closed server-side
+    //                 so the post-resolve classify trigger fires, and tell the
+    //                 widget to advance to the rating screen.
+    let intent: "offer_ticket" | "closed" | "continue" = "continue";
+    if (action.type === "offer_ticket") {
+      intent = "offer_ticket";
+    } else if (action.type === "offer_close") {
+      intent = "closed";
+      try {
+        await supabase
+          .from("conversations_main")
+          .update({
+            status: "closed",
+            resolved_at: new Date().toISOString(),
+            close_reason: "ai_offer_close",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conversation_id)
+          .in("status", ["new", "open", "pending"]);
+      } catch (e) {
+        console.log("conversation close-on-offer_close failed (non-fatal):", e);
+      }
+    }
 
     return jsonResponse({ reply, attachments, action, intent, tenant_id, conversation_id });
   } catch (e) {
