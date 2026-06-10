@@ -474,8 +474,8 @@ Deno.serve(async (req) => {
     };
 
     // ── Helper: persist user + AI messages (best-effort) ──────────────────
-    const persistMessages = async (userText: string, aiText: string) => {
-      if (!conversation_id) return;
+    const persistMessages = async (userText: string, aiText: string): Promise<{ ai_message_id: string | null }> => {
+      if (!conversation_id) return { ai_message_id: null };
       try {
         const nowMs = Date.now();
         await supabase.from("conversations_messages").insert({
@@ -488,7 +488,7 @@ Deno.serve(async (req) => {
           attachments: attachmentsIn,
           created_at: new Date(nowMs).toISOString(),
         });
-        await supabase.from("conversations_messages").insert({
+        const { data: aiRow } = await supabase.from("conversations_messages").insert({
           tenant_id,
           conversation_id,
           sender: "ai",
@@ -496,9 +496,11 @@ Deno.serve(async (req) => {
           body: aiText,
           word_count: aiText.split(/\s+/).length,
           created_at: new Date(nowMs + 50).toISOString(),
-        });
+        }).select("id").single();
+        return { ai_message_id: (aiRow?.id as string | undefined) ?? null };
       } catch (e) {
         console.log("persist failed (non-fatal):", e);
+        return { ai_message_id: null };
       }
     };
 
@@ -522,7 +524,7 @@ Deno.serve(async (req) => {
       const reply = "شكراً لتواصلك معنا 🌷 يومك سعيد.";
       const action = { type: "offer_close_done" as ActionType, reason: "user_end_conversation" };
       await logClassifier("user_intent", userVerdict, userIntent, "classifier");
-      await persistMessages(message, reply);
+      const persisted = await persistMessages(message, reply);
       try {
         await supabase
           .from("conversations_main")
@@ -535,15 +537,15 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.log("conversation close update failed (non-fatal):", e);
       }
-      return jsonResponse({ reply, attachments: [], action, intent: "closed", tenant_id, conversation_id });
+      return jsonResponse({ reply, attachments: [], action, intent: "closed", tenant_id, conversation_id, ai_message_id: persisted.ai_message_id });
     }
 
     if (userIntent === "request_ticket") {
       const reply = "تمام، يرجى إدخال رقم هاتفك ليتم فتح تذكرة دعم لك:";
       const action = { type: "offer_ticket" as ActionType, reason: "user_request_ticket" };
       await logClassifier("user_intent", userVerdict, userIntent, "classifier");
-      await persistMessages(message, reply);
-      return jsonResponse({ reply, attachments: [], action, intent: "offer_ticket", tenant_id, conversation_id });
+      const persisted = await persistMessages(message, reply);
+      return jsonResponse({ reply, attachments: [], action, intent: "offer_ticket", tenant_id, conversation_id, ai_message_id: persisted.ai_message_id });
     }
 
     // Log the user-intent verdict even when it was "normal" so we can see
@@ -736,7 +738,7 @@ Deno.serve(async (req) => {
 
     await logClassifier("reply_intent", replyVerdict, decidedIntent, source);
 
-    await persistMessages(message, reply);
+    const persisted = await persistMessages(message, reply);
 
     // Map internal action → public widget intent.
     // offer_ticket  → ask for phone form
@@ -764,7 +766,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return jsonResponse({ reply, attachments, action, intent, tenant_id, conversation_id });
+    return jsonResponse({ reply, attachments, action, intent, tenant_id, conversation_id, ai_message_id: persisted.ai_message_id });
   } catch (e) {
     console.error("chat-ai error", e);
     return jsonResponse({ error: "server_error" }, 500);
