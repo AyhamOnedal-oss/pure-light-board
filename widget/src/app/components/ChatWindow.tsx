@@ -293,7 +293,7 @@ export function ChatWindow({
       result.action?.type === 'offer_ticket' || isTicketOfferPrompt(replyText);
 
     const response: Message = {
-      id: (Date.now() + 1).toString(),
+      id: result.aiMessageId || (Date.now() + 1).toString(),
       text: replyText,
       sender: 'store',
       timestamp: new Date(),
