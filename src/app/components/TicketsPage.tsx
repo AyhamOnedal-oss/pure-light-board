@@ -121,7 +121,7 @@ export function TicketsPage() {
           : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string }> }),
         convIds.length > 0
           ? supabase.from('conversations_main')
-              .select('id, completion_score, intent_type, goal_met')
+              .select('id, completion_score, intent_type, goal_met, display_code')
               .in('id', convIds)
           : Promise.resolve({ data: [] as Array<{ id: string; completion_score: number | null; intent_type: string | null; goal_met: boolean | null }> }),
       ]);
