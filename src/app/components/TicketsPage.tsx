@@ -138,7 +138,7 @@ export function TicketsPage() {
         return a.id.localeCompare(b.id);
       });
 
-      const analysisByConv = new Map<string, { completion_score: number | null; intent_type: string | null; goal_met: boolean | null }>();
+      const analysisByConv = new Map<string, { completion_score: number | null; intent_type: string | null; goal_met: boolean | null; display_code: string | null }>();
       (convAnalysis || []).forEach(a => analysisByConv.set(a.id, a));
 
       const actsByTk = new Map<string, Activity[]>();
