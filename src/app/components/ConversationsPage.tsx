@@ -207,8 +207,14 @@ export function ConversationsPage() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
 
+    // Lightweight 5s poll so new conversations/messages appear automatically.
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') scheduleReload();
+    }, 5000);
+
     return () => {
       if (timer) clearTimeout(timer);
+      clearInterval(poll);
       supabase.removeChannel(channel);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);

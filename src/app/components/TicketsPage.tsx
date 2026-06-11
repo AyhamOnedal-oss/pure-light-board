@@ -217,7 +217,15 @@ export function TicketsPage() {
     }
   };
 
-  useEffect(() => { loadTickets(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId]);
+  useEffect(() => {
+    loadTickets();
+    if (!tenantId) return;
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') loadTickets();
+    }, 5000);
+    return () => clearInterval(poll);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [tenantId]);
 
   const handleSeed = async () => {
     if (!tenantId) return;
