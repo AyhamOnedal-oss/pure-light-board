@@ -5,6 +5,7 @@ import whatsappIcon from '../../imports/whatsapp.png';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { AttachmentBubble } from './chat/AttachmentBubble';
 import { NotesActivityPanel, Activity, AuthorRole } from './chat/NotesActivityPanel';
+import { LinkifiedText } from './chat/LinkifiedText';
 import { CURRENT_USER_ID, CURRENT_USER_NAME, CURRENT_USER_ROLE, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
@@ -345,7 +346,7 @@ export function TicketsPage() {
 
   const getAiBubbleStyle = (msg: Message) => {
     if (msg.sender !== 'ai') return '';
-    return 'bg-[#043CC8] text-white rounded-br-sm';
+    return 'bg-[#043CC8] text-white rounded-br-sm msg-bubble-ai';
   };
 
   return (
@@ -582,7 +583,9 @@ export function TicketsPage() {
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
-                        <div className="px-4 py-3 whitespace-pre-wrap break-words">{msg.text}</div>
+                        <div className="px-4 py-3" style={{ overflowWrap: 'anywhere' }}>
+                          <LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} />
+                        </div>
                       )}
                       <p className={`px-4 pb-2 text-[10px] ${msg.sender === 'customer' ? 'text-muted-foreground' : 'text-white/50'}`}>
                         {msg.time}

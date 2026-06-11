@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { AttachmentBubble } from './chat/AttachmentBubble';
+import { LinkifiedText } from './chat/LinkifiedText';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
