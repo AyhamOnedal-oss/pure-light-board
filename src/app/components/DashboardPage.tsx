@@ -102,12 +102,12 @@ export function DashboardPage() {
 
   // Real day-over-day growth comes from `metrics.growth` (null = no prior data).
   const kpis = [
-    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', growth: metrics.growth.conversations },
-    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', growth: metrics.growth.completionRate },
-    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', growth: metrics.growth.ticketsTotal },
-    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', growth: metrics.growth.wordsUsed },
-    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', growth: metrics.growth.widgetClicks },
-    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', growth: metrics.growth.avgResponseSeconds },
+    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', plain: false },
+    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', plain: false },
+    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', plain: false },
+    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', plain: false },
+    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', plain: false },
+    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', plain: true },
   ];
 
   const classificationLabels: Record<string, { en: string; ar: string; color: string }> = {
@@ -234,29 +234,17 @@ export function DashboardPage() {
             </div>
             <p className="relative text-[12px] text-muted-foreground mb-1 text-start">{kpi.label}</p>
             <div className="relative flex items-center justify-between">
-              <AnimatedValue
-                value={kpi.value}
-                duration={2000}
-                delay={idx * 100}
-                className="text-[22px] text-foreground"
-                style={{ fontWeight: 700 }}
-              />
-              {(() => {
-                const g = kpi.growth;
-                if (g == null) {
-                  return <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>—</span>;
-                }
-                const up = g >= 0;
-                const Icon = up ? TrendingUp : TrendingDown;
-                const color = up ? 'text-green-500' : 'text-red-500';
-                const sign = up ? '+' : '';
-                return (
-                  <span className={`text-[10px] flex items-center gap-0.5 ${color}`} style={{ fontWeight: 600 }}>
-                    <Icon className="w-2.5 h-2.5" />
-                    {sign}{g.toFixed(1)}%
-                  </span>
-                );
-              })()}
+              {kpi.plain ? (
+                <span className="text-[22px] text-foreground" style={{ fontWeight: 700 }}>{kpi.value}</span>
+              ) : (
+                <AnimatedValue
+                  value={kpi.value}
+                  duration={2000}
+                  delay={idx * 100}
+                  className="text-[22px] text-foreground"
+                  style={{ fontWeight: 700 }}
+                />
+              )}
             </div>
           </motion.div>
         ))}
