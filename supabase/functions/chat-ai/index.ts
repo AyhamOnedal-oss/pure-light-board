@@ -151,6 +151,35 @@ function classifyReplyIntent(reply: string, lastUserMessage: string) {
   );
 }
 
+/**
+ * Deterministic Arabic/English wrap-up detector used as a fallback when the
+ * LLM classifier returns "continue" with low confidence. Matches farewells,
+ * "anything else?" style closers, and explicit goodbyes. Intentionally
+ * conservative so it doesn't fire on opening greetings.
+ */
+const CLOSING_PHRASE_RE = new RegExp(
+  [
+    "في\\s*أمان\\s*الله",
+    "مع\\s*الس?لامة",
+    "مع\\s*الس?لامه",
+    "سعدنا\\s*بخدمتك",
+    "نتشرف\\s*بخدمتك",
+    "شكر[اًا]?\\s*لتواصلك",
+    "هل\\s*(لديك|تحتاج|عندك)\\s*(أي\\s*)?(شيء|إستفسار|استفسار|سؤال)\\s*(آخر|ثاني|اخر)",
+    "أتمنى\\s*لك\\s*يوم[اًا]?\\s*(سعيد|طيب)",
+    "إذا\\s*احتجت\\s*أي\\s*شيء\\s*(آخر|ثاني)",
+    "have\\s+a\\s+(great|nice|good)\\s+day",
+    "anything\\s+else\\s+i\\s+can\\s+help",
+    "glad\\s+i\\s+could\\s+help",
+  ].join("|"),
+  "i",
+);
+
+function detectClosingPhrase(reply: string): boolean {
+  if (!reply) return false;
+  return CLOSING_PHRASE_RE.test(reply);
+}
+
 function classifyUserIntent(message: string) {
   return runClassifier<UserIntent>(
     USER_SYS_PROMPT,
@@ -721,6 +750,13 @@ Deno.serve(async (req) => {
       } else if (replyVerdict.ok) {
         source = "low_confidence";
       }
+    }
+
+    // Fallback: deterministic Arabic/English wrap-up phrase detector. Only
+    // fires when the LLM classifier didn't already commit to an intent.
+    if (decidedIntent === "none" && detectClosingPhrase(reply)) {
+      decidedIntent = "offer_close";
+      source = "fallback";
     }
 
     if (decidedIntent !== "none") {

@@ -31,6 +31,8 @@ import { TicketCreatedScreen } from './TicketCreatedScreen';
 import { ChatFooter } from './ChatFooter';
 import { THEMES, ACTIVE_THEME_ID, getThemeById } from '../types/theme';
 import { sendMessage } from '../utils/chatApi';
+import { closeConversation as analyticsCloseConversation } from '../utils/analytics';
+import { getStoreContext } from '../config/supabase';
 
 // ─── Types ───────────────────────────────────────────────��──────────────────
 
@@ -141,6 +143,37 @@ export function ChatWidget() {
   const [currentScreen, setCurrentScreen] = useState<ScreenView>('chat');
   const [ticketId] = useState(generateTicketId);
   const [conversationId] = useState(generateConversationId);
+
+  /** Tracks whether the conversation has already been closed server-side. */
+  const closedRef = useRef(false);
+
+  // ── Tab-close / pagehide: signal "inactivity" so the row closes server-side
+  //    instead of waiting for the idle cron.
+  useEffect(() => {
+    const fireClose = () => {
+      if (closedRef.current || !conversationId) return;
+      closedRef.current = true;
+      try {
+        const sc = getStoreContext();
+        analyticsCloseConversation(
+          { storeId: sc.tenant_id ?? '', conversationId },
+          'inactivity',
+        );
+      } catch {
+        /* swallow — best effort */
+      }
+    };
+    const onPageHide = () => fireClose();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') fireClose();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [conversationId]);
 
   /** Tracks how the current ticket was created: 'inline' or 'form' */
   const ticketSourceRef = useRef<'inline' | 'form'>('form');
