@@ -16,7 +16,15 @@ Deno.serve(async (req) => {
       console.error("widget-events: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
       return jsonResponse({ error: "service_role_missing" }, 503);
     }
-    const body = await req.json();
+    // Accept JSON or text/plain bodies (sendBeacon falls back to text/plain).
+    let body: Record<string, unknown> = {};
+    try {
+      const raw = await req.text();
+      body = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      console.error("widget-events: body parse failed", e);
+      return jsonResponse({ error: "bad_body" }, 400);
+    }
     const { event, platform, store_id, conversation_id, payload } = body;
     const { tenant_id } = await resolveTenant({
       tenant_id: body.tenant_id,
@@ -35,7 +43,7 @@ Deno.serve(async (req) => {
         rating_skip: "idle",
       };
       const close_reason = reasonMap[rawReason] ?? "customer_manual";
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("conversations_main")
         .update({
           status: "closed",
@@ -45,8 +53,12 @@ Deno.serve(async (req) => {
         })
         .eq("id", conversation_id)
         .eq("tenant_id", tenant_id)
-        .in("status", ["new", "open", "pending"]);
+        .in("status", ["new", "open", "pending"])
+        .select("id");
       if (error) console.error("widget-events: close conv failed", error);
+      console.log("widget-events close", {
+        conversation_id, tenant_id, close_reason, updated: data?.length ?? 0,
+      });
       return jsonResponse({ ok: true });
     }
 
