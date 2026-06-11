@@ -15,14 +15,20 @@ import { FUNCTIONS_BASE, SUPABASE_ANON_KEY, getStoreContext } from "../config/su
 function post(route: string, body: unknown): void {
   const url = `${FUNCTIONS_BASE}${route}`;
   const payload = JSON.stringify(body);
-  // For close events, prefer sendBeacon so it survives tab close. Beacon
-  // can't set custom headers, so we POST as text/plain — widget-events
-  // parses JSON from the raw body regardless of content type.
-  const isClose =
+  // Manual close + rating MUST use authenticated fetch — Supabase function
+  // gateway rejects requests without `apikey` even when verify_jwt=false,
+  // so sendBeacon (which can't set headers) silently drops them.
+  // sendBeacon is reserved for the pagehide/unload fallback, where the
+  // caller passes `__beacon: true` in the body.
+  const isCloseLike =
     typeof body === "object" &&
     body !== null &&
     (body as { event?: string }).event === "conversation.closed";
-  if (isClose && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+  const beaconOnly =
+    typeof body === "object" &&
+    body !== null &&
+    (body as { __beacon?: boolean }).__beacon === true;
+  if (beaconOnly && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
     try {
       const blob = new Blob([payload], { type: "text/plain" });
       const ok = navigator.sendBeacon(url, blob);
@@ -43,10 +49,18 @@ function post(route: string, body: unknown): void {
         body: payload,
         keepalive: true,
       });
-    doFetch().catch((err) => {
-      console.log(`[FuqahChat] POST ${route} failed, retrying:`, err);
-      if (isClose) doFetch().catch((err2) => console.log(`[FuqahChat] retry failed:`, err2));
-    });
+    doFetch()
+      .then(async (res) => {
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          console.log(`[FuqahChat] POST ${route} non-ok`, res.status, txt);
+          if (isCloseLike) doFetch().catch(() => {});
+        }
+      })
+      .catch((err) => {
+        console.log(`[FuqahChat] POST ${route} failed, retrying:`, err);
+        if (isCloseLike) doFetch().catch((err2) => console.log(`[FuqahChat] retry failed:`, err2));
+      });
   } catch (err) {
     console.log(`[FuqahChat] POST ${route} threw:`, err);
   }
