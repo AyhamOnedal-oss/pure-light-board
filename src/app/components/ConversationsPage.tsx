@@ -494,7 +494,7 @@ export function ConversationsPage() {
                     <div className={`rounded-2xl text-[14px] ${
                       msg.sender === 'customer'
                         ? 'bg-muted text-foreground rounded-bl-sm'
-                        : 'bg-[#043CC8] text-white rounded-br-sm'
+                        : 'bg-[#043CC8] text-white rounded-br-sm msg-bubble-ai'
                     }`}>
                       {msg.type === 'image' || msg.type === 'file' ? (
                         <AttachmentBubble
@@ -502,7 +502,9 @@ export function ConversationsPage() {
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
-                        <div className="px-4 py-3 whitespace-pre-wrap break-words">{msg.text}</div>
+                        <div className="px-4 py-3" style={{ overflowWrap: 'anywhere' }}>
+                          <LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} />
+                        </div>
                       )}
                       <p className={`px-4 pb-2 text-[10px] ${msg.sender === 'customer' ? 'text-muted-foreground' : 'text-white/50'}`}>
                         {msg.time}
