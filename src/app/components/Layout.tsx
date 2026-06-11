@@ -16,7 +16,7 @@ import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermission
 
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
-  const { perms: userPerms, loading: permsLoading } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
+  const { perms: userPerms, loading: permsLoading, disabled: userDisabled } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [displayName, setDisplayName] = useState<string>('');
   const [displayEmail, setDisplayEmail] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
