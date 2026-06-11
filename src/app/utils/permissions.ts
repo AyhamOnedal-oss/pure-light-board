@@ -113,21 +113,23 @@ export function useCurrentMemberPermissions(
   userId: string | null | undefined,
   tenantId: string | null | undefined,
   isSuperAdmin: boolean,
-): { perms: ResolvedPermissions; loading: boolean } {
+): { perms: ResolvedPermissions; loading: boolean; disabled: boolean } {
   // Start locked-down. Never default to 'all' — otherwise the sidebar and
   // route guards briefly treat invited employees as full admins on the
   // initial render, before the async role/permission query resolves.
   const [perms, setPerms] = useState<ResolvedPermissions>({});
   const [loading, setLoading] = useState<boolean>(true);
+  const [disabled, setDisabled] = useState<boolean>(false);
 
   useEffect(() => {
-    if (isSuperAdmin) { setPerms('all'); setLoading(false); return; }
+    if (isSuperAdmin) { setPerms('all'); setLoading(false); setDisabled(false); return; }
     if (!userId || !tenantId) {
       // Safe default while we don't know the user/tenant yet: deny everything.
       // Returning 'all' here was unlocking restricted pages (tickets, etc.)
       // for invited employees during the brief loading window.
       setPerms({});
       setLoading(true);
+      setDisabled(false);
       return;
     }
     let cancelled = false;
@@ -142,24 +144,26 @@ export function useCurrentMemberPermissions(
         .maybeSingle();
       const role = tm?.role as string | undefined;
       if (role === 'owner' || role === 'admin') {
-        if (!cancelled) { setPerms('all'); setLoading(false); }
+        if (!cancelled) { setPerms('all'); setLoading(false); setDisabled(false); }
         return;
       }
       const { data: row } = await supabase
         .from('team_members')
-        .select('permissions')
+        .select('permissions, status')
         .eq('tenant_id', tenantId)
         .eq('user_id', userId)
         .maybeSingle();
       if (cancelled) return;
-      const p = (row?.permissions as MemberPermissions | undefined) || {};
+      const isDisabled = row?.status === 'inactive';
+      const p = isDisabled ? {} : ((row?.permissions as MemberPermissions | undefined) || {});
       setPerms(p);
+      setDisabled(isDisabled);
       setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [userId, tenantId, isSuperAdmin]);
 
-  return { perms, loading };
+  return { perms, loading, disabled };
 }
 
 export function firstAllowedPath(perms: ResolvedPermissions): string {

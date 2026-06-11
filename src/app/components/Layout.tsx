@@ -16,7 +16,7 @@ import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermission
 
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
-  const { perms: userPerms, loading: permsLoading } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
+  const { perms: userPerms, loading: permsLoading, disabled: userDisabled } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [displayName, setDisplayName] = useState<string>('');
   const [displayEmail, setDisplayEmail] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -77,9 +77,38 @@ export function Layout() {
     return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
   }, []);
 
-  // Sidebar unread badges — TODO: wire to live counts from DB.
-  const ticketsBadge = 0;
-  const conversationsBadge = 0;
+  // Sidebar unread badges — live counts from DB.
+  const [conversationsBadge, setConversationsBadge] = useState(0);
+  const [ticketsBadge, setTicketsBadge] = useState(0);
+  useEffect(() => {
+    if (!tenantId) { setConversationsBadge(0); setTicketsBadge(0); return; }
+    let cancelled = false;
+    const load = async () => {
+      const convSeen = getTs(notifKeys.conversationsListSeen(CURRENT_USER_ID));
+      const tkSeen = getTs(notifKeys.ticketsListSeen(CURRENT_USER_ID));
+      const convSeenIso = new Date(convSeen || 0).toISOString();
+      const tkSeenIso = new Date(tkSeen || 0).toISOString();
+      const [{ count: convCount }, { count: tkCount }] = await Promise.all([
+        supabase
+          .from('conversations_main')
+          .select('id', { head: true, count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .eq('is_test', false)
+          .gt('last_message_at', convSeenIso),
+        supabase
+          .from('tickets_main')
+          .select('id', { head: true, count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .gt('created_at', tkSeenIso),
+      ]);
+      if (cancelled) return;
+      setConversationsBadge(convCount || 0);
+      setTicketsBadge(tkCount || 0);
+    };
+    load();
+    const id = window.setInterval(() => { if (!cancelled) load(); }, 8000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [tenantId, location.pathname, badgeVersion]);
 
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
@@ -278,6 +307,31 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen">
+      {userDisabled && (
+        <div className="fixed inset-0 z-[100] bg-background flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-card border border-border rounded-2xl shadow-2xl p-8 text-center space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-red-500/10 flex items-center justify-center">
+              <LogOut className="w-7 h-7 text-red-500" />
+            </div>
+            <h2 className="text-[20px]" style={{ fontWeight: 700 }}>
+              {t('Your account has been disabled', 'تم تعطيل حسابك')}
+            </h2>
+            <p className="text-[13px] text-muted-foreground">
+              {t(
+                'Please contact your workspace administrator to regain access.',
+                'يرجى التواصل مع مسؤول المساحة الخاصة بك لاستعادة الوصول.',
+              )}
+            </p>
+            <button
+              onClick={handleLogout}
+              className="w-full py-2.5 rounded-xl bg-[#043CC8] hover:bg-[#0330a0] text-white text-[14px] transition-colors"
+              style={{ fontWeight: 600 }}
+            >
+              {t('Log Out', 'تسجيل الخروج')}
+            </button>
+          </div>
+        </div>
+      )}
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-[260px] bg-sidebar border-e border-sidebar-border flex-col shrink-0 h-screen sticky top-0">
         <SidebarContent />

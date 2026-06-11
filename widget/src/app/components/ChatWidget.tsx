@@ -31,7 +31,7 @@ import { TicketCreatedScreen } from './TicketCreatedScreen';
 import { ChatFooter } from './ChatFooter';
 import { THEMES, ACTIVE_THEME_ID, getThemeById } from '../types/theme';
 import { sendMessage } from '../utils/chatApi';
-import { closeConversation as analyticsCloseConversation } from '../utils/analytics';
+import { closeConversation as analyticsCloseConversation, postRating as analyticsPostRating } from '../utils/analytics';
 import { getStoreContext } from '../config/supabase';
 
 // ─── Types ───────────────────────────────────────────────��──────────────────
@@ -381,12 +381,47 @@ export function ChatWidget() {
 
   const handleConfirmClose = () => {
     setShowConfirmModal(false);
+    // User chose to manually close → mark conversation closed server-side
+    // BEFORE switching to the rating screen, and lock closedRef so the
+    // tab-hide handler cannot later overwrite the reason as "inactivity".
+    if (!closedRef.current && conversationId) {
+      closedRef.current = true;
+      try {
+        const sc = getStoreContext();
+        analyticsCloseConversation(
+          { storeId: sc.tenant_id ?? '', conversationId },
+          'manual',
+        );
+      } catch { /* swallow */ }
+    }
     setCurrentScreen('rating');
   };
 
-  const handleRatingSubmit = (_rating: number, _feedback?: string) => {
-    // In production: POST rating to API, then close widget
+  const handleRatingSubmit = (stars: number, feedback?: string) => {
+    if (conversationId) {
+      try {
+        const sc = getStoreContext();
+        analyticsPostRating(
+          { storeId: sc.tenant_id ?? '', conversationId },
+          { stars, comment: feedback || undefined },
+        );
+      } catch { /* swallow */ }
+    }
+    closedRef.current = true;
     setCurrentScreen('chat');
+  };
+
+  const handleRatingSkip = () => {
+    if (!closedRef.current && conversationId) {
+      closedRef.current = true;
+      try {
+        const sc = getStoreContext();
+        analyticsCloseConversation(
+          { storeId: sc.tenant_id ?? '', conversationId },
+          'rating_skip',
+        );
+      } catch { /* swallow */ }
+    }
   };
 
   const handleTicketClose = () => {
@@ -436,6 +471,8 @@ export function ChatWidget() {
             onBack={() => setCurrentScreen('chat')}
             storeName={STORE_CONFIG.name}
             theme={currentTheme}
+            onRatingSubmit={handleRatingSubmit}
+            onRatingSkip={handleRatingSkip}
           />
         )}
 

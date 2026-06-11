@@ -13,6 +13,9 @@ interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
   type?: 'text' | 'image' | 'file'; fileName?: string;
   feedback?: 'positive' | 'negative';
+  attachmentUrl?: string;
+  attachmentSize?: number;
+  attachmentContentType?: string;
 }
 
 type ChatCloseReason = 'customer_manual' | 'ai_request' | 'idle';
@@ -98,7 +101,7 @@ export function ConversationsPage() {
           ? supabase.from('conversations_customers').select('id, display_name, display_name_ar, phone, avatar_color').in('id', customerIds)
           : Promise.resolve({ data: [] as { id: string; display_name: string | null; display_name_ar: string | null; phone: string | null; avatar_color: string | null }[] }),
         supabase.from('conversations_messages')
-          .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
+          .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at, attachments')
           .in('conversation_id', convIds)
           .order('created_at', { ascending: true })
           .order('id', { ascending: true }),
@@ -120,13 +123,21 @@ export function ConversationsPage() {
       const msgsByConv = new Map<string, Message[]>();
       (messages || []).forEach(m => {
         const arr = msgsByConv.get(m.conversation_id) || [];
+        const atts = Array.isArray((m as any).attachments) ? ((m as any).attachments as any[]) : [];
+        const firstAtt = atts[0] || null;
+        const inferredKind: 'text' | 'image' | 'file' = firstAtt
+          ? (String(firstAtt.content_type || '').startsWith('image/') ? 'image' : 'file')
+          : ((m.kind as 'text' | 'image' | 'file') || 'text');
         arr.push({
           id: m.id,
           sender: m.sender === 'customer' ? 'customer' : 'ai',
           text: m.body || '',
           time: formatTimeOnly(m.created_at),
-          type: (m.kind as 'text' | 'image' | 'file') || 'text',
-          fileName: m.file_name || undefined,
+          type: inferredKind,
+          fileName: m.file_name || firstAtt?.name || undefined,
+          attachmentUrl: firstAtt?.url || undefined,
+          attachmentSize: typeof firstAtt?.size === 'number' ? firstAtt.size : undefined,
+          attachmentContentType: firstAtt?.content_type || undefined,
           feedback: m.feedback === 'positive' ? 'positive' : m.feedback === 'negative' ? 'negative' : undefined,
         });
         msgsByConv.set(m.conversation_id, arr);
@@ -139,6 +150,7 @@ export function ConversationsPage() {
         const msgs = msgsByConv.get(c.id) || [];
         const last = msgs[msgs.length - 1];
         const isClosed = c.status === 'closed' || c.status === 'resolved';
+        const ratedOrResolved = !!c.csat_rating || !!c.resolved_at;
         const intentRaw = (c as { intent_type?: string | null }).intent_type;
         const intent: IntentType | null = (intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null;
         return {
@@ -151,7 +163,7 @@ export function ConversationsPage() {
           ratingComment: c.rating_comment || undefined,
           hasTicket: !!c.ticket_status,
           ticketStatus: (c.ticket_status === 'open' || c.ticket_status === 'closed') ? c.ticket_status : undefined,
-          chatStatus: isClosed ? 'closed' : 'open',
+          chatStatus: (isClosed || ratedOrResolved) ? 'closed' : 'open',
           closeReason: (c.close_reason as ChatCloseReason | null) || undefined,
           category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? (c.category as ChatCategory) : undefined),
           createdAt: formatDateTime(c.created_at),
@@ -503,7 +515,13 @@ export function ConversationsPage() {
                     }`}>
                       {msg.type === 'image' || msg.type === 'file' ? (
                         <AttachmentBubble
-                          attachment={{ type: msg.type, fileName: msg.fileName }}
+                          attachment={{
+                            type: msg.type,
+                            fileName: msg.fileName,
+                            url: msg.attachmentUrl,
+                            size: msg.attachmentSize,
+                            contentType: msg.attachmentContentType,
+                          }}
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
