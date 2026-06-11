@@ -515,7 +515,13 @@ export function ConversationsPage() {
                     }`}>
                       {msg.type === 'image' || msg.type === 'file' ? (
                         <AttachmentBubble
-                          attachment={{ type: msg.type, fileName: msg.fileName }}
+                          attachment={{
+                            type: msg.type,
+                            fileName: msg.fileName,
+                            url: msg.attachmentUrl,
+                            size: msg.attachmentSize,
+                            contentType: msg.attachmentContentType,
+                          }}
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
