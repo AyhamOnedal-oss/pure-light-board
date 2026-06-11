@@ -15,6 +15,9 @@ interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
   type?: 'text' | 'image' | 'file'; fileName?: string;
   feedback?: 'positive' | 'negative';
+  attachmentUrl?: string;
+  attachmentSize?: number;
+  attachmentContentType?: string;
 }
 
 type UICategory = 'complaint' | 'inquiry' | 'request' | 'suggestion';
@@ -115,11 +118,11 @@ export function TicketsPage() {
           .order('created_at', { ascending: true }),
         convIds.length > 0
           ? supabase.from('conversations_messages')
-              .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at')
+              .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at, attachments')
               .in('conversation_id', convIds)
               .order('created_at', { ascending: true })
               .order('id', { ascending: true })
-          : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string }> }),
+          : Promise.resolve({ data: [] as Array<{ id: string; conversation_id: string; sender: string; body: string; kind: string; file_name: string | null; feedback: string | null; created_at: string; attachments: any }> }),
         convIds.length > 0
           ? supabase.from('conversations_main')
               .select('id, completion_score, intent_type, goal_met, display_code')
@@ -162,13 +165,21 @@ export function TicketsPage() {
       const msgsByConv = new Map<string, Message[]>();
       (messages || []).forEach(m => {
         const arr = msgsByConv.get(m.conversation_id) || [];
+        const atts = Array.isArray((m as any).attachments) ? ((m as any).attachments as any[]) : [];
+        const firstAtt = atts[0] || null;
+        const inferredKind: 'text' | 'image' | 'file' = firstAtt
+          ? (String(firstAtt.content_type || '').startsWith('image/') ? 'image' : 'file')
+          : ((m.kind as 'text' | 'image' | 'file') || 'text');
         arr.push({
           id: m.id,
           sender: m.sender === 'customer' ? 'customer' : 'ai',
           text: m.body || '',
           time: formatTimeOnly(m.created_at),
-          type: (m.kind as 'text' | 'image' | 'file') || 'text',
-          fileName: m.file_name || undefined,
+          type: inferredKind,
+          fileName: m.file_name || firstAtt?.name || undefined,
+          attachmentUrl: firstAtt?.url || undefined,
+          attachmentSize: typeof firstAtt?.size === 'number' ? firstAtt.size : undefined,
+          attachmentContentType: firstAtt?.content_type || undefined,
           feedback: m.feedback === 'positive' ? 'positive' : m.feedback === 'negative' ? 'negative' : undefined,
         });
         msgsByConv.set(m.conversation_id, arr);
