@@ -752,6 +752,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Fallback: deterministic Arabic/English wrap-up phrase detector. Only
+    // fires when the LLM classifier didn't already commit to an intent.
+    if (decidedIntent === "none" && detectClosingPhrase(reply)) {
+      decidedIntent = "offer_close";
+      source = "fallback";
+    }
+
     if (decidedIntent !== "none") {
       action = { type: decidedIntent, reason: source };
     }
