@@ -34,6 +34,9 @@ export function RatingScreen({ onClose, onBack, storeName, theme, isDarkMode = f
   // Timer resets whenever rating or feedback changes (user activity).
   useEffect(() => {
     if (submitted) return;
+    // Setting inactivitySeconds to 0 (or negative) disables the auto-close
+    // entirely — the rating screen stays open until the customer interacts.
+    if (!inactivitySeconds || inactivitySeconds <= 0) return;
     const timer = setTimeout(() => {
       onRatingAutoClose?.();
       onClose();
