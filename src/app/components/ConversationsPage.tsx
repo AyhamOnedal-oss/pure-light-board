@@ -7,7 +7,7 @@ import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
-import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel, resolveVisitorName } from './conversation/AnalysisBadges';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, resolveVisitorName } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
@@ -135,8 +135,7 @@ export function ConversationsPage() {
       const mapped: Conversation[] = convs.map(c => {
         const cust = c.customer_id ? cMap.get(c.customer_id) : null;
         const rawName = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || '';
-        const resolved = resolveVisitorName(rawName, t);
-        const name = resolved === visitorCustomerLabel(t) ? (cust?.phone || resolved) : resolved;
+        const name = resolveVisitorName(rawName, t);
         const msgs = msgsByConv.get(c.id) || [];
         const last = msgs[msgs.length - 1];
         const isClosed = c.status === 'closed' || c.status === 'resolved';
