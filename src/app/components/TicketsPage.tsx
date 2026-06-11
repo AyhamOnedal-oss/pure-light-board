@@ -82,7 +82,13 @@ function toWhatsAppUrl(rawPhone: string): string {
 }
 
 export function TicketsPage() {
-  const { t, showToast, dir, tenantId } = useApp();
+  const { t, showToast, dir, tenantId, user, isSuperAdmin } = useApp();
+  const authorUserId = user?.id ?? null;
+  const authorName =
+    (user?.user_metadata as any)?.display_name ||
+    (user?.email ? String(user.email).split('@')[0] : null) ||
+    CURRENT_USER.name;
+  const authorRole: AuthorRole = isSuperAdmin ? 'admin' : 'team';
   const [tickets, setTickets] = useState<TicketItem[]>([]);
   const [selected, setSelected] = useState<TicketItem | null>(null);
   const [search, setSearch] = useState('');
@@ -233,8 +239,29 @@ export function TicketsPage() {
     if (!tenantId) return;
     const poll = setInterval(() => {
       if (document.visibilityState === 'visible') loadTickets();
-    }, 5000);
-    return () => clearInterval(poll);
+    }, 15000);
+
+    // Realtime: any teammate's note/edit/delete appears within a tick.
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedReload = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => loadTickets(), 300);
+    };
+    const channel = supabase
+      .channel(`tickets-rt-${tenantId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets_activities', filter: `tenant_id=eq.${tenantId}` },
+        debouncedReload)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets_main', filter: `tenant_id=eq.${tenantId}` },
+        debouncedReload)
+      .subscribe();
+
+    return () => {
+      clearInterval(poll);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [tenantId]);
 
@@ -305,7 +332,8 @@ export function TicketsPage() {
     if (error) { showToast(error.message); return; }
     await supabase.from('tickets_activities').insert({
       tenant_id: tenantId, ticket_id: id, type: 'status', status: newStatus,
-      author_name: CURRENT_USER.name, author_role: CURRENT_USER.role,
+      author_name: authorName, author_role: authorRole,
+      author_user_id: authorUserId,
     });
     setMenuOpen(null);
     showToast(t('Ticket status updated', 'تم تحديث حالة التذكرة'));
@@ -352,8 +380,9 @@ export function TicketsPage() {
       type: 'note',
       text: text || null,
       attachment: (storedAttachment ? (storedAttachment as unknown as Record<string, unknown>) : null) as never,
-      author_name: CURRENT_USER.name,
-      author_role: CURRENT_USER.role,
+      author_name: authorName,
+      author_role: authorRole,
+      author_user_id: authorUserId,
     });
     if (error) { showToast(error.message); return; }
     showToast(t('Note added', 'تمت إضافة الملاحظة'));
@@ -362,11 +391,12 @@ export function TicketsPage() {
 
   const editNote = async (noteId: string, text: string) => {
     if (!selected) return;
-    const { error } = await supabase
+    let q = supabase
       .from('tickets_activities')
       .update({ text, edited_at: new Date().toISOString() })
-      .eq('id', noteId)
-      .eq('author_name', CURRENT_USER.name);
+      .eq('id', noteId);
+    if (authorUserId) q = q.eq('author_user_id', authorUserId);
+    const { error } = await q;
     if (error) { showToast(error.message); return; }
     showToast(t('Note updated', 'تم تعديل الملاحظة'));
     await loadTickets();
@@ -374,11 +404,12 @@ export function TicketsPage() {
 
   const deleteNote = async (noteId: string) => {
     if (!selected) return;
-    const { error } = await supabase
+    let q = supabase
       .from('tickets_activities')
       .delete()
-      .eq('id', noteId)
-      .eq('author_name', CURRENT_USER.name);
+      .eq('id', noteId);
+    if (authorUserId) q = q.eq('author_user_id', authorUserId);
+    const { error } = await q;
     if (error) { showToast(error.message); return; }
     showToast(t('Note deleted', 'تم حذف الملاحظة'));
     await loadTickets();
