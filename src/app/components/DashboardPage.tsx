@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AnimatedValue } from './AnimatedNumber';
 import {
   MessageSquare, CheckCircle, Ticket, FileText, MousePointerClick,
-  Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, TrendingDown, X,
+  Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, X,
   Check, Trash2, CircleHelp, Clock, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import {
