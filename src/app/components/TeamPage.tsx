@@ -600,6 +600,15 @@ export function TeamPage() {
               </tr>
             </thead>
             <tbody>
+              {!loading && members.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <p className="text-[14px] text-muted-foreground" style={{ fontWeight: 500 }}>
+                      {t('No members', 'لا يوجد أعضاء')}
+                    </p>
+                  </td>
+                </tr>
+              )}
               {members.map(m => {
                 const permCount = countEnabled(m.permissions || {});
                 return (
