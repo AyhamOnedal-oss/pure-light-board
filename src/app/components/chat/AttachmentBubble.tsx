@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Image as ImageIcon, Paperclip, Download, Eye, X, FileText } from 'lucide-react';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '../../../integrations/supabase/client';
 
 export interface AttachmentMeta {
   type: 'image' | 'file';
@@ -10,6 +11,8 @@ export interface AttachmentMeta {
   url?: string;
   size?: number;
   contentType?: string;
+  /** Storage path inside the `ticket-notes` bucket: `{tenant}/{ticket}/{file}` */
+  storage_path?: string;
 }
 
 function previewUrlFor(att: AttachmentMeta): string {
@@ -120,7 +123,22 @@ function Lightbox({ url, name, onClose }: { url: string; name: string; onClose: 
 export function AttachmentBubble({ attachment, onAi = false }: { attachment: AttachmentMeta; onAi?: boolean }) {
   const { t } = useApp();
   const [open, setOpen] = useState(false);
-  const url = previewUrlFor(attachment);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (attachment.storage_path && !attachment.url) {
+      supabase.storage
+        .from('ticket-notes')
+        .createSignedUrl(attachment.storage_path, 3600)
+        .then(({ data }) => {
+          if (!cancelled && data?.signedUrl) setSignedUrl(data.signedUrl);
+        });
+    }
+    return () => { cancelled = true; };
+  }, [attachment.storage_path, attachment.url]);
+
+  const url = signedUrl || previewUrlFor(attachment);
   const name = attachment.fileName || (attachment.type === 'image' ? 'image.jpg' : 'file');
   const sizeLabel = formatSize(attachment.size);
 
