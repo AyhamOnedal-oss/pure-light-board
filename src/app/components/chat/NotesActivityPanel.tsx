@@ -58,7 +58,7 @@ export function NotesActivityPanel({
   onClose: () => void;
   ticketId: string;
   activities: Activity[];
-  onAddNote: (text: string, attachment?: AttachmentMeta) => void;
+  onAddNote: (text: string, attachment?: AttachmentMeta, file?: File) => void;
   onEditNote: (id: string, text: string) => void;
   onDeleteNote: (id: string) => void;
   currentUser: string;
@@ -90,6 +90,8 @@ export function NotesActivityPanel({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pending, setPending] = useState<AttachmentMeta | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -112,12 +114,18 @@ export function NotesActivityPanel({
     }
   }, [open]);
 
-  const submit = () => {
+  const submit = async () => {
     const text = draft.trim();
     if (!text && !pending) return;
-    onAddNote(text, pending || undefined);
+    setUploading(true);
+    try {
+      await Promise.resolve(onAddNote(text, pending || undefined, pendingFile || undefined));
+    } finally {
+      setUploading(false);
+    }
     setDraft('');
     setPending(null);
+    setPendingFile(null);
   };
 
   const handleFiles = (files: FileList | null) => {
@@ -129,16 +137,18 @@ export function NotesActivityPanel({
     setPending({
       type: isImage ? 'image' : 'file',
       fileName: file.name,
-      url,
+      url, // local preview only; real shareable URL is created on upload
       size: file.size,
       contentType: file.type,
     });
+    setPendingFile(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const clearPending = () => {
     if (pending?.url) { try { URL.revokeObjectURL(pending.url); } catch {} }
     setPending(null);
+    setPendingFile(null);
   };
 
   const saveEdit = () => {
