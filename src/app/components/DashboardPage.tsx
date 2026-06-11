@@ -535,7 +535,7 @@ export function DashboardPage() {
 
                       {/* Delete */}
                       <button
-                        onClick={() => deleteIssue(openInsight, issue.id)}
+                        onClick={() => setConfirmDelete({ category: openInsight, id: issue.id, subject: issue.subject })}
                         className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all shrink-0"
                         title={t('Delete', 'حذف')}
                       >
@@ -544,6 +544,57 @@ export function DashboardPage() {
                     </div>
                   ))
                 )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {confirmDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setConfirmDelete(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ duration: 0.16 }}
+              className="bg-card rounded-2xl w-full max-w-sm border border-border shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-border">
+                <h3 className="text-[15px]" style={{ fontWeight: 600 }}>
+                  {t('Are you sure?', 'هل أنت متأكد؟')}
+                </h3>
+                <p className="text-[12px] text-muted-foreground mt-1 break-words">
+                  {t('This will delete:', 'سيتم حذف:')} <span className="text-foreground">{confirmDelete.subject}</span>
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-2 px-5 py-3 bg-muted/20">
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  className="px-3 py-1.5 rounded-lg text-[13px] bg-muted hover:bg-muted/70 transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  {t('Cancel', 'إلغاء')}
+                </button>
+                <button
+                  onClick={() => {
+                    deleteIssue(confirmDelete.category, confirmDelete.id);
+                    setConfirmDelete(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-[13px] bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  {t('Delete', 'حذف')}
+                </button>
               </div>
             </motion.div>
           </motion.div>
