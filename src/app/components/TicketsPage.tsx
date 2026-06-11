@@ -301,15 +301,46 @@ export function TicketsPage() {
     await loadTickets();
   };
 
-  const addNote = async (text: string, attachment?: import('./chat/NotesActivityPanel').Activity['attachment']) => {
+  const addNote = async (
+    text: string,
+    attachment?: import('./chat/NotesActivityPanel').Activity['attachment'],
+    file?: File,
+  ) => {
     if (!selected || !tenantId) return;
     if (!text && !attachment) return;
+
+    // Upload binary to the shared `ticket-notes` bucket so all tenant members
+    // can view/download it. Replace the local blob URL with a storage_path
+    // that AttachmentBubble resolves to a signed URL on render.
+    let storedAttachment = attachment;
+    if (file && attachment) {
+      const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+      const path = `${tenantId}/${selected.id}/${crypto.randomUUID()}-${safeName}`;
+      const { error: upErr } = await supabase.storage
+        .from('ticket-notes')
+        .upload(path, file, {
+          contentType: file.type || attachment.contentType || 'application/octet-stream',
+          upsert: false,
+        });
+      if (upErr) {
+        showToast(upErr.message);
+        return;
+      }
+      storedAttachment = {
+        type: attachment.type,
+        fileName: attachment.fileName,
+        size: attachment.size,
+        contentType: attachment.contentType,
+        storage_path: path,
+      };
+    }
+
     const { error } = await supabase.from('tickets_activities').insert({
       tenant_id: tenantId,
       ticket_id: selected.id,
       type: 'note',
       text: text || null,
-      attachment: (attachment ? (attachment as unknown as Record<string, unknown>) : null) as never,
+      attachment: (storedAttachment ? (storedAttachment as unknown as Record<string, unknown>) : null) as never,
       author_name: CURRENT_USER.name,
       author_role: CURRENT_USER.role,
     });
