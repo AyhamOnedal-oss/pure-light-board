@@ -652,7 +652,10 @@ export function ChatWindow({
               theme={theme}
               isDarkMode={isDarkMode}
               mainColor={mainColor}
-              inactivitySeconds={themeSettings?.ratingInactivitySeconds ?? 900}
+              // Disable rating-screen auto-close. The conversation is already
+              // closed before this screen mounts, and customers complained
+              // that the silent countdown was snapping the widget back.
+              inactivitySeconds={0}
               onRatingSubmit={(stars, fb) => {
                 postRating(evCtx, { stars, feedback: fb });
                 trackEvent('rating.submitted', evCtx, { stars, feedback: fb });
@@ -663,10 +666,7 @@ export function ChatWindow({
                 trackEvent('rating.skipped', evCtx);
                 closeConversation(evCtx, 'rating_skip');
               }}
-              onRatingAutoClose={() => {
-                trackEvent('rating.skipped', evCtx, { autoClosed: true });
-                closeConversation(evCtx, 'rating_skip');
-              }}
+              onRatingAutoClose={() => { /* disabled */ }}
             />
           )}
 
