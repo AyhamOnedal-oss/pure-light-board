@@ -20,6 +20,12 @@ export default defineConfig({
     cssCodeSplit: false,
     sourcemap: false,
     target: "es2019",
+    minify: "terser",
+    terserOptions: {
+      compress: { passes: 3, pure_getters: true, drop_console: true, drop_debugger: true },
+      mangle: { toplevel: true },
+      format: { comments: false },
+    },
     lib: {
       entry: path.resolve(__dirname, "src/main.tsx"),
       name: "FuqahWidget",
