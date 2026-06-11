@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AnimatedValue } from './AnimatedNumber';
 import {
   MessageSquare, CheckCircle, Ticket, FileText, MousePointerClick,
-  Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, TrendingDown, X,
+  Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, X,
   Check, Trash2, CircleHelp, Clock, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import {
@@ -26,8 +26,7 @@ function formatNumber(n: number): string {
 
 function formatSeconds(s: number): string {
   if (!s || s < 0) return '0 ث';
-  const value = s < 10 ? s.toFixed(1) : Math.round(s).toString();
-  return `${value} ث`;
+  return `${Math.max(0, Math.round(s))} ث`;
 }
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
@@ -51,7 +50,7 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 }
 
 export function DashboardPage() {
-  const { t, theme, language, showToast } = useApp();
+  const { t, theme, language, showToast, tenantId } = useApp();
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
   const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range);
@@ -65,9 +64,30 @@ export function DashboardPage() {
     [feedback.positive, feedback.negative, language],
   );
   const [openInsight, setOpenInsight] = useState<string | null>(null);
-  // Locally dismissed/resolved issue IDs per category (session only).
-  const [dismissed, setDismissed] = useState<Record<string, Set<string>>>({});
-  const [resolvedIds, setResolvedIds] = useState<Record<string, Set<string>>>({});
+  // Persisted dismissed/resolved issue IDs per category (localStorage, scoped by tenant).
+  const storageKey = (kind: 'dismissed' | 'resolved') =>
+    `dashboard-insights-${kind}-${tenantId ?? 'anon'}`;
+  const loadSets = (kind: 'dismissed' | 'resolved'): Record<string, Set<string>> => {
+    try {
+      const raw = localStorage.getItem(storageKey(kind));
+      if (!raw) return {};
+      const obj = JSON.parse(raw) as Record<string, string[]>;
+      const out: Record<string, Set<string>> = {};
+      for (const k of Object.keys(obj)) out[k] = new Set(obj[k] ?? []);
+      return out;
+    } catch { return {}; }
+  };
+  const saveSets = (kind: 'dismissed' | 'resolved', data: Record<string, Set<string>>) => {
+    try {
+      const obj: Record<string, string[]> = {};
+      for (const k of Object.keys(data)) obj[k] = Array.from(data[k]);
+      localStorage.setItem(storageKey(kind), JSON.stringify(obj));
+    } catch { /* ignore */ }
+  };
+  const [dismissed, setDismissed] = useState<Record<string, Set<string>>>(() => loadSets('dismissed'));
+  const [resolvedIds, setResolvedIds] = useState<Record<string, Set<string>>>(() => loadSets('resolved'));
+  useEffect(() => { setDismissed(loadSets('dismissed')); setResolvedIds(loadSets('resolved')); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId]);
+  const [confirmDelete, setConfirmDelete] = useState<{ category: string; id: string; subject: string } | null>(null);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
 
   // Lock body scroll when modal is open
@@ -82,12 +102,12 @@ export function DashboardPage() {
 
   // Real day-over-day growth comes from `metrics.growth` (null = no prior data).
   const kpis = [
-    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', growth: metrics.growth.conversations },
-    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', growth: metrics.growth.completionRate },
-    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', growth: metrics.growth.ticketsTotal },
-    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', growth: metrics.growth.wordsUsed },
-    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', growth: metrics.growth.widgetClicks },
-    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', growth: metrics.growth.avgResponseSeconds },
+    { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', plain: false },
+    { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', plain: false },
+    { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', plain: false },
+    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', plain: false },
+    { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', plain: false },
+    { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', plain: true },
   ];
 
   const classificationLabels: Record<string, { en: string; ar: string; color: string }> = {
@@ -124,11 +144,11 @@ export function DashboardPage() {
     unknown: 'other',
   };
   const insights = [
-    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view complaints', 'اضغط لعرض الشكاوى'), color: '#ff4466' },
-    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view requests', 'اضغط لعرض الطلبات'), color: '#f59e0b' },
-    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view inquiries', 'اضغط لعرض الاستفسارات'), color: '#043CC8' },
-    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view suggestions', 'اضغط لعرض الاقتراحات'), color: '#10b981' },
-    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view unknown questions', 'اضغط لعرض الأسئلة غير المعروفة'), color: '#8b5cf6' },
+    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#ff4466' },
+    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#f59e0b' },
+    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#043CC8' },
+    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#10b981' },
+    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#8b5cf6' },
   ];
 
   const currentIssues = useMemo(() => {
@@ -146,7 +166,9 @@ export function DashboardPage() {
     setResolvedIds(prev => {
       const next = new Set(prev[category] ?? []);
       if (next.has(id)) next.delete(id); else next.add(id);
-      return { ...prev, [category]: next };
+      const updated = { ...prev, [category]: next };
+      saveSets('resolved', updated);
+      return updated;
     });
   };
 
@@ -154,7 +176,9 @@ export function DashboardPage() {
     setDismissed(prev => {
       const next = new Set(prev[category] ?? []);
       next.add(id);
-      return { ...prev, [category]: next };
+      const updated = { ...prev, [category]: next };
+      saveSets('dismissed', updated);
+      return updated;
     });
     showToast(t('Issue deleted', 'تم حذف المشكلة'));
   };
@@ -210,29 +234,17 @@ export function DashboardPage() {
             </div>
             <p className="relative text-[12px] text-muted-foreground mb-1 text-start">{kpi.label}</p>
             <div className="relative flex items-center justify-between">
-              <AnimatedValue
-                value={kpi.value}
-                duration={2000}
-                delay={idx * 100}
-                className="text-[22px] text-foreground"
-                style={{ fontWeight: 700 }}
-              />
-              {(() => {
-                const g = kpi.growth;
-                if (g == null) {
-                  return <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>—</span>;
-                }
-                const up = g >= 0;
-                const Icon = up ? TrendingUp : TrendingDown;
-                const color = up ? 'text-green-500' : 'text-red-500';
-                const sign = up ? '+' : '';
-                return (
-                  <span className={`text-[10px] flex items-center gap-0.5 ${color}`} style={{ fontWeight: 600 }}>
-                    <Icon className="w-2.5 h-2.5" />
-                    {sign}{g.toFixed(1)}%
-                  </span>
-                );
-              })()}
+              {kpi.plain ? (
+                <span className="text-[22px] text-foreground" style={{ fontWeight: 700 }}>{kpi.value}</span>
+              ) : (
+                <AnimatedValue
+                  value={kpi.value}
+                  duration={2000}
+                  delay={idx * 100}
+                  className="text-[22px] text-foreground"
+                  style={{ fontWeight: 700 }}
+                />
+              )}
             </div>
           </motion.div>
         ))}
@@ -523,7 +535,7 @@ export function DashboardPage() {
 
                       {/* Delete */}
                       <button
-                        onClick={() => deleteIssue(openInsight, issue.id)}
+                        onClick={() => setConfirmDelete({ category: openInsight, id: issue.id, subject: issue.subject })}
                         className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all shrink-0"
                         title={t('Delete', 'حذف')}
                       >
@@ -532,6 +544,57 @@ export function DashboardPage() {
                     </div>
                   ))
                 )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {confirmDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setConfirmDelete(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ duration: 0.16 }}
+              className="bg-card rounded-2xl w-full max-w-sm border border-border shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-border">
+                <h3 className="text-[15px]" style={{ fontWeight: 600 }}>
+                  {t('Are you sure?', 'هل أنت متأكد؟')}
+                </h3>
+                <p className="text-[12px] text-muted-foreground mt-1 break-words">
+                  {t('This will delete:', 'سيتم حذف:')} <span className="text-foreground">{confirmDelete.subject}</span>
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-2 px-5 py-3 bg-muted/20">
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  className="px-3 py-1.5 rounded-lg text-[13px] bg-muted hover:bg-muted/70 transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  {t('Cancel', 'إلغاء')}
+                </button>
+                <button
+                  onClick={() => {
+                    deleteIssue(confirmDelete.category, confirmDelete.id);
+                    setConfirmDelete(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-[13px] bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  {t('Delete', 'حذف')}
+                </button>
               </div>
             </motion.div>
           </motion.div>
