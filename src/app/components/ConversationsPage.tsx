@@ -7,7 +7,7 @@ import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
-import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, visitorCustomerLabel, resolveVisitorName } from './conversation/AnalysisBadges';
+import { CompletionPill, GoalMetBadge, IntentBadge, IntentType, resolveVisitorName } from './conversation/AnalysisBadges';
 
 interface Message {
   id: string; sender: 'customer' | 'ai'; text: string; time: string;
