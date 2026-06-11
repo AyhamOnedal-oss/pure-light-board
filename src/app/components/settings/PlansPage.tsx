@@ -125,9 +125,9 @@ export function PlansPage() {
           <div className="flex-1 flex items-center justify-center py-2">
             <motion.div
               key={chartKey}
-              initial={{ opacity: 0.78, rotate: -360, scale: 0.94 }}
-              animate={{ opacity: 1, rotate: 0, scale: 1 }}
-              transition={{ duration: 1.65, ease: [0.22, 1, 0.36, 1] }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
               className="relative"
             >
               <ResponsiveContainer width={200} height={230}>
