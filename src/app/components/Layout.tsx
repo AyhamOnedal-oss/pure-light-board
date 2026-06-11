@@ -77,9 +77,38 @@ export function Layout() {
     return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
   }, []);
 
-  // Sidebar unread badges — TODO: wire to live counts from DB.
-  const ticketsBadge = 0;
-  const conversationsBadge = 0;
+  // Sidebar unread badges — live counts from DB.
+  const [conversationsBadge, setConversationsBadge] = useState(0);
+  const [ticketsBadge, setTicketsBadge] = useState(0);
+  useEffect(() => {
+    if (!tenantId) { setConversationsBadge(0); setTicketsBadge(0); return; }
+    let cancelled = false;
+    const load = async () => {
+      const convSeen = getTs(notifKeys.conversationsListSeen(CURRENT_USER_ID));
+      const tkSeen = getTs(notifKeys.ticketsListSeen(CURRENT_USER_ID));
+      const convSeenIso = new Date(convSeen || 0).toISOString();
+      const tkSeenIso = new Date(tkSeen || 0).toISOString();
+      const [{ count: convCount }, { count: tkCount }] = await Promise.all([
+        supabase
+          .from('conversations_main')
+          .select('id', { head: true, count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .eq('is_test', false)
+          .gt('last_message_at', convSeenIso),
+        supabase
+          .from('tickets_main')
+          .select('id', { head: true, count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .gt('created_at', tkSeenIso),
+      ]);
+      if (cancelled) return;
+      setConversationsBadge(convCount || 0);
+      setTicketsBadge(tkCount || 0);
+    };
+    load();
+    const id = window.setInterval(() => { if (!cancelled) load(); }, 8000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [tenantId, location.pathname, badgeVersion]);
 
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
