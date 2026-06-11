@@ -425,7 +425,7 @@ export function NotesActivityPanel({
             />
             <button
               onClick={submit}
-              disabled={!draft.trim() && !pending}
+              disabled={(!draft.trim() && !pending) || uploading}
               className="w-10 h-10 rounded-xl bg-[#043CC8] hover:bg-[#043CC8]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors shrink-0"
               title={t('Send', 'إرسال')}
             >
