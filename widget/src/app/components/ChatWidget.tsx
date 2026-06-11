@@ -159,12 +159,6 @@ export function ChatWidget() {
           { storeId: sc.tenant_id ?? '', conversationId },
           'inactivity',
         );
-        // Fire-and-forget beacon fallback for tab close — analytics post()
-        // accepts __beacon to use navigator.sendBeacon as a last resort.
-        try {
-          const url = `${(window as unknown as { __FUQAH_FUNCTIONS_BASE?: string }).__FUQAH_FUNCTIONS_BASE ?? ''}`;
-          void url; // suppress unused
-        } catch { /* noop */ }
       } catch {
         /* swallow — best effort */
       }
