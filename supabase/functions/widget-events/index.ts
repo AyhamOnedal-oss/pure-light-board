@@ -50,6 +50,32 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true });
     }
 
+    // ── Customer submitted CSAT rating (also closes the conversation)
+    if (event === "rating.submitted" && conversation_id) {
+      const stars = Number(payload?.stars ?? payload?.rating ?? 0);
+      const comment = payload?.comment ? String(payload.comment).slice(0, 1000) : null;
+      if (!stars || stars < 1 || stars > 5) {
+        return jsonResponse({ ok: false, error: "invalid_rating" }, 400);
+      }
+      const { error } = await supabase
+        .from("conversations_main")
+        .update({
+          csat_rating: stars,
+          rating_comment: comment,
+          status: "closed",
+          close_reason: "customer_manual",
+          resolved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conversation_id)
+        .eq("tenant_id", tenant_id);
+      if (error) {
+        console.error("widget-events: rating update failed", error);
+        return jsonResponse({ ok: false, error: "rating_update_failed", message: error.message }, 500);
+      }
+      return jsonResponse({ ok: true });
+    }
+
     // ── Message feedback (thumbs up/down) from widget
     if (event === "message.feedback") {
       const messageId = payload?.messageId ? String(payload.messageId) : null;
