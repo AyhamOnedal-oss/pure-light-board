@@ -135,8 +135,7 @@ export function ConversationsPage() {
       const mapped: Conversation[] = convs.map(c => {
         const cust = c.customer_id ? cMap.get(c.customer_id) : null;
         const rawName = (language === 'ar' ? (cust?.display_name_ar || cust?.display_name) : cust?.display_name) || '';
-        const resolved = resolveVisitorName(rawName, t);
-        const name = resolved === visitorCustomerLabel(t) ? (cust?.phone || resolved) : resolved;
+        const name = resolveVisitorName(rawName, t);
         const msgs = msgsByConv.get(c.id) || [];
         const last = msgs[msgs.length - 1];
         const isClosed = c.status === 'closed' || c.status === 'resolved';
