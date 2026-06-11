@@ -32,6 +32,7 @@ import { ChatFooter } from './ChatFooter';
 import { THEMES, ACTIVE_THEME_ID, getThemeById } from '../types/theme';
 import { sendMessage } from '../utils/chatApi';
 import { closeConversation as analyticsCloseConversation } from '../utils/analytics';
+import { getStoreContext } from '../config/supabase';
 
 // ─── Types ───────────────────────────────────────────────��──────────────────
 
@@ -153,8 +154,9 @@ export function ChatWidget() {
       if (closedRef.current || !conversationId) return;
       closedRef.current = true;
       try {
+        const sc = getStoreContext();
         analyticsCloseConversation(
-          { storeId: storeConfig.storeId, conversationId },
+          { storeId: sc.tenant_id ?? '', conversationId },
           'inactivity',
         );
       } catch {
@@ -171,7 +173,7 @@ export function ChatWidget() {
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [conversationId, storeConfig.storeId]);
+  }, [conversationId]);
 
   /** Tracks how the current ticket was created: 'inline' or 'form' */
   const ticketSourceRef = useRef<'inline' | 'form'>('form');
