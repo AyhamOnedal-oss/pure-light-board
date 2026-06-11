@@ -5,6 +5,7 @@ import whatsappIcon from '../../imports/whatsapp.png';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { AttachmentBubble } from './chat/AttachmentBubble';
 import { NotesActivityPanel, Activity, AuthorRole } from './chat/NotesActivityPanel';
+import { LinkifiedText } from './chat/LinkifiedText';
 import { CURRENT_USER_ID, CURRENT_USER_NAME, CURRENT_USER_ROLE, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
 import { seedDemoData } from '../services/seedDemoData';
@@ -216,7 +217,15 @@ export function TicketsPage() {
     }
   };
 
-  useEffect(() => { loadTickets(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId]);
+  useEffect(() => {
+    loadTickets();
+    if (!tenantId) return;
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') loadTickets();
+    }, 5000);
+    return () => clearInterval(poll);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [tenantId]);
 
   const handleSeed = async () => {
     if (!tenantId) return;
@@ -292,15 +301,46 @@ export function TicketsPage() {
     await loadTickets();
   };
 
-  const addNote = async (text: string, attachment?: import('./chat/NotesActivityPanel').Activity['attachment']) => {
+  const addNote = async (
+    text: string,
+    attachment?: import('./chat/NotesActivityPanel').Activity['attachment'],
+    file?: File,
+  ) => {
     if (!selected || !tenantId) return;
     if (!text && !attachment) return;
+
+    // Upload binary to the shared `ticket-notes` bucket so all tenant members
+    // can view/download it. Replace the local blob URL with a storage_path
+    // that AttachmentBubble resolves to a signed URL on render.
+    let storedAttachment = attachment;
+    if (file && attachment) {
+      const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+      const path = `${tenantId}/${selected.id}/${crypto.randomUUID()}-${safeName}`;
+      const { error: upErr } = await supabase.storage
+        .from('ticket-notes')
+        .upload(path, file, {
+          contentType: file.type || attachment.contentType || 'application/octet-stream',
+          upsert: false,
+        });
+      if (upErr) {
+        showToast(upErr.message);
+        return;
+      }
+      storedAttachment = {
+        type: attachment.type,
+        fileName: attachment.fileName,
+        size: attachment.size,
+        contentType: attachment.contentType,
+        storage_path: path,
+      };
+    }
+
     const { error } = await supabase.from('tickets_activities').insert({
       tenant_id: tenantId,
       ticket_id: selected.id,
       type: 'note',
       text: text || null,
-      attachment: (attachment ? (attachment as unknown as Record<string, unknown>) : null) as never,
+      attachment: (storedAttachment ? (storedAttachment as unknown as Record<string, unknown>) : null) as never,
       author_name: CURRENT_USER.name,
       author_role: CURRENT_USER.role,
     });
@@ -345,7 +385,7 @@ export function TicketsPage() {
 
   const getAiBubbleStyle = (msg: Message) => {
     if (msg.sender !== 'ai') return '';
-    return 'bg-[#043CC8] text-white rounded-br-sm';
+    return 'bg-[#043CC8] text-white rounded-br-sm msg-bubble-ai';
   };
 
   return (
@@ -582,7 +622,9 @@ export function TicketsPage() {
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
-                        <div className="px-4 py-3 whitespace-pre-wrap break-words">{msg.text}</div>
+                        <div className="px-4 py-3" style={{ overflowWrap: 'anywhere' }}>
+                          <LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} />
+                        </div>
                       )}
                       <p className={`px-4 pb-2 text-[10px] ${msg.sender === 'customer' ? 'text-muted-foreground' : 'text-white/50'}`}>
                         {msg.time}

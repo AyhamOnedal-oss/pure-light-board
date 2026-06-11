@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { AttachmentBubble } from './chat/AttachmentBubble';
+import { LinkifiedText } from './chat/LinkifiedText';
 import { ChatLogDownloadModal, getStoreName } from './ChatLogDownload';
 import { CURRENT_USER_ID, notifKeys, getTs, setTs } from '../utils/notifications';
 import { supabase } from '../../integrations/supabase/client';
@@ -206,8 +207,14 @@ export function ConversationsPage() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
 
+    // Lightweight 5s poll so new conversations/messages appear automatically.
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') scheduleReload();
+    }, 5000);
+
     return () => {
       if (timer) clearTimeout(timer);
+      clearInterval(poll);
       supabase.removeChannel(channel);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
@@ -493,7 +500,7 @@ export function ConversationsPage() {
                     <div className={`rounded-2xl text-[14px] ${
                       msg.sender === 'customer'
                         ? 'bg-muted text-foreground rounded-bl-sm'
-                        : 'bg-[#043CC8] text-white rounded-br-sm'
+                        : 'bg-[#043CC8] text-white rounded-br-sm msg-bubble-ai'
                     }`}>
                       {msg.type === 'image' || msg.type === 'file' ? (
                         <AttachmentBubble
@@ -501,7 +508,9 @@ export function ConversationsPage() {
                           onAi={msg.sender !== 'customer'}
                         />
                       ) : (
-                        <div className="px-4 py-3 whitespace-pre-wrap break-words">{msg.text}</div>
+                        <div className="px-4 py-3" style={{ overflowWrap: 'anywhere' }}>
+                          <LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} />
+                        </div>
                       )}
                       <p className={`px-4 pb-2 text-[10px] ${msg.sender === 'customer' ? 'text-muted-foreground' : 'text-white/50'}`}>
                         {msg.time}
