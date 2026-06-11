@@ -122,15 +122,16 @@ export function PlansPage() {
             </div>
           </div>
 
-          <div className="flex-1 flex items-center justify-center py-2">
-            <motion.div
-              key={chartKey}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="relative"
-            >
-              <ResponsiveContainer width={200} height={230}>
+          <div className="flex-1 flex flex-col items-center justify-center py-2">
+            <div className="relative" style={{ width: 200, height: 207 }}>
+              <motion.div
+                key={chartKey}
+                initial={{ opacity: 0.78, rotate: -360, scale: 0.94 }}
+                animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                transition={{ duration: 1.65, ease: [0.22, 1, 0.36, 1] }}
+                style={{ width: 200, height: 207 }}
+              >
+                <ResponsiveContainer width={200} height={207}>
                 <PieChart key={chartKey} onMouseLeave={() => setActiveIdx(undefined)}>
                   {chartReady && (
                   <Pie
@@ -179,19 +180,21 @@ export function PlansPage() {
                       </div>
                     );
                   }} />
-                  <Legend
-                    verticalAlign="bottom"
-                    wrapperStyle={{ fontSize: '11px', fontWeight: 500, paddingTop: '12px' }}
-                    formatter={(value: string) => (
-                      <span style={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }}>{value}</span>
-                    )}
-                  />
                 </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute flex items-center justify-center pointer-events-none" style={{ top: 0, left: 0, right: 0, height: '207px' }}>
+                </ResponsiveContainer>
+              </motion.div>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingBottom: 22 }}>
                 <p className="text-[22px] text-foreground" style={{ fontWeight: 800 }}>{animatedPercent}%</p>
               </div>
-            </motion.div>
+            </div>
+            <div className="flex items-center justify-center gap-4 mt-2">
+              {usageData.map((entry) => (
+                <div key={entry.name} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                  <span className="text-[11px]" style={{ fontWeight: 500, color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }}>{entry.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="flex justify-center gap-8 mt-1">
