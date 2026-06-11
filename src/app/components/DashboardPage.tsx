@@ -26,8 +26,7 @@ function formatNumber(n: number): string {
 
 function formatSeconds(s: number): string {
   if (!s || s < 0) return '0 ث';
-  const value = s < 10 ? s.toFixed(1) : Math.round(s).toString();
-  return `${value} ث`;
+  return `${Math.max(0, Math.round(s))} ث`;
 }
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
@@ -51,7 +50,7 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 }
 
 export function DashboardPage() {
-  const { t, theme, language, showToast } = useApp();
+  const { t, theme, language, showToast, tenantId } = useApp();
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
   const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range);
@@ -65,9 +64,30 @@ export function DashboardPage() {
     [feedback.positive, feedback.negative, language],
   );
   const [openInsight, setOpenInsight] = useState<string | null>(null);
-  // Locally dismissed/resolved issue IDs per category (session only).
-  const [dismissed, setDismissed] = useState<Record<string, Set<string>>>({});
-  const [resolvedIds, setResolvedIds] = useState<Record<string, Set<string>>>({});
+  // Persisted dismissed/resolved issue IDs per category (localStorage, scoped by tenant).
+  const storageKey = (kind: 'dismissed' | 'resolved') =>
+    `dashboard-insights-${kind}-${tenantId ?? 'anon'}`;
+  const loadSets = (kind: 'dismissed' | 'resolved'): Record<string, Set<string>> => {
+    try {
+      const raw = localStorage.getItem(storageKey(kind));
+      if (!raw) return {};
+      const obj = JSON.parse(raw) as Record<string, string[]>;
+      const out: Record<string, Set<string>> = {};
+      for (const k of Object.keys(obj)) out[k] = new Set(obj[k] ?? []);
+      return out;
+    } catch { return {}; }
+  };
+  const saveSets = (kind: 'dismissed' | 'resolved', data: Record<string, Set<string>>) => {
+    try {
+      const obj: Record<string, string[]> = {};
+      for (const k of Object.keys(data)) obj[k] = Array.from(data[k]);
+      localStorage.setItem(storageKey(kind), JSON.stringify(obj));
+    } catch { /* ignore */ }
+  };
+  const [dismissed, setDismissed] = useState<Record<string, Set<string>>>(() => loadSets('dismissed'));
+  const [resolvedIds, setResolvedIds] = useState<Record<string, Set<string>>>(() => loadSets('resolved'));
+  useEffect(() => { setDismissed(loadSets('dismissed')); setResolvedIds(loadSets('resolved')); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId]);
+  const [confirmDelete, setConfirmDelete] = useState<{ category: string; id: string; subject: string } | null>(null);
   const [feedbackConvo, setFeedbackConvo] = useState<any | null>(null);
 
   // Lock body scroll when modal is open
@@ -124,11 +144,11 @@ export function DashboardPage() {
     unknown: 'other',
   };
   const insights = [
-    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view complaints', 'اضغط لعرض الشكاوى'), color: '#ff4466' },
-    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view requests', 'اضغط لعرض الطلبات'), color: '#f59e0b' },
-    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view inquiries', 'اضغط لعرض الاستفسارات'), color: '#043CC8' },
-    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view suggestions', 'اضغط لعرض الاقتراحات'), color: '#10b981' },
-    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view unknown questions', 'اضغط لعرض الأسئلة غير المعروفة'), color: '#8b5cf6' },
+    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#ff4466' },
+    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#f59e0b' },
+    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#043CC8' },
+    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#10b981' },
+    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#8b5cf6' },
   ];
 
   const currentIssues = useMemo(() => {
@@ -146,7 +166,9 @@ export function DashboardPage() {
     setResolvedIds(prev => {
       const next = new Set(prev[category] ?? []);
       if (next.has(id)) next.delete(id); else next.add(id);
-      return { ...prev, [category]: next };
+      const updated = { ...prev, [category]: next };
+      saveSets('resolved', updated);
+      return updated;
     });
   };
 
@@ -154,7 +176,9 @@ export function DashboardPage() {
     setDismissed(prev => {
       const next = new Set(prev[category] ?? []);
       next.add(id);
-      return { ...prev, [category]: next };
+      const updated = { ...prev, [category]: next };
+      saveSets('dismissed', updated);
+      return updated;
     });
     showToast(t('Issue deleted', 'تم حذف المشكلة'));
   };
