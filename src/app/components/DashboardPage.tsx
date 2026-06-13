@@ -317,7 +317,7 @@ export function DashboardPage() {
                   <motion.div
                     initial={{ height: 0 }}
                     animate={{ height: `${pct}%` }}
-                    transition={{ duration: 1.2, delay: 0.6, ease: 'easeOut' }}
+                    transition={{ duration: 1.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
                     className="w-full rounded-t-lg"
                     style={{ backgroundColor: d.fill, maxWidth: 64 }}
                   />
