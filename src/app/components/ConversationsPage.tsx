@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { AttachmentBubble } from './chat/AttachmentBubble';
