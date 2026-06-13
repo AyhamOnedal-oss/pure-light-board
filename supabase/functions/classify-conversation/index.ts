@@ -62,6 +62,35 @@ async function isAuthorized(
 }
 
 const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "other"] as const;
+
+/**
+ * Filter out trivial/empty "unanswered questions" so the AI Insights "Unknown
+ * Questions" card only shows real knowledge gaps the shop owner can act on.
+ * Rejects greetings, thanks, single words, and very short non-question text.
+ */
+function sanitizeUnansweredQuestion(raw: unknown): string | null {
+  const s = (raw ?? "").toString().trim().replace(/\s+/g, " ");
+  if (!s) return null;
+  // Strip trailing punctuation for matching
+  const stripped = s.replace(/[?؟.!،,;:"'«»()\[\]]+$/g, "").trim();
+  if (stripped.length < 8) return null;
+  // Must contain at least 2 words
+  if (stripped.split(" ").length < 2) return null;
+  const lower = stripped.toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, ""); // strip Arabic diacritics
+  const TRIVIAL = [
+    "السلام عليكم", "وعليكم السلام", "مرحبا", "مرحبتين", "هلا", "هلا والله",
+    "اهلا", "أهلا", "صباح الخير", "مساء الخير", "شكرا", "شكرا لك", "مشكور",
+    "تسلم", "يعطيك العافيه", "يعطيك العافية", "تمام", "اوكي", "اوك", "ok",
+    "okay", "hi", "hello", "hey", "thanks", "thank you", "good morning",
+    "good evening", "bye", "مع السلامه", "مع السلامة",
+  ];
+  for (const t of TRIVIAL) {
+    if (lower === t || lower.startsWith(t + " ") && stripped.length - t.length < 6) return null;
+  }
+  return s.slice(0, 200);
+}
 type Category = typeof ALLOWED_CATEGORIES[number];
 const ALLOWED_INTENTS = ["complaint", "inquiry", "request", "suggestion"] as const;
 type Intent = typeof ALLOWED_INTENTS[number];
@@ -237,7 +266,7 @@ Deno.serve(async (req) => {
     `  "completion_score": number,  // 0-100, how completely the customer was helped`,
     `  "goal_met": boolean,          // did the customer get what they came for?`,
     `  "priority": "low" | "medium" | "high",  // urgency, see guide below`,
-    `  "unanswered_question": string  // REQUIRED when category="other": the exact verbatim customer message (<=200 chars, customer's own wording, no paraphrase) that the AI did NOT or could NOT answer. Empty string "" otherwise.`,
+    `  "unanswered_question": string  // A SHORT, CLEAR REPHRASING (<=140 chars, in the conversation's language) of a SPECIFIC informational question the AI failed to answer because it lacked data (e.g. store location, return window, shipping to a specific city, product availability). Empty string "" if the AI answered everything OR the customer only sent a greeting / thanks / single word / chit-chat / vague message. NEVER use greetings ("السلام عليكم", "مرحبا", "هلا"), thanks ("شكرا"), or single words. Must be a real, actionable knowledge gap the shop owner can fix by adding info to the AI. Can be set for ANY category, not only "other".`,
     "}",
     "Scoring guide for completion_score:",
     " 90-100 = fully resolved, customer satisfied.",
@@ -316,7 +345,7 @@ Deno.serve(async (req) => {
     ? (parsed.intent_type as Intent)
     : (category !== "other" ? (category as Intent) : "inquiry");
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
-  const unanswered_question = ((parsed.unanswered_question ?? "").toString().trim().slice(0, 200)) || null;
+  const unanswered_question = sanitizeUnansweredQuestion(parsed.unanswered_question);
   let completion_score: number | null = null;
   if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
     completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
@@ -343,7 +372,7 @@ Deno.serve(async (req) => {
       intent_type,
       completion_score,
       goal_met,
-      unanswered_question: ((parsed.category ?? "") === "other" || category === "other") ? unanswered_question : null,
+      unanswered_question,
       analysis_done: true,
     })
     .eq("id", conversation_id)
