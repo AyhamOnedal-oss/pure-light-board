@@ -1,35 +1,31 @@
-# Rating comment still missing — diagnosis & next step
+## Goal
+Make the written rating feedback bar appear in the conversation view whenever a customer actually typed a rating comment.
 
-## What I verified
-- All three fixes from the previous turn are present in code:
-  - `widget/src/app/utils/analytics.ts` → `postRating` now forwards `comment` (mapping `feedback` → `comment`, trims, sends `null` for empty).
-  - `widget/src/app/components/ChatWindow.tsx` → `onRatingSubmit` calls `postRating(evCtx, { stars, comment: fb.trim() || undefined })`.
-  - `supabase/functions/widget-events/index.ts` → accepts `payload?.comment ?? payload?.feedback`, trims, stores `NULL` for blank.
-- I queried the DB for conversation `4e622870`: `csat_rating = 4`, `rating_comment = NULL`. So the comment never reached the server for that test.
+## What I found
+- The dashboard already displays the yellow feedback bar only when `conversations_main.rating_comment` has text.
+- The published widget bundle already sends `comment` in the rating payload.
+- Recent rated conversations still have `rating_comment = NULL`, so the issue is now in the rating request path, not the dashboard UI.
+- A likely race remains: after the first AI message, the widget receives the real DB `conversationId`, but some close/rating handlers can still use the older client placeholder ID from the current render, so the rating update can miss the real conversation row or be overwritten by a close event.
 
-## Why the user's test still shows NULL
-The storefront widget runs inside an iframe whose `src` is built in `supabase/functions/widget-loader/index.ts`:
+## Plan
+1. **Stabilize the widget event context**
+   - In `ChatWindow.tsx`, keep the latest server-issued `conversationId` in a ref.
+   - Update the ref immediately when `chat-ai` returns `result.conversationId`.
+   - Build rating/close/ticket events from that latest ref instead of a possibly stale render value.
 
-```
-iframe.src = APP_BASE_URL + "/widget/chat?..."
-```
+2. **Prevent rating comment from being overwritten**
+   - In `widget-events`, make `conversation.closed` only close status/reason and never affect rating fields.
+   - Keep `rating.submitted` as the only path that updates `csat_rating` and `rating_comment`.
+   - For skipped ratings, avoid writing an invalid `stars: 0` rating update.
 
-`APP_BASE_URL` defaults to `https://pure-light-board.lovable.app` — the **published** Lovable URL, not the live preview. So even when the merchant tests inside the dashboard preview, the chat iframe loads the **last published** widget bundle, which still contains the old `feedback`-key payload. The edge function then drops the comment because `payload.comment` is undefined.
+3. **Add server-side verification logging**
+   - Log rating submissions with conversation ID, tenant ID, stars, and whether a comment was received.
+   - Log when no row was updated, so future misses are visible in edge logs.
 
-## Action required
-**Publish the project.** Once published, the next rating with written feedback will store `rating_comment` and the yellow comment bar will appear in the conversation view. No further code changes are needed.
+4. **Validate the fix**
+   - Deploy/test the `widget-events` function behavior with a direct rating payload containing Arabic text.
+   - Query `conversations_main` after the test to confirm `rating_comment` is stored.
+   - Confirm the dashboard code will show the bar because it already reads and renders `rating_comment`.
 
-## Optional verification after publish
-1. Open the storefront / test page, send a few messages, close the chat, give 4 stars, type a comment in Arabic, submit.
-2. Open the conversation in the dashboard — the yellow bar with the comment should appear between the header pills and the chat bubbles.
-3. (Optional DB check) run:
-   ```sql
-   SELECT id, csat_rating, rating_comment
-   FROM conversations_main
-   ORDER BY updated_at DESC LIMIT 5;
-   ```
-   to confirm new rows have `rating_comment` populated.
-
-## Out of scope
-- Past ratings (including the `تعامل جيد` one) cannot be recovered — the widget never sent the comment, so it isn't stored anywhere.
-- No further code edits needed; this turn is purely a "publish and re-test" action.
+## Expected result
+After the next customer submits a star rating with written feedback, the yellow feedback bar appears above the chat messages. Empty feedback continues to show no bar.

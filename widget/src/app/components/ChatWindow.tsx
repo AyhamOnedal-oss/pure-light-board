@@ -131,6 +131,9 @@ export function ChatWindow({
   /** Guard ref to prevent double-trigger of ticket creation */
   const ticketCreatingRef = useRef(false);
 
+  /** Always use the latest backend conversation UUID for async rating/close events. */
+  const latestConversationIdRef = useRef(conversationId);
+
   /** Ref for the entire chat widget container — used for native touch handlers */
   const widgetContainerRef = useRef<HTMLDivElement>(null);
 
@@ -176,7 +179,15 @@ export function ChatWindow({
     return () => { cancelAnimationFrame(raf); clearTimeout(t); };
   }, [messages, isTyping, currentScreen]);
 
-  const evCtx = { storeId, conversationId, ticketId: ticketCreated ? ticketId : undefined };
+  useEffect(() => {
+    latestConversationIdRef.current = conversationId;
+  }, [conversationId]);
+
+  const evCtx = () => ({
+    storeId,
+    conversationId: latestConversationIdRef.current,
+    ticketId: ticketCreated ? ticketId : undefined,
+  });
 
   const showInlineTicketForm = (trigger: string) => {
     if (messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted)) return;
@@ -198,7 +209,7 @@ export function ChatWindow({
         ? prev
         : [...prev, ticketFormMsg]
     ));
-    trackEvent('ticket.form_shown', evCtx, { source: 'inline', trigger });
+    trackEvent('ticket.form_shown', evCtx(), { source: 'inline', trigger });
   };
 
   // ── Message handlers ──────────────────────────────────────────────────────
@@ -213,16 +224,16 @@ export function ChatWindow({
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, customerMsg]);
-    postMessage(evCtx, {
+    postMessage(evCtx(), {
       messageId: customerMsg.id,
       sender: 'customer',
       text,
       attachment,
       timestamp: customerMsg.timestamp.toISOString(),
     });
-    trackEvent('message.sent', evCtx, { hasAttachment: !!attachment });
+    trackEvent('message.sent', evCtx(), { hasAttachment: !!attachment });
     if (attachment) {
-      trackEvent('attachment.uploaded', evCtx, {
+      trackEvent('attachment.uploaded', evCtx(), {
         attachmentType: attachment.type, name: attachment.name, size: attachment.size,
       });
     }
@@ -262,7 +273,7 @@ export function ChatWindow({
         };
         setMessages(prev => [...prev, ticketFormMsg]);
         ticketSourceRef.current = 'inline';
-        trackEvent('ticket.form_shown', evCtx, { source: 'inline' });
+        trackEvent('ticket.form_shown', evCtx(), { source: 'inline' });
       }, 900);
       return;
     }
@@ -278,6 +289,7 @@ export function ChatWindow({
 
     // Swap to backend-issued conversation UUID on first reply
     if (result.conversationId && result.conversationId !== conversationId) {
+      latestConversationIdRef.current = result.conversationId;
       onConversationIdChange?.(result.conversationId);
     }
 
@@ -315,33 +327,33 @@ export function ChatWindow({
         };
         ticketSourceRef.current = 'inline';
         setMessages(prev => [...prev, response, ticketFormMsg]);
-        trackEvent('ticket.form_shown', evCtx, { source: 'inline' });
+        trackEvent('ticket.form_shown', evCtx(), { source: 'inline' });
       }
-      postMessage(evCtx, {
+      postMessage(evCtx(), {
         messageId: response.id,
         sender: 'store',
         text: response.text,
         timestamp: response.timestamp.toISOString(),
       });
-      trackEvent('message.received', evCtx);
+      trackEvent('message.received', evCtx());
       return;
     }
 
     setMessages(prev => [...prev, response]);
-    postMessage(evCtx, {
+    postMessage(evCtx(), {
       messageId: response.id,
       sender: 'store',
       text: response.text,
       timestamp: response.timestamp.toISOString(),
     });
-    trackEvent('message.received', evCtx);
+    trackEvent('message.received', evCtx());
 
     // Server-side close: chat-ai already marked the conversation closed
     // (AI farewell or user end_conversation). Advance to rating and emit
     // a telemetry-only event — do NOT re-send `conversation.closed` since
     // the DB row is already closed.
     if (result.intent === 'closed') {
-      trackEvent('conversation.closed_by_ai', evCtx, { reason: result.action?.type ?? 'offer_close' });
+      trackEvent('conversation.closed_by_ai', evCtx(), { reason: result.action?.type ?? 'offer_close' });
       setTimeout(() => setCurrentScreen('rating'), 700);
     }
   };
@@ -349,7 +361,7 @@ export function ChatWindow({
   const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {
     setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, quickReplyPicked: true } : m)));
     if (value === 'no') {
-      closeConversation(evCtx, 'manual');
+      closeConversation(evCtx(), 'manual');
       setCurrentScreen('rating');
       return;
     }
@@ -385,7 +397,7 @@ export function ChatWindow({
 
   /* Inline ticket form submitted from inside a chat message */
   const handleInlineTicketSubmit = async (_phone: string, _dialCode: string) => {
-    trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'inline' });
+    trackEvent('ticket.form_submitted', { ...evCtx(), ticketId }, { source: 'inline' });
     if (ticketCreated) {
       injectTicketAlreadyExistsMessage();
       // Still mark the form as submitted so the UI doesn't show it again
@@ -399,7 +411,7 @@ export function ChatWindow({
       return;
     }
     const res = await postTicket(
-      { ...evCtx, ticketId },
+      { ...evCtx(), ticketId },
       { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone.replace(/^0+/, '')}` },
     );
     if (!res?.ticketId) {
@@ -434,10 +446,10 @@ export function ChatWindow({
 
   // ── Download chat ─────────────────────────────────────────────────────────
   const handleDownload = () => {
-    trackEvent('chat.exported', evCtx, { type: 'chat' });
+    trackEvent('chat.exported', evCtx(), { type: 'chat' });
     downloadAsImage({
       storeName,
-      conversationId,
+      conversationId: latestConversationIdRef.current,
       ticketId: ticketCreated ? ticketId : undefined,
       messages,
       type: 'chat',
@@ -447,10 +459,10 @@ export function ChatWindow({
 
   // ── Download ticket ───────────────────────────────────────────────────────
   const handleDownloadTicket = () => {
-    trackEvent('chat.exported', { ...evCtx, ticketId }, { type: 'ticket' });
+    trackEvent('chat.exported', { ...evCtx(), ticketId }, { type: 'ticket' });
     downloadAsImage({
       storeName,
-      conversationId,
+      conversationId: latestConversationIdRef.current,
       ticketId,
       messages,
       type: 'ticket',
@@ -471,20 +483,20 @@ export function ChatWindow({
     ticketSourceRef.current = 'form';
     ticketCreatingRef.current = false;
     setCurrentScreen('ticket-form');
-    trackEvent('ticket.form_shown', evCtx, { source: 'form' });
+    trackEvent('ticket.form_shown', evCtx(), { source: 'form' });
   };
   const handleConfirmClose    = () => {
     setShowConfirmModal(false);
-    closeConversation(evCtx, 'manual');
+    closeConversation(evCtx(), 'manual');
     setCurrentScreen('rating');
   };
   const handleReturnToChat    = () => { setShowConfirmModal(false); onReturnToChat(); };
   const handleTicketFormSubmit = async (_phone: string, _code: string) => {
     if (ticketCreatingRef.current || ticketCreated) return;
     ticketCreatingRef.current = true;
-    trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'form' });
+    trackEvent('ticket.form_submitted', { ...evCtx(), ticketId }, { source: 'form' });
     const res = await postTicket(
-      { ...evCtx, ticketId },
+      { ...evCtx(), ticketId },
       { subject: 'تذكرة من المحادثة', phone: `${_code}${_phone.replace(/^0+/, '')}` },
     );
     if (!res?.ticketId) {
@@ -501,7 +513,7 @@ export function ChatWindow({
   // can rate the AI's handoff (not directly close the widget).
   // v4.7.22 — "حسناً، شكراً لك": end + full reset, then close. Next open = brand new chat.
   const handleTicketCreatedClose = () => {
-    closeConversation(evCtx, 'user_ticket_acknowledged');
+    closeConversation(evCtx(), 'user_ticket_acknowledged');
     onClose();
   };
   const handleTicketCreatedBack  = () => {
@@ -552,7 +564,7 @@ export function ChatWindow({
     const showTimer = setTimeout(() => {
       if (activityBumpRef.current === startBump) {
         setShowInactivityPrompt(true);
-        trackEvent('inactivity.prompt_shown', evCtx);
+        trackEvent('inactivity.prompt_shown', evCtx());
       }
     }, promptSeconds * 1000);
     return () => clearTimeout(showTimer);
@@ -562,7 +574,7 @@ export function ChatWindow({
     if (!showInactivityPrompt) return;
     const closeTimer = setTimeout(() => {
       setShowInactivityPrompt(false);
-      closeConversation(evCtx, 'inactivity');
+      closeConversation(evCtx(), 'inactivity');
       setCurrentScreen('rating');
     }, closeSeconds * 1000);
     return () => clearTimeout(closeTimer);
@@ -570,14 +582,14 @@ export function ChatWindow({
   }, [showInactivityPrompt, closeSeconds]);
 
   const handleInactivityContinue = () => {
-    trackEvent('inactivity.continued', evCtx);
+    trackEvent('inactivity.continued', evCtx());
     setShowInactivityPrompt(false);
     bumpActivity();
   };
   const handleInactivityEnd      = () => {
-    trackEvent('inactivity.ended', evCtx);
+    trackEvent('inactivity.ended', evCtx());
     setShowInactivityPrompt(false);
-    closeConversation(evCtx, 'inactivity');
+    closeConversation(evCtx(), 'inactivity');
     setCurrentScreen('rating');
   };
 
@@ -658,13 +670,11 @@ export function ChatWindow({
               inactivitySeconds={0}
               onRatingSubmit={(stars, fb) => {
                 const comment = typeof fb === 'string' ? fb.trim() : '';
-                postRating(evCtx, { stars, comment: comment.length > 0 ? comment : undefined });
-                closeConversation(evCtx, 'rating_submit');
+                postRating(evCtx(), { stars, comment: comment.length > 0 ? comment : undefined });
               }}
               onRatingSkip={() => {
-                postRating(evCtx, { stars: 0, skipped: true });
-                trackEvent('rating.skipped', evCtx);
-                closeConversation(evCtx, 'rating_skip');
+                trackEvent('rating.skipped', evCtx());
+                closeConversation(evCtx(), 'rating_skip');
               }}
               onRatingAutoClose={() => { /* disabled */ }}
             />
@@ -745,8 +755,8 @@ export function ChatWindow({
                       onQuickReplyPick={handleQuickReplyPick}
                       onFeedbackChange={(id, fb) => {
                         setMessages(prev => prev.map(m => (m.id === id ? { ...m, feedback: fb } : m)));
-                        postFeedback(evCtx, id, fb);
-                        trackEvent('message.feedback', evCtx, { messageId: id, feedback: fb });
+                        postFeedback(evCtx(), id, fb);
+                        trackEvent('message.feedback', evCtx(), { messageId: id, feedback: fb });
                       }}
                     />
                   ))
