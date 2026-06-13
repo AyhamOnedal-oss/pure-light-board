@@ -397,7 +397,7 @@ export function ChatWindow({
 
   /* Inline ticket form submitted from inside a chat message */
   const handleInlineTicketSubmit = async (_phone: string, _dialCode: string) => {
-    trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'inline' });
+    trackEvent('ticket.form_submitted', { ...evCtx(), ticketId }, { source: 'inline' });
     if (ticketCreated) {
       injectTicketAlreadyExistsMessage();
       // Still mark the form as submitted so the UI doesn't show it again
@@ -411,7 +411,7 @@ export function ChatWindow({
       return;
     }
     const res = await postTicket(
-      { ...evCtx, ticketId },
+      { ...evCtx(), ticketId },
       { subject: 'تذكرة من المحادثة', phone: `${_dialCode}${_phone.replace(/^0+/, '')}` },
     );
     if (!res?.ticketId) {
@@ -446,10 +446,10 @@ export function ChatWindow({
 
   // ── Download chat ─────────────────────────────────────────────────────────
   const handleDownload = () => {
-    trackEvent('chat.exported', evCtx, { type: 'chat' });
+    trackEvent('chat.exported', evCtx(), { type: 'chat' });
     downloadAsImage({
       storeName,
-      conversationId,
+      conversationId: latestConversationIdRef.current,
       ticketId: ticketCreated ? ticketId : undefined,
       messages,
       type: 'chat',
@@ -459,10 +459,10 @@ export function ChatWindow({
 
   // ── Download ticket ───────────────────────────────────────────────────────
   const handleDownloadTicket = () => {
-    trackEvent('chat.exported', { ...evCtx, ticketId }, { type: 'ticket' });
+    trackEvent('chat.exported', { ...evCtx(), ticketId }, { type: 'ticket' });
     downloadAsImage({
       storeName,
-      conversationId,
+      conversationId: latestConversationIdRef.current,
       ticketId,
       messages,
       type: 'ticket',
