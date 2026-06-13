@@ -166,7 +166,9 @@ export function ConversationsPage() {
           lastMessage: last?.text || (last?.fileName ? last.fileName : ''),
           time: relativeTime(c.last_message_at || c.created_at, language),
           rating: c.csat_rating || 0,
-          ratingComment: c.rating_comment || undefined,
+          ratingComment: (typeof c.rating_comment === 'string' && c.rating_comment.trim())
+            ? c.rating_comment.trim()
+            : undefined,
           hasTicket: !!c.ticket_status,
           ticketStatus: (c.ticket_status === 'open' || c.ticket_status === 'closed') ? c.ticket_status : undefined,
           chatStatus: (isClosed || ratedOrResolved) ? 'closed' : 'open',
@@ -515,7 +517,7 @@ export function ConversationsPage() {
             </div>
             </div>
 
-            {selected.ratingComment && (
+            {selected.ratingComment && selected.ratingComment.trim().length > 0 && (
               <div className="px-4 lg:px-5 py-2.5 border-b border-border bg-yellow-500/5 flex items-start gap-2">
                 <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400 shrink-0 mt-0.5" />
                 <p className="text-[12px] text-muted-foreground" style={{ fontWeight: 400 }}>
