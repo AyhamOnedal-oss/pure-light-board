@@ -236,7 +236,8 @@ Deno.serve(async (req) => {
     `  "close_reason": string,      // <= 120 chars, why the conversation ended`,
     `  "completion_score": number,  // 0-100, how completely the customer was helped`,
     `  "goal_met": boolean,          // did the customer get what they came for?`,
-    `  "priority": "low" | "medium" | "high"  // urgency, see guide below`,
+    `  "priority": "low" | "medium" | "high",  // urgency, see guide below`,
+    `  "unanswered_question": string  // REQUIRED when category="other": the exact verbatim customer message (<=200 chars, customer's own wording, no paraphrase) that the AI did NOT or could NOT answer. Empty string "" otherwise.`,
     "}",
     "Scoring guide for completion_score:",
     " 90-100 = fully resolved, customer satisfied.",
@@ -299,6 +300,7 @@ Deno.serve(async (req) => {
     completion_score?: number;
     goal_met?: boolean;
     priority?: string;
+    unanswered_question?: string;
   };
   try {
     parsed = JSON.parse(raw);
@@ -314,6 +316,7 @@ Deno.serve(async (req) => {
     ? (parsed.intent_type as Intent)
     : (category !== "other" ? (category as Intent) : "inquiry");
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
+  const unanswered_question = ((parsed.unanswered_question ?? "").toString().trim().slice(0, 200)) || null;
   let completion_score: number | null = null;
   if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
     completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
@@ -340,6 +343,7 @@ Deno.serve(async (req) => {
       intent_type,
       completion_score,
       goal_met,
+      unanswered_question: ((parsed.category ?? "") === "other" || category === "other") ? unanswered_question : null,
       analysis_done: true,
     })
     .eq("id", conversation_id)
