@@ -84,11 +84,43 @@ function toWhatsAppUrl(rawPhone: string): string {
 export function TicketsPage() {
   const { t, showToast, dir, tenantId, user, isSuperAdmin } = useApp();
   const authorUserId = user?.id ?? null;
-  const authorName =
-    (user?.user_metadata as any)?.display_name ||
-    (user?.email ? String(user.email).split('@')[0] : null) ||
-    CURRENT_USER.name;
-  const authorRole: AuthorRole = isSuperAdmin ? 'admin' : 'team';
+  const [resolvedAuthorName, setResolvedAuthorName] = useState<string>('');
+  const [resolvedTenantRole, setResolvedTenantRole] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!authorUserId) {
+        if (!cancelled) { setResolvedAuthorName(''); setResolvedTenantRole(null); }
+        return;
+      }
+      const [tm, sa, atm] = await Promise.all([
+        tenantId
+          ? supabase.from('team_members').select('name').eq('tenant_id', tenantId).eq('user_id', authorUserId).maybeSingle()
+          : Promise.resolve({ data: null } as any),
+        supabase.from('settings_account').select('display_name').eq('user_id', authorUserId).maybeSingle(),
+        tenantId
+          ? supabase.from('auth_tenant_members').select('role').eq('tenant_id', tenantId).eq('user_id', authorUserId).maybeSingle()
+          : Promise.resolve({ data: null } as any),
+      ]);
+      if (cancelled) return;
+      const name =
+        (tm?.data as any)?.name ||
+        (sa?.data as any)?.display_name ||
+        (user?.user_metadata as any)?.display_name ||
+        (user?.email ? String(user.email).split('@')[0] : '') ||
+        'Member';
+      setResolvedAuthorName(String(name));
+      setResolvedTenantRole(((atm?.data as any)?.role as string | null) ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, [authorUserId, tenantId, user?.email, user?.user_metadata]);
+  const authorName = resolvedAuthorName ||
+    ((user?.user_metadata as any)?.display_name) ||
+    (user?.email ? String(user.email).split('@')[0] : '') ||
+    'Member';
+  const authorRole: AuthorRole = isSuperAdmin
+    ? 'admin'
+    : (resolvedTenantRole === 'owner' || resolvedTenantRole === 'admin' ? 'admin' : 'team');
   const [tickets, setTickets] = useState<TicketItem[]>([]);
   const [selected, setSelected] = useState<TicketItem | null>(null);
   const [search, setSearch] = useState('');
@@ -728,8 +760,8 @@ export function TicketsPage() {
           onAddNote={addNote}
           onEditNote={editNote}
           onDeleteNote={deleteNote}
-          currentUser={CURRENT_USER.name}
-          currentUserRole={CURRENT_USER.role}
+          currentUser={authorName}
+          currentUserRole={authorRole}
         />
       )}
 
