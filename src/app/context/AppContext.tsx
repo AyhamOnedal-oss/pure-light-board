@@ -31,6 +31,7 @@ interface AppContextType {
   dir: 'ltr' | 'rtl';
   notifications: Notification[];
   markRead: (id: string) => void;
+  markTicketNotificationRead: (ticketId: string) => void;
   unreadCount: number;
   pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => void;
   toasts: Toast[];
