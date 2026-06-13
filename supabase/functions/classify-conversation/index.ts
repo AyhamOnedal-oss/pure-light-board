@@ -237,7 +237,7 @@ Deno.serve(async (req) => {
     `  "completion_score": number,  // 0-100, how completely the customer was helped`,
     `  "goal_met": boolean,          // did the customer get what they came for?`,
     `  "priority": "low" | "medium" | "high",  // urgency, see guide below`,
-    `  "unanswered_question": string  // REQUIRED when category="other": the exact verbatim customer message (<=200 chars, customer's own wording, no paraphrase) that the AI did NOT or could NOT answer. Empty string "" otherwise.`,
+    `  "unanswered_question": string  // A SHORT, CLEAR REPHRASING (<=140 chars, in the conversation's language) of a SPECIFIC informational question the AI failed to answer because it lacked data (e.g. store location, return window, shipping to a specific city, product availability). Empty string "" if the AI answered everything OR the customer only sent a greeting / thanks / single word / chit-chat / vague message. NEVER use greetings ("السلام عليكم", "مرحبا", "هلا"), thanks ("شكرا"), or single words. Must be a real, actionable knowledge gap the shop owner can fix by adding info to the AI. Can be set for ANY category, not only "other".`,
     "}",
     "Scoring guide for completion_score:",
     " 90-100 = fully resolved, customer satisfied.",
