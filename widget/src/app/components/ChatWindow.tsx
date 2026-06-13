@@ -131,6 +131,9 @@ export function ChatWindow({
   /** Guard ref to prevent double-trigger of ticket creation */
   const ticketCreatingRef = useRef(false);
 
+  /** Always use the latest backend conversation UUID for async rating/close events. */
+  const latestConversationIdRef = useRef(conversationId);
+
   /** Ref for the entire chat widget container — used for native touch handlers */
   const widgetContainerRef = useRef<HTMLDivElement>(null);
 
@@ -176,7 +179,15 @@ export function ChatWindow({
     return () => { cancelAnimationFrame(raf); clearTimeout(t); };
   }, [messages, isTyping, currentScreen]);
 
-  const evCtx = { storeId, conversationId, ticketId: ticketCreated ? ticketId : undefined };
+  useEffect(() => {
+    latestConversationIdRef.current = conversationId;
+  }, [conversationId]);
+
+  const evCtx = () => ({
+    storeId,
+    conversationId: latestConversationIdRef.current,
+    ticketId: ticketCreated ? ticketId : undefined,
+  });
 
   const showInlineTicketForm = (trigger: string) => {
     if (messages.some(m => m.type === 'ticket-form' && !m.ticketFormSubmitted)) return;
@@ -198,7 +209,7 @@ export function ChatWindow({
         ? prev
         : [...prev, ticketFormMsg]
     ));
-    trackEvent('ticket.form_shown', evCtx, { source: 'inline', trigger });
+    trackEvent('ticket.form_shown', evCtx(), { source: 'inline', trigger });
   };
 
   // ── Message handlers ──────────────────────────────────────────────────────
@@ -213,16 +224,16 @@ export function ChatWindow({
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, customerMsg]);
-    postMessage(evCtx, {
+    postMessage(evCtx(), {
       messageId: customerMsg.id,
       sender: 'customer',
       text,
       attachment,
       timestamp: customerMsg.timestamp.toISOString(),
     });
-    trackEvent('message.sent', evCtx, { hasAttachment: !!attachment });
+    trackEvent('message.sent', evCtx(), { hasAttachment: !!attachment });
     if (attachment) {
-      trackEvent('attachment.uploaded', evCtx, {
+      trackEvent('attachment.uploaded', evCtx(), {
         attachmentType: attachment.type, name: attachment.name, size: attachment.size,
       });
     }
@@ -262,7 +273,7 @@ export function ChatWindow({
         };
         setMessages(prev => [...prev, ticketFormMsg]);
         ticketSourceRef.current = 'inline';
-        trackEvent('ticket.form_shown', evCtx, { source: 'inline' });
+        trackEvent('ticket.form_shown', evCtx(), { source: 'inline' });
       }, 900);
       return;
     }
@@ -278,6 +289,7 @@ export function ChatWindow({
 
     // Swap to backend-issued conversation UUID on first reply
     if (result.conversationId && result.conversationId !== conversationId) {
+      latestConversationIdRef.current = result.conversationId;
       onConversationIdChange?.(result.conversationId);
     }
 
