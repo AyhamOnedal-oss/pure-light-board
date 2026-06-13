@@ -36,7 +36,7 @@ export async function fetchRecentAiFeedback(
 ): Promise<RecentAiFeedback[]> {
   let q = supabase
     .from('conversations_messages')
-    .select('id, conversation_id, body, feedback, created_at, conversation:conversations_main!conversations_messages_conversation_id_fkey(display_code)')
+    .select('id, conversation_id, body, feedback, created_at, conversation:conversations_main!messages_conversation_id_fkey(display_code)')
     .eq('tenant_id', tenantId)
     .in('sender', ['ai', 'agent'])
     .not('feedback', 'is', null)
