@@ -992,6 +992,7 @@ export type Database = {
           subject: string | null
           tenant_id: string
           ticket_status: string | null
+          unanswered_question: string | null
           updated_at: string
         }
         Insert: {
@@ -1022,6 +1023,7 @@ export type Database = {
           subject?: string | null
           tenant_id: string
           ticket_status?: string | null
+          unanswered_question?: string | null
           updated_at?: string
         }
         Update: {
@@ -1052,6 +1054,7 @@ export type Database = {
           subject?: string | null
           tenant_id?: string
           ticket_status?: string | null
+          unanswered_question?: string | null
           updated_at?: string
         }
         Relationships: [
