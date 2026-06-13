@@ -284,11 +284,12 @@ export function ConversationsPage() {
     return display.split(' ').map(n => n[0]).join('').slice(0, 2);
   };
 
-  const categoryMap: Record<ChatCategory, { en: string; ar: string; color: string }> = {
+  const categoryMap: Record<ChatCategory | 'none', { en: string; ar: string; color: string }> = {
     complaint: { en: 'Complaint', ar: 'شكوى', color: '#ff4466' },
     inquiry: { en: 'Inquiry', ar: 'استفسار', color: '#043CC8' },
     request: { en: 'Request', ar: 'طلب', color: '#f59e0b' },
     suggestion: { en: 'Suggestion', ar: 'اقتراح', color: '#10b981' },
+    none: { en: 'None', ar: 'بدون', color: '#8b95a8' },
   };
 
   const closeReasonMap: Record<ChatCloseReason, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -368,18 +369,22 @@ export function ConversationsPage() {
                   <p className="text-[11px] text-muted-foreground/60 mt-0.5" style={{ fontWeight: 500 }}>{c.id.slice(0, 8)}</p>
                   <p className="text-[13px] text-muted-foreground truncate mt-0.5">{c.lastMessage}</p>
                   <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                    {c.category && categoryMap[c.category] && (
-                      <span
-                        className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full"
-                        style={{
-                          backgroundColor: categoryMap[c.category].color + '1A',
-                          color: categoryMap[c.category].color,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {t(categoryMap[c.category].en, categoryMap[c.category].ar)}
-                      </span>
-                    )}
+                    {(() => {
+                      const key = (c.category && categoryMap[c.category]) ? c.category : 'none';
+                      const meta = categoryMap[key];
+                      return (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full"
+                          style={{
+                            backgroundColor: meta.color + '1A',
+                            color: meta.color,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {t(meta.en, meta.ar)}
+                        </span>
+                      );
+                    })()}
                     {c.chatStatus === 'closed' && <CompletionPill score={c.completionScore} size="sm" />}
                     {c.hasTicket && c.ticketStatus === 'open' ? (
                       <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full bg-red-500/10 text-red-400" style={{ fontWeight: 600 }}>
