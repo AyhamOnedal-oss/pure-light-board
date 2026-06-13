@@ -21,7 +21,7 @@ import {
  *   and refetches the whole metric set, debounced, on any change.
  * - Returns the latest metrics + a loading flag.
  */
-export function useDashboardMetrics(range?: DateRange) {
+export function useDashboardMetrics(range?: DateRange, frozen: boolean = false) {
   const { tenantId } = useApp();
   const [metrics, setMetrics] = useState<DashboardMetrics>(EMPTY_METRICS);
   const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>({
@@ -56,6 +56,11 @@ export function useDashboardMetrics(range?: DateRange) {
     };
     void load();
 
+    // Frozen mode (disabled member): load once, no realtime, no refetch.
+    if (frozen) {
+      return () => { cancelled = true; };
+    }
+
     const scheduleRefetch = () => {
       if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
       refetchTimer.current = window.setTimeout(() => {
@@ -78,7 +83,7 @@ export function useDashboardMetrics(range?: DateRange) {
       if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
       void supabase.removeChannel(channel);
     };
-  }, [tenantId, fromKey, toKey]);
+  }, [tenantId, fromKey, toKey, frozen]);
 
   return { metrics, topSubjects, recentFeedback, loading };
 }
