@@ -745,9 +745,7 @@ export function DashboardPage() {
                   <p className="break-words whitespace-pre-wrap">{feedbackConvo.body || t('(empty message)', '(رسالة فارغة)')}</p>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-3">
-                  {new Date(feedbackConvo.created_at).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-GB', {
-                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-                  })}
+                  {t('Conversation', 'المحادثة')} #{feedbackConvo.conversation_code ?? '—'}
                 </p>
               </div>
 
