@@ -327,33 +327,33 @@ export function ChatWindow({
         };
         ticketSourceRef.current = 'inline';
         setMessages(prev => [...prev, response, ticketFormMsg]);
-        trackEvent('ticket.form_shown', evCtx, { source: 'inline' });
+        trackEvent('ticket.form_shown', evCtx(), { source: 'inline' });
       }
-      postMessage(evCtx, {
+      postMessage(evCtx(), {
         messageId: response.id,
         sender: 'store',
         text: response.text,
         timestamp: response.timestamp.toISOString(),
       });
-      trackEvent('message.received', evCtx);
+      trackEvent('message.received', evCtx());
       return;
     }
 
     setMessages(prev => [...prev, response]);
-    postMessage(evCtx, {
+    postMessage(evCtx(), {
       messageId: response.id,
       sender: 'store',
       text: response.text,
       timestamp: response.timestamp.toISOString(),
     });
-    trackEvent('message.received', evCtx);
+    trackEvent('message.received', evCtx());
 
     // Server-side close: chat-ai already marked the conversation closed
     // (AI farewell or user end_conversation). Advance to rating and emit
     // a telemetry-only event — do NOT re-send `conversation.closed` since
     // the DB row is already closed.
     if (result.intent === 'closed') {
-      trackEvent('conversation.closed_by_ai', evCtx, { reason: result.action?.type ?? 'offer_close' });
+      trackEvent('conversation.closed_by_ai', evCtx(), { reason: result.action?.type ?? 'offer_close' });
       setTimeout(() => setCurrentScreen('rating'), 700);
     }
   };
@@ -361,7 +361,7 @@ export function ChatWindow({
   const handleQuickReplyPick = (messageId: string, value: 'yes' | 'no') => {
     setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, quickReplyPicked: true } : m)));
     if (value === 'no') {
-      closeConversation(evCtx, 'manual');
+      closeConversation(evCtx(), 'manual');
       setCurrentScreen('rating');
       return;
     }
