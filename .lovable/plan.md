@@ -1,19 +1,37 @@
-# Replace date with conversation number in AI Feedback modal
+# Show real member name on ticket notes / status changes
 
-## Change
-In the "AI Reply" (`رد الذكاء الاصطناعي`) modal opened from the AI Feedback list on the Dashboard, replace the timestamp footer (e.g. "13 يونيو 2026، 3:26 م") with the conversation's number — formatted as `#<display_code>` (e.g. `#CONV-1024`).
+## Problem
+When a team member adds a note or closes/reopens a ticket, the activity feed shows the author as **"Ahmed Al-Rashid"** / role badge **"مسؤول"** (Admin) instead of the actual member's name.
 
-## Files
-1. `src/app/services/metrics.ts` — `fetchRecentAiFeedback`
-   - Join `conversations_main.display_code` via a Supabase nested select on `conversation_id`.
-   - Extend `RecentAiFeedback` with `conversation_code: string | null`.
+Root causes in `src/app/components/TicketsPage.tsx`:
+1. `authorName` is derived from `user.user_metadata.display_name` → `email.split('@')[0]` → falls back to the hard-coded demo constant `CURRENT_USER_NAME = 'Ahmed Al-Rashid'`. Invited team members rarely have `display_name` set in auth metadata, so we land on the email prefix or the fallback.
+2. `authorRole` is set to `'admin'` only when `isSuperAdmin`; every other tenant member is sent as `'team'`. The displayed badge "مسؤول" comes from a *different* code path: the NotesActivityPanel `roleBadge('admin', …)` renders "مسؤول" for any row whose `author_role === 'admin'`. Legacy/seed rows and the per-tenant owner can also be 'admin'.
+3. The composer footer shows `CURRENT_USER.role` (always 'admin' from the demo constant), so it always reads "(مسؤول)" regardless of who is logged in.
 
-2. `src/app/components/DashboardPage.tsx`
-   - Inside the Feedback modal (`feedbackConvo` block), replace the date `<p>` with:
-     `<p>{t('Conversation', 'المحادثة')} #{feedbackConvo.conversation_code ?? '—'}</p>`
-   - Keep the list row's date untouched (the user's screenshot is only the modal footer).
+## Fix
+Resolve the **real** name + role for the signed-in user from tenant data, then use it everywhere the author is recorded or displayed.
+
+### 1. `src/app/components/TicketsPage.tsx`
+- Replace the `authorName`/`authorRole` derivation with a small `useEffect` that, on `(tenantId, user.id)` change, fetches in parallel:
+  - `team_members.name, permissions` where `tenant_id = ? AND user_id = ?`
+  - `settings_account.display_name` where `user_id = ?`
+  - `auth_tenant_members.role` where `tenant_id = ? AND user_id = ?`
+- Compose:
+  - `authorName = team_members.name || settings_account.display_name || user.user_metadata.display_name || email-prefix || 'Member'`
+  - `authorRole = isSuperAdmin ? 'admin' : (auth_tenant_members.role in ('owner','admin') ? 'admin' : 'team')`
+- Pass the resolved `authorName` / `authorRole` to:
+  - `tickets_activities.insert` in both `addNote` and `toggleStatus`
+  - `<NotesActivityPanel currentUser={authorName} currentUserRole={authorRole} />` (replaces the `CURRENT_USER.*` props)
+
+### 2. Display existing rows correctly
+- Already correct: `loadTickets` reads `author_name` / `author_role` from the row and forwards them. Past rows that were saved as "Ahmed Al-Rashid" stay as historical record (we don't rewrite history). Only new notes/status changes from now on will show the real name.
 
 ## Out of scope
-- Linking the number to the conversations page.
-- Changing list-row metadata.
-- Backfill — `display_code` already populated for all conversations.
+- Backfilling old activity rows.
+- A dedicated avatar per member.
+- Changing the role-badge color palette.
+
+## Technical notes
+- `settings_account` has `display_name` and is auto-populated on signup via `handle_new_user()`, so every user has a row.
+- `team_members.name` is the canonical display name for invited tenant members and takes priority.
+- Keep `author_user_id` writing unchanged so edit/delete ownership still works.
