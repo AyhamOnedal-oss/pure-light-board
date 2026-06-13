@@ -670,13 +670,11 @@ export function ChatWindow({
               inactivitySeconds={0}
               onRatingSubmit={(stars, fb) => {
                 const comment = typeof fb === 'string' ? fb.trim() : '';
-                postRating(evCtx, { stars, comment: comment.length > 0 ? comment : undefined });
-                closeConversation(evCtx, 'rating_submit');
+                postRating(evCtx(), { stars, comment: comment.length > 0 ? comment : undefined });
               }}
               onRatingSkip={() => {
-                postRating(evCtx, { stars: 0, skipped: true });
-                trackEvent('rating.skipped', evCtx);
-                closeConversation(evCtx, 'rating_skip');
+                trackEvent('rating.skipped', evCtx());
+                closeConversation(evCtx(), 'rating_skip');
               }}
               onRatingAutoClose={() => { /* disabled */ }}
             />
@@ -757,8 +755,8 @@ export function ChatWindow({
                       onQuickReplyPick={handleQuickReplyPick}
                       onFeedbackChange={(id, fb) => {
                         setMessages(prev => prev.map(m => (m.id === id ? { ...m, feedback: fb } : m)));
-                        postFeedback(evCtx, id, fb);
-                        trackEvent('message.feedback', evCtx, { messageId: id, feedback: fb });
+                        postFeedback(evCtx(), id, fb);
+                        trackEvent('message.feedback', evCtx(), { messageId: id, feedback: fb });
                       }}
                     />
                   ))
