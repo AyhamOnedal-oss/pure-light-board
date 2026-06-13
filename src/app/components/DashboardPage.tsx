@@ -52,10 +52,10 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 
 export function DashboardPage() {
   const { t, theme, language, showToast, tenantId, user, isSuperAdmin } = useApp();
-  const { disabled: isFrozen, snapshot } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
+  const { disabled: isFrozen, snapshot, frozenAt } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen, snapshot);
+  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen, snapshot, frozenAt);
   const feedback = metrics.feedback;
   const feedbackAnimationKey = 'feedback-live';
   const feedbackPieData = useMemo(
