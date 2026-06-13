@@ -57,15 +57,27 @@ Deno.serve(async (req) => {
     // Fetch the team_members row to get user_id
     const { data: member } = await admin
       .from("team_members")
-      .select("id, user_id")
+      .select("id, user_id, email")
       .eq("id", member_id)
       .eq("tenant_id", tenant_id)
       .maybeSingle();
     if (!member) return json({ error: "not_found" }, 404);
 
     const targetUserId: string | null = member.user_id ?? null;
+    const nowIso = new Date().toISOString();
 
-    // Remove tenant membership + team row
+    // Soft-delete: keep the team_members row (and all FK history) but
+    // mark it deleted so the UI hides it and the login page can detect it.
+    await admin
+      .from("team_members")
+      .update({
+        deleted_at: nowIso,
+        auth_revoked_at: nowIso,
+        status: "inactive",
+      })
+      .eq("id", member_id);
+
+    // Revoke tenant access immediately.
     if (targetUserId) {
       await admin
         .from("auth_tenant_members")
@@ -73,10 +85,11 @@ Deno.serve(async (req) => {
         .eq("tenant_id", tenant_id)
         .eq("user_id", targetUserId);
     }
-    await admin.from("team_members").delete().eq("id", member_id);
 
-    // If the user has no other tenant memberships and no team_members rows
-    // elsewhere, delete the auth user too so they cannot sign in anymore.
+    // If the user has no other tenant memberships and no other
+    // non-deleted team_members rows, destroy the auth account so they
+    // can never sign in again.
+    let authDeleted = false;
     if (targetUserId) {
       const [{ count: tenantsLeft }, { count: teamsLeft }] = await Promise.all([
         admin
@@ -86,14 +99,18 @@ Deno.serve(async (req) => {
         admin
           .from("team_members")
           .select("id", { head: true, count: "exact" })
-          .eq("user_id", targetUserId),
+          .eq("user_id", targetUserId)
+          .is("deleted_at", null),
       ]);
       if ((tenantsLeft ?? 0) === 0 && (teamsLeft ?? 0) === 0) {
-        try { await admin.auth.admin.deleteUser(targetUserId); } catch (_) { /* best-effort */ }
+        try {
+          await admin.auth.admin.deleteUser(targetUserId);
+          authDeleted = true;
+        } catch (_) { /* best-effort */ }
       }
     }
 
-    return json({ ok: true });
+    return json({ ok: true, auth_deleted: authDeleted });
   } catch (e) {
     return json({ error: "internal", detail: String(e) }, 500);
   }
