@@ -13,6 +13,8 @@ interface Notification {
   messageAr: string;
   time: string;
   read: boolean;
+  kind?: 'ticket_new' | string;
+  ticketId?: string;
 }
 
 interface Toast {
@@ -30,7 +32,7 @@ interface AppContextType {
   notifications: Notification[];
   markRead: (id: string) => void;
   unreadCount: number;
-  pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string }) => void;
+  pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => void;
   toasts: Toast[];
   showToast: (message: string) => void;
   // Auth
@@ -93,16 +95,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', sync);
   }, []);
 
-  const pushNotification = useCallback((n: { title: string; titleAr: string; message: string; messageAr: string }) => {
-    setNotifications(prev => [{
-      id: Date.now().toString(),
-      title: n.title,
-      titleAr: n.titleAr,
-      message: n.message,
-      messageAr: n.messageAr,
-      time: 'now',
-      read: false,
-    }, ...prev]);
+  const pushNotification = useCallback((n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => {
+    setNotifications(prev => {
+      // De-dupe ticket_new by ticketId so we don't stack the same alert
+      // when realtime + backfill both fire, or across tab refreshes.
+      if (n.kind === 'ticket_new' && n.ticketId && prev.some(p => (p as any).ticketId === n.ticketId)) {
+        return prev;
+      }
+      return [{
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        title: n.title,
+        titleAr: n.titleAr,
+        message: n.message,
+        messageAr: n.messageAr,
+        time: 'now',
+        read: false,
+        kind: n.kind,
+        ticketId: n.ticketId,
+      }, ...prev];
+    });
   }, []);
   const [toasts, setToasts] = useState<Toast[]>([]);
   // Per-message cooldown so the same error can't be re-shown immediately
