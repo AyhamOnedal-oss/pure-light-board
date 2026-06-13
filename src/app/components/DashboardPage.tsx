@@ -121,7 +121,9 @@ export function DashboardPage() {
     payment: { en: 'Payment', ar: 'دفع', color: '#eab308' },
     other: { en: 'Other', ar: 'أخرى', color: '#8b5cf6' },
   };
+  const allowedClassifications = ['inquiry', 'complaint', 'suggestion', 'request'];
   const classificationData = Object.entries(metrics.classification)
+    .filter(([k, v]) => allowedClassifications.includes(k) && v > 0)
     .map(([k, v]) => ({
       name: t(classificationLabels[k]?.en ?? k, classificationLabels[k]?.ar ?? k),
       value: v,
