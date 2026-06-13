@@ -30,6 +30,10 @@ export function Layout() {
 
   const isSettings = location.pathname.startsWith('/dashboard/settings');
 
+  if (userDisabled) {
+    return <AccountDisabledScreen />;
+  }
+
   useEffect(() => {
     setDisplayEmail(user?.email ?? '');
     if (!tenantId) { setDisplayName(user?.email?.split('@')[0] ?? ''); return; }
