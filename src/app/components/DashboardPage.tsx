@@ -499,27 +499,59 @@ export function DashboardPage() {
               </div>
 
               {/* Issue List — supports long text, scrollable */}
-              <div className="flex-1 overflow-y-auto" style={{ maxHeight: 'calc(5 * 52px)' }}>
+              <div className="flex-1 overflow-y-auto" style={{ maxHeight: '60vh' }}>
                 {currentIssues.length === 0 ? (
                   <div className="flex items-center justify-center py-16 text-muted-foreground text-[14px]">
-                    {t('No issues in this category', 'لا توجد مشكلات في هذه الفئة')}
+                    {openInsight === 'unknown'
+                      ? t(
+                          'No unanswered questions in this period.',
+                          'لا توجد أسئلة لم يتمكن الذكاء من الإجابة عليها في هذه الفترة.',
+                        )
+                      : t('No issues in this category', 'لا توجد مشكلات في هذه الفئة')}
                   </div>
                 ) : (
-                  currentIssues.map((issue) => (
+                  currentIssues.map((issue: any) => (
                     <div
                       key={issue.id}
                       className={`flex items-start gap-3 px-5 py-3 border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${issue.resolved ? 'opacity-50' : ''}`}
                     >
                       {/* Issue text — multi-line support */}
                       <div className="flex-1 min-w-0 pt-0.5">
-                        <p className={`text-[13px] break-words ${issue.resolved ? 'line-through text-muted-foreground' : 'text-foreground'}`} style={{ fontWeight: 500 }}>
-                          {issue.subject}
-                        </p>
+                        {openInsight === 'unknown' ? (
+                          <>
+                            <p
+                              className={`text-[13px] break-words leading-relaxed border-s-2 ps-3 ${
+                                issue.resolved
+                                  ? 'line-through text-muted-foreground border-muted'
+                                  : 'text-foreground'
+                              }`}
+                              style={{
+                                fontWeight: 500,
+                                borderInlineStartColor: issue.resolved ? undefined : currentInsight.color,
+                              }}
+                            >
+                              «{issue.subject}»
+                            </p>
+                            {issue.lastAt && (
+                              <p className="text-[10.5px] text-muted-foreground mt-1 ps-3">
+                                {t('Last asked', 'آخر مرة')}: {new Date(issue.lastAt).toLocaleDateString(language === 'ar' ? 'ar-SA' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className={`text-[13px] break-words ${issue.resolved ? 'line-through text-muted-foreground' : 'text-foreground'}`} style={{ fontWeight: 500 }}>
+                            {issue.subject}
+                          </p>
+                        )}
                       </div>
 
                       {/* Count badge */}
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted shrink-0 mt-0.5" style={{ fontWeight: 600, color: currentInsight.color }}>
-                        {issue.count}
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-full bg-muted shrink-0 mt-0.5 whitespace-nowrap"
+                        style={{ fontWeight: 600, color: currentInsight.color }}
+                        title={openInsight === 'unknown' ? t('Times asked', 'مرات السؤال') : t('Occurrences', 'عدد التكرارات')}
+                      >
+                        ×{issue.count}
                       </span>
 
                       {/* Resolve */}
