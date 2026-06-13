@@ -8,10 +8,11 @@ import {
   isAllowed,
   useCurrentMemberPermissions,
 } from '../utils/permissions';
+import { AccountDisabledScreen } from './AccountDisabledScreen';
 
 export function RequirePermission({ children }: { children: React.ReactNode }) {
   const { user, tenantId, isSuperAdmin, tenantLoading } = useApp();
-  const { perms, loading } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
+  const { perms, loading, disabled } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const location = useLocation();
 
   if (tenantLoading || loading) {
@@ -21,6 +22,8 @@ export function RequirePermission({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+
+  if (disabled) return <AccountDisabledScreen />;
 
   const key: PermissionKey | undefined = PATH_TO_PERMISSION[location.pathname];
   if (!key) return <>{children}</>; // unknown route — let it render
