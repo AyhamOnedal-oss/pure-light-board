@@ -137,7 +137,10 @@ export function Layout() {
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
   const can = (key: PermissionKey) => {
-    if (permsLoading) return false;
+    // Optimistic during initial load — render normal nav links instead of
+    // flashing the locked "X" icon for a moment on every refresh. Route-level
+    // RequirePermission guards still enforce real access on navigation.
+    if (permsLoading) return true;
     return userPerms === 'all' ? true : isAllowed(userPerms, key);
   };
 
@@ -160,7 +163,7 @@ export function Layout() {
   ];
 
   const canSettings = permsLoading
-    ? false
+    ? true
     : userPerms === 'all'
       ? true
       : !!(userPerms as MemberPermissions).settings;

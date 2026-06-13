@@ -23,12 +23,22 @@ import {
  */
 export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, snapshot?: any | null, frozenAt?: string | null) {
   const { tenantId } = useApp();
-  const [metrics, setMetrics] = useState<DashboardMetrics>(EMPTY_METRICS);
-  const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>({
-    complaint: [], inquiry: [], request: [], suggestion: [], other: [],
-  });
-  const [recentFeedback, setRecentFeedback] = useState<RecentAiFeedback[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = tenantId ? `dashboard-metrics-cache:${tenantId}` : null;
+  const readCache = () => {
+    if (!cacheKey) return null;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return null;
+      return JSON.parse(raw) as { metrics: DashboardMetrics; topSubjects: any; recentFeedback: RecentAiFeedback[] };
+    } catch { return null; }
+  };
+  const cached = readCache();
+  const [metrics, setMetrics] = useState<DashboardMetrics>(cached?.metrics ?? EMPTY_METRICS);
+  const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>(
+    cached?.topSubjects ?? { complaint: [], inquiry: [], request: [], suggestion: [], other: [] },
+  );
+  const [recentFeedback, setRecentFeedback] = useState<RecentAiFeedback[]>(cached?.recentFeedback ?? []);
+  const [loading, setLoading] = useState(!cached);
   const refetchTimer = useRef<number | null>(null);
   const fromKey = range?.from.getTime();
   const toKey = range?.to.getTime();
@@ -88,6 +98,12 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
         setTopSubjects(subs);
         setRecentFeedback(fb);
         setLoading(false);
+        try {
+          if (cacheKey) localStorage.setItem(
+            cacheKey,
+            JSON.stringify({ metrics: m, topSubjects: subs, recentFeedback: fb }),
+          );
+        } catch { /* ignore quota */ }
       }
     };
     void load();

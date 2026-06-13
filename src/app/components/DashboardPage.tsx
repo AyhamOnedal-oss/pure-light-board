@@ -308,19 +308,21 @@ export function DashboardPage() {
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Ticket Status', 'حالة التذاكر')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Total, Open & Closed tickets', 'التذاكر الإجمالية والمفتوحة والمغلقة')}</p>
           <div className="h-[200px] flex items-end justify-around gap-4 px-2 pb-6 pt-4 relative">
-            {ticketStatusData.map((d) => {
+            {ticketStatusData.map((d, idx) => {
               const max = Math.max(...ticketStatusData.map(x => x.value));
               const pct = (d.value / max) * 100;
               return (
                 <div key={d.name} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
                   <span className="text-[13px]" style={{ fontWeight: 700, color: tickColor }}>{d.value}</span>
-                  <motion.div
-                    initial={{ height: 0 }}
-                    animate={{ height: `${pct}%` }}
-                    transition={{ duration: 1.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                    className="w-full rounded-t-lg"
-                    style={{ backgroundColor: d.fill, maxWidth: 64 }}
-                  />
+                  <div className="w-full flex justify-center" style={{ height: `${pct}%` }}>
+                    <motion.div
+                      initial={{ scaleY: 0 }}
+                      animate={{ scaleY: 1 }}
+                      transition={{ duration: 1.6, delay: 0.5 + idx * 0.12, ease: [0.16, 1, 0.3, 1] }}
+                      className="w-full rounded-t-lg origin-bottom"
+                      style={{ backgroundColor: d.fill, maxWidth: 64, height: '100%' }}
+                    />
+                  </div>
                   <span className="text-[12px]" style={{ color: tickColor }}>{d.name}</span>
                 </div>
               );
