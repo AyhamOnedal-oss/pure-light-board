@@ -405,7 +405,7 @@ export function ConversationsPage() {
                       <span
                         className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full bg-muted text-muted-foreground"
                         style={{ fontWeight: 600 }}
-                        title={c.closeReason && !c.hasTicket ? t(closeReasonMap[c.closeReason].en, closeReasonMap[c.closeReason].ar) : ''}
+                        title={c.closeReason ? t(closeReasonMap[c.closeReason].en, closeReasonMap[c.closeReason].ar) : ''}
                       >
                         <Lock className="w-2.5 h-2.5" />
                         {t('Chat Closed', 'محادثة مغلقة')}
@@ -482,7 +482,7 @@ export function ConversationsPage() {
                 {selected.chatStatus === 'open' ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                 {selected.chatStatus === 'open' ? t('Open', 'مفتوحة') : t('Closed', 'مغلقة')}
               </span>
-              {selected.chatStatus === 'closed' && selected.closeReason && !selected.hasTicket && (() => {
+              {selected.chatStatus === 'closed' && selected.closeReason && (() => {
                 const r = closeReasonMap[selected.closeReason];
                 const Icon = r.icon;
                 return (
