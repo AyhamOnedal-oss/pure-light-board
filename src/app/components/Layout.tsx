@@ -330,6 +330,10 @@ export function Layout() {
     </div>
   );
 
+  if (userDisabled) {
+    return <AccountDisabledScreen />;
+  }
+
   return (
     <div className="flex min-h-screen">
       {/* Desktop Sidebar */}
