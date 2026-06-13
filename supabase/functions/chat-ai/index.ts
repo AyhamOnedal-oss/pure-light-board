@@ -511,7 +511,6 @@ Deno.serve(async (req) => {
     const persistMessages = async (userText: string, aiText: string): Promise<{ ai_message_id: string | null }> => {
       if (!conversation_id) return { ai_message_id: null };
       try {
-        const nowMs = Date.now();
         await supabase.from("conversations_messages").insert({
           tenant_id,
           conversation_id,
@@ -520,7 +519,8 @@ Deno.serve(async (req) => {
           body: userText,
           word_count: userText.split(/\s+/).length,
           attachments: attachmentsIn,
-          created_at: new Date(nowMs).toISOString(),
+          // When the request actually arrived at the edge function.
+          created_at: new Date(userArrivedAtMs).toISOString(),
         });
         const { data: aiRow } = await supabase.from("conversations_messages").insert({
           tenant_id,
@@ -529,7 +529,9 @@ Deno.serve(async (req) => {
           kind: "text",
           body: aiText,
           word_count: aiText.split(/\s+/).length,
-          created_at: new Date(nowMs + 50).toISOString(),
+          // Real wallclock at persistence — after the model + pipeline
+          // finished. This is what makes avg-response time meaningful.
+          created_at: new Date().toISOString(),
         }).select("id").single();
         return { ai_message_id: (aiRow?.id as string | undefined) ?? null };
       } catch (e) {
