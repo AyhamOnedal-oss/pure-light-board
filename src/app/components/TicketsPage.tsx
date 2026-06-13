@@ -82,7 +82,7 @@ function toWhatsAppUrl(rawPhone: string): string {
 }
 
 export function TicketsPage() {
-  const { t, showToast, dir, tenantId, user, isSuperAdmin } = useApp();
+  const { t, showToast, dir, tenantId, user, isSuperAdmin, markTicketNotificationRead } = useApp();
   const authorUserId = user?.id ?? null;
   const [resolvedAuthorName, setResolvedAuthorName] = useState<string>('');
   const [resolvedTenantRole, setResolvedTenantRole] = useState<string | null>(null);
@@ -326,7 +326,11 @@ export function TicketsPage() {
   };
 
   const openNotes = () => {
-    if (selected) { setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id)); bump(); }
+    if (selected) {
+      setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id));
+      markTicketNotificationRead(selected.id);
+      bump();
+    }
     setNotesOpen(true);
   };
 
