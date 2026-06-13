@@ -207,11 +207,13 @@ export function DashboardPage() {
           <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Dashboard', 'لوحة التحكم')}</h1>
           <p className="text-muted-foreground text-[14px] mt-1">{t('Overview of your AI customer service performance', 'نظرة عامة على أداء خدمة العملاء بالذكاء الاصطناعي')}</p>
         </div>
-        <DateRangePicker
-          preset={rangePreset}
-          custom={range}
-          onChange={(p, r) => { setRangePreset(p); setRange(r); }}
-        />
+        <div className={isFrozen ? 'pointer-events-none opacity-50' : ''} aria-disabled={isFrozen}>
+          <DateRangePicker
+            preset={rangePreset}
+            custom={range}
+            onChange={(p, r) => { if (isFrozen) return; setRangePreset(p); setRange(r); }}
+          />
+        </div>
       </div>
 
       {/* KPIs — compact */}
