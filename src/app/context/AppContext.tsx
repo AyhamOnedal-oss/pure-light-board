@@ -120,8 +120,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Auth listener — set up FIRST, then fetch initial session
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
+      // If the auth user was deleted server-side, Supabase fires
+      // TOKEN_REFRESHED / SIGNED_OUT with no session. Bounce to login
+      // with a reason so the page shows the "account deleted" message.
+      if (!s && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT' || event === 'USER_DELETED')) {
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+          window.location.replace('/login?reason=deleted');
+        }
+      }
     });
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
@@ -158,6 +166,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       const memberships = memRes.data ?? [];
       const invites = invRes.data ?? [];
+      // No memberships at all + not a super admin ⇒ this account was
+      // deleted by an admin. Force sign-out and route to login with the
+      // "account deleted" reason so the user sees a clear Arabic message.
+      if (memberships.length === 0 && invites.length === 0) {
+        // Defer the role check to the next tick using a fresh query so we
+        // don't race with the super-admin effect.
+        const { data: roleRow } = await supabase
+          .from('auth_user_roles')
+          .select('role')
+          .eq('user_id', uid)
+          .eq('role', 'super_admin')
+          .maybeSingle();
+        if (!roleRow) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setTenantId(null);
+          setTenantLoading(false);
+          if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+            window.location.replace('/login?reason=deleted');
+          }
+          return;
+        }
+      }
       const inviteIds = new Set(invites.map((i: any) => i.tenant_id));
       const pick =
         memberships.find((m: any) => inviteIds.has(m.tenant_id)) ||
