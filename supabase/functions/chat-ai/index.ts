@@ -280,6 +280,11 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "method_not_allowed" }, 405);
 
   try {
+    // Capture the moment the customer's message hit the server. Used as
+    // the customer message's created_at so the (customer → ai) gap in
+    // conversations_messages reflects real AI/pipeline latency rather
+    // than the post-insert wallclock.
+    const userArrivedAtMs = Date.now();
     const body = await req.json();
     const { platform, store_id, store_uuid, visitor_id, history } = body;
     let message: string = typeof body.message === "string" ? body.message : "";
