@@ -31,6 +31,7 @@ interface AppContextType {
   dir: 'ltr' | 'rtl';
   notifications: Notification[];
   markRead: (id: string) => void;
+  markTicketNotificationRead: (ticketId: string) => void;
   unreadCount: number;
   pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => void;
   toasts: Toast[];
@@ -356,6 +357,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const t = (en: string, ar: string) => language === 'ar' ? ar : en;
   const dir = language === 'ar' ? 'rtl' as const : 'ltr' as const;
   const markRead = (id: string) => setNotifications(n => n.map(x => x.id === id ? { ...x, read: true } : x));
+  const markTicketNotificationRead = useCallback((ticketId: string) => {
+    setNotifications(n => n.map(x =>
+      x.kind === 'ticket_new' && x.ticketId === ticketId ? { ...x, read: true } : x
+    ));
+  }, []);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const showToast = useCallback((message: string) => {
@@ -380,7 +386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider value={{
       language, setLanguage, theme, setTheme, t, dir,
-      notifications, markRead, unreadCount, pushNotification,
+      notifications, markRead, markTicketNotificationRead, unreadCount, pushNotification,
       toasts, showToast,
       session, user: session?.user ?? null, authLoading,
       tenantId, tenantLoading,
