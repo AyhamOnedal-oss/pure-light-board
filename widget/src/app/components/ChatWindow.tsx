@@ -483,20 +483,20 @@ export function ChatWindow({
     ticketSourceRef.current = 'form';
     ticketCreatingRef.current = false;
     setCurrentScreen('ticket-form');
-    trackEvent('ticket.form_shown', evCtx, { source: 'form' });
+    trackEvent('ticket.form_shown', evCtx(), { source: 'form' });
   };
   const handleConfirmClose    = () => {
     setShowConfirmModal(false);
-    closeConversation(evCtx, 'manual');
+    closeConversation(evCtx(), 'manual');
     setCurrentScreen('rating');
   };
   const handleReturnToChat    = () => { setShowConfirmModal(false); onReturnToChat(); };
   const handleTicketFormSubmit = async (_phone: string, _code: string) => {
     if (ticketCreatingRef.current || ticketCreated) return;
     ticketCreatingRef.current = true;
-    trackEvent('ticket.form_submitted', { ...evCtx, ticketId }, { source: 'form' });
+    trackEvent('ticket.form_submitted', { ...evCtx(), ticketId }, { source: 'form' });
     const res = await postTicket(
-      { ...evCtx, ticketId },
+      { ...evCtx(), ticketId },
       { subject: 'تذكرة من المحادثة', phone: `${_code}${_phone.replace(/^0+/, '')}` },
     );
     if (!res?.ticketId) {
@@ -513,7 +513,7 @@ export function ChatWindow({
   // can rate the AI's handoff (not directly close the widget).
   // v4.7.22 — "حسناً، شكراً لك": end + full reset, then close. Next open = brand new chat.
   const handleTicketCreatedClose = () => {
-    closeConversation(evCtx, 'user_ticket_acknowledged');
+    closeConversation(evCtx(), 'user_ticket_acknowledged');
     onClose();
   };
   const handleTicketCreatedBack  = () => {
