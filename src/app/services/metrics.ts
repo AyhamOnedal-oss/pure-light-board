@@ -181,12 +181,20 @@ export async function fetchTopSubjectsByCategory(
   for (const row of data ?? []) {
     const r = row as any;
     const cat = r.category as string | null;
-    const bucket = cat && tallies[cat] ? cat : 'other';
-    // Unknown bucket uses the actual customer question; other buckets keep the AI subject.
+    const unanswered = ((r.unanswered_question as string | null) ?? '').trim();
+    // Unknown Questions card: every conversation with a real unanswered question
+    // (set by the classifier only for genuine knowledge gaps) goes into `other`,
+    // regardless of its main category. Other buckets keep the AI subject.
+    const bucket = unanswered ? 'other' : (cat && tallies[cat] ? cat : 'other');
     const display = bucket === 'other'
-      ? ((r.unanswered_question as string | null) ?? (r.subject as string | null) ?? '').trim()
+      ? (unanswered || ((r.subject as string | null) ?? '').trim())
       : ((r.subject as string | null) ?? '').trim();
     if (!display) continue;
+    // Extra safety: filter trivial strings from the Unknown bucket on read.
+    if (bucket === 'other') {
+      const stripped = display.replace(/[؟?.!،,;:"'«»()\[\]]+$/g, '').trim();
+      if (stripped.length < 8 || stripped.split(/\s+/).length < 2) continue;
+    }
     const key = normalize(display);
     if (!key) continue;
     const at = (r.last_message_at as string | null) ?? (r.created_at as string | null) ?? '';
