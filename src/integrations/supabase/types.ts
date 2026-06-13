@@ -1614,8 +1614,10 @@ export type Database = {
       }
       team_members: {
         Row: {
+          auth_revoked_at: string | null
           created_at: string
           dashboard_snapshot: Json | null
+          deleted_at: string | null
           disabled_at: string | null
           email: string
           id: string
@@ -1629,8 +1631,10 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          auth_revoked_at?: string | null
           created_at?: string
           dashboard_snapshot?: Json | null
+          deleted_at?: string | null
           disabled_at?: string | null
           email: string
           id?: string
@@ -1644,8 +1648,10 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          auth_revoked_at?: string | null
           created_at?: string
           dashboard_snapshot?: Json | null
+          deleted_at?: string | null
           disabled_at?: string | null
           email?: string
           id?: string
@@ -1989,6 +1995,7 @@ export type Database = {
         Args: { p_day?: string; p_tenant_id: string }
         Returns: undefined
       }
+      is_email_deleted: { Args: { _email: string }; Returns: boolean }
       is_tenant_member: {
         Args: { _tenant_id: string; _user_id: string }
         Returns: boolean

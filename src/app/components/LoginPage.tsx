@@ -70,10 +70,15 @@ export function LoginPage() {
   const isInviteLink = initialQuery?.get('invite') === '1';
   const redirectParam = initialQuery?.get('redirect') ?? '';
   const forgotParam = initialQuery?.get('forgot') === '1';
+  const reasonDeleted = initialQuery?.get('reason') === 'deleted';
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [loginError, setLoginError] = useState('');
+  const deletedMsg = t(
+    'Sorry, your account has been deleted by the admin.',
+    'عذراً، تم حذف حسابك من قبل المسؤول.'
+  );
+  const [loginError, setLoginError] = useState<string>(reasonDeleted ? deletedMsg : '');
   const [loginLoading, setLoginLoading] = useState(false);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -168,6 +173,15 @@ export function LoginPage() {
       const { error } = await signIn(normEmail, normPassword);
       setLoginLoading(false);
       if (error) {
+        // If this email belongs to a soft-deleted member, show the
+        // "account deleted" message instead of the generic credentials error.
+        try {
+          const { data: isDeleted } = await supabase.rpc('is_email_deleted', { _email: normEmail });
+          if (isDeleted === true) {
+            setLoginError(deletedMsg);
+            return;
+          }
+        } catch { /* ignore — fall through to generic error */ }
         setLoginError(t('Invalid email or password', 'البريد الإلكتروني أو كلمة المرور غير صحيحة'));
         return;
       }
