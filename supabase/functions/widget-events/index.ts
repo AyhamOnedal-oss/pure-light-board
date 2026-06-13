@@ -83,11 +83,19 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq("id", conversation_id)
-        .eq("tenant_id", tenant_id);
+        .eq("tenant_id", tenant_id)
+        .select("id");
       if (error) {
         console.error("widget-events: rating update failed", error);
         return jsonResponse({ ok: false, error: "rating_update_failed", message: error.message }, 500);
       }
+      console.log("widget-events rating", {
+        conversation_id,
+        tenant_id,
+        stars,
+        has_comment: comment !== null,
+        comment_len: comment?.length ?? 0,
+      });
       return jsonResponse({ ok: true });
     }
 
