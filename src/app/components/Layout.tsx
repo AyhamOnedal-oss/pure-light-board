@@ -75,56 +75,48 @@ export function Layout() {
     };
   }, []);
 
-  // Sidebar unread badges — live counts from DB.
+  // Sidebar Conversations badge — count convs whose latest customer message
+  // is newer than the last time the user opened the conversation. This means
+  // re-opening a conv drops it from the count, and a fresh customer message
+  // raises it again (unlike the old "opened once == read forever" logic).
   const [conversationsBadge, setConversationsBadge] = useState(0);
-  const [ticketsBadge, setTicketsBadge] = useState(0);
   useEffect(() => {
-    if (!tenantId) { setConversationsBadge(0); setTicketsBadge(0); return; }
+    if (!tenantId) { setConversationsBadge(0); return; }
     let cancelled = false;
     const load = async () => {
-      const [{ data: convRows }, { data: tkRows }] = await Promise.all([
-        supabase
-          .from('conversations_main')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .eq('is_test', false)
-          .order('last_message_at', { ascending: false })
-          .limit(500),
-        supabase
-          .from('tickets_main')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .order('created_at', { ascending: false })
-          .limit(500),
-      ]);
+      const { data: convRows } = await supabase
+        .from('conversations_main')
+        .select('id, last_customer_message_at, last_message_at')
+        .eq('tenant_id', tenantId)
+        .eq('is_test', false)
+        .order('last_message_at', { ascending: false })
+        .limit(500);
       if (cancelled) return;
-      const convUnread = (convRows || []).filter(
-        (r) => !getTs(notifKeys.conversationOpened(CURRENT_USER_ID, r.id as string)),
-      ).length;
-      const tkUnread = (tkRows || []).filter(
-        (r) => !getTs(notifKeys.ticketOpened(CURRENT_USER_ID, r.id as string)),
-      ).length;
+      const convUnread = (convRows || []).filter((r) => {
+        const lastCustomerRaw =
+          (r as { last_customer_message_at?: string | null }).last_customer_message_at
+          ?? (r as { last_message_at?: string | null }).last_message_at;
+        if (!lastCustomerRaw) return false;
+        const lastCustomerMs = toMs(lastCustomerRaw);
+        const openedMs = getTs(notifKeys.conversationOpened(CURRENT_USER_ID, r.id as string));
+        return lastCustomerMs > openedMs;
+      }).length;
       setConversationsBadge(convUnread);
-      setTicketsBadge(tkUnread);
     };
     load();
 
-    // Realtime: bump badges as soon as a new conversation or ticket arrives.
     let debounce: ReturnType<typeof setTimeout> | null = null;
     const scheduleLoad = () => {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => { if (!cancelled) load(); }, 400);
     };
     const channel = supabase
-      .channel(`sidebar-badges-${tenantId}`)
+      .channel(`sidebar-conv-badges-${tenantId}`)
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'conversations_main', filter: `tenant_id=eq.${tenantId}` },
         scheduleLoad)
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'conversations_main', filter: `tenant_id=eq.${tenantId}` },
-        scheduleLoad)
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'tickets_main', filter: `tenant_id=eq.${tenantId}` },
         scheduleLoad)
       .subscribe();
     return () => {
@@ -133,6 +125,13 @@ export function Layout() {
       void supabase.removeChannel(channel);
     };
   }, [tenantId, location.pathname, badgeVersion]);
+
+  // Sidebar Tickets badge — derived from unread "new ticket" bell
+  // notifications. Decrements only when the user reads the notification
+  // in the bell dropdown, NOT when opening a ticket or conversation.
+  const ticketsBadge = notifications.filter(
+    (n) => (n as { kind?: string }).kind === 'ticket_new' && !n.read,
+  ).length;
 
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
