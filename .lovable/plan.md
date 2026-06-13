@@ -1,32 +1,29 @@
 ## Goal
-When an admin sets a team member's status to `inactive` ("معطل"), that member should be fully frozen: no access to any section's data or actions. Instead, on any `/dashboard/*` route they should see a single full-screen "تم تعطيل حسابك" card (matching the attached screenshot) with only a logout button. They cannot be re-enabled until an admin reactivates or deletes them.
+When a member is disabled, they should still see the main dashboard, but the numbers must be exactly the dashboard data from the moment before they were disabled. No live refetches, no realtime updates, and no changed date range.
 
-## Current behavior
-`useCurrentMemberPermissions` already detects `status === 'inactive'` and returns `disabled: true` with `perms = {}`. But nothing in the app reads `disabled`: `RequirePermission` only redirects via `firstAllowedPath`, which falls back to `/dashboard`, so a disabled member still lands on the (empty) home page. Tenant owners/admins bypass the check entirely (`perms = 'all'`) so they are never frozen — correct.
+## Plan
+1. **Add a persistent frozen snapshot**
+   - Add columns to `team_members` for:
+     - `disabled_at`
+     - `dashboard_snapshot`
+   - Store the dashboard metrics, top subjects, recent AI feedback, and selected range in that snapshot.
 
-## Changes
+2. **Capture the snapshot before disabling**
+   - In the Team page `Disable` action, fetch the current dashboard data first.
+   - Save it into `team_members.dashboard_snapshot` in the same update that changes `status` to `inactive`.
+   - When re-enabling, clear `disabled_at` and the stored snapshot.
 
-### 1. New component `src/app/components/AccountDisabledScreen.tsx`
-Full-screen centered card, RTL, matching the screenshot:
-- Red circular icon (`LogOut` from lucide-react) on a `bg-destructive/10` circle
-- Title: `تم تعطيل حسابك` / `Your account is disabled`
-- Subtitle: `يرجى التواصل مع مسؤول المساحة الخاصة بك لاستعادة الوصول.` / English equivalent
-- Primary button `تسجيل الخروج` that calls `supabase.auth.signOut()` then navigates to `/login`
-- Uses existing design tokens (`bg-background`, `bg-card`, `text-foreground`, `text-muted-foreground`, `bg-primary`, `bg-destructive`) — no hardcoded colors
-- Reads `language` from `useApp()` for AR/EN labels
+3. **Load frozen data for inactive members**
+   - Update permission resolution to also return the stored dashboard snapshot for inactive members.
+   - Update the dashboard metrics hook so inactive members use `dashboard_snapshot` only.
+   - In frozen mode, do not call live metric APIs and do not subscribe to realtime channels.
 
-### 2. `src/app/components/RequirePermission.tsx`
-After the loading check, if `disabled === true`, return `<AccountDisabledScreen />` directly — skipping both the permission lookup and the wrapped children. This freezes every `/dashboard/*` route (home, conversations, tickets, team, settings/*) since they all go through `RequirePermission`.
+4. **Keep dashboard visible but locked**
+   - Keep inactive members redirected to `/dashboard` only.
+   - Keep the date picker disabled.
+   - Show the frozen dashboard values without changing while the tenant’s live data continues updating for active users.
 
-### 3. `src/app/components/Layout.tsx` (sidebar/topbar)
-Also short-circuit the sidebar/header chrome when the signed-in member is disabled, so the user does not see navigation links to pages they cannot open. Use the same `useCurrentMemberPermissions` hook (already used for filtering the menu) and, when `disabled`, render `<AccountDisabledScreen />` instead of the layout shell. I will read `Layout.tsx` first to confirm the exact integration point before editing.
-
-### 4. No changes to data layer / Supabase
-- `team_members.status = 'inactive'` is already the source of truth — admins toggle it from `TeamPage`.
-- RLS already scopes data per `tenant_id` + role; the frozen UI is purely a client-side guard. (A future hardening pass could add an RLS predicate `team_members.status = 'active'` for invited members, but that is out of scope here unless requested.)
-
-## Out of scope
-- Backfilling existing rows or migrating statuses
-- Sign-in blocking at the auth layer (disabled users can still log in; they just see the frozen screen)
-- Email notification when an account is disabled
-- Changes to how admins toggle status in `TeamPage` (already works)
+## Technical details
+- Reuse the existing `fetchDashboardMetrics`, `fetchTopSubjectsByCategory`, and `fetchRecentAiFeedback` services to generate the snapshot before status changes to inactive.
+- Add Supabase migration grants for any public schema changes as required.
+- Update generated Supabase TypeScript types if needed for the new `team_members` columns.
