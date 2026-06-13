@@ -62,6 +62,35 @@ async function isAuthorized(
 }
 
 const ALLOWED_CATEGORIES = ["complaint", "inquiry", "request", "suggestion", "other"] as const;
+
+/**
+ * Filter out trivial/empty "unanswered questions" so the AI Insights "Unknown
+ * Questions" card only shows real knowledge gaps the shop owner can act on.
+ * Rejects greetings, thanks, single words, and very short non-question text.
+ */
+function sanitizeUnansweredQuestion(raw: unknown): string | null {
+  const s = (raw ?? "").toString().trim().replace(/\s+/g, " ");
+  if (!s) return null;
+  // Strip trailing punctuation for matching
+  const stripped = s.replace(/[?؟.!،,;:"'«»()\[\]]+$/g, "").trim();
+  if (stripped.length < 8) return null;
+  // Must contain at least 2 words
+  if (stripped.split(" ").length < 2) return null;
+  const lower = stripped.toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, ""); // strip Arabic diacritics
+  const TRIVIAL = [
+    "السلام عليكم", "وعليكم السلام", "مرحبا", "مرحبتين", "هلا", "هلا والله",
+    "اهلا", "أهلا", "صباح الخير", "مساء الخير", "شكرا", "شكرا لك", "مشكور",
+    "تسلم", "يعطيك العافيه", "يعطيك العافية", "تمام", "اوكي", "اوك", "ok",
+    "okay", "hi", "hello", "hey", "thanks", "thank you", "good morning",
+    "good evening", "bye", "مع السلامه", "مع السلامة",
+  ];
+  for (const t of TRIVIAL) {
+    if (lower === t || lower.startsWith(t + " ") && stripped.length - t.length < 6) return null;
+  }
+  return s.slice(0, 200);
+}
 type Category = typeof ALLOWED_CATEGORIES[number];
 const ALLOWED_INTENTS = ["complaint", "inquiry", "request", "suggestion"] as const;
 type Intent = typeof ALLOWED_INTENTS[number];
