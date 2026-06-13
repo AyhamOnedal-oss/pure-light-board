@@ -16,6 +16,7 @@ import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import type { RecentAiFeedback } from '../services/metrics';
 import { DateRangePicker, computeRange, type RangePreset } from './dashboard/DateRangePicker';
 import type { DateRange } from '../services/metrics';
+import { useCurrentMemberPermissions } from '../utils/permissions';
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
@@ -50,10 +51,11 @@ function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> 
 }
 
 export function DashboardPage() {
-  const { t, theme, language, showToast, tenantId } = useApp();
+  const { t, theme, language, showToast, tenantId, user, isSuperAdmin } = useApp();
+  const { disabled: isFrozen } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range);
+  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen);
   const feedback = metrics.feedback;
   const feedbackAnimationKey = 'feedback-live';
   const feedbackPieData = useMemo(
@@ -205,11 +207,13 @@ export function DashboardPage() {
           <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Dashboard', 'لوحة التحكم')}</h1>
           <p className="text-muted-foreground text-[14px] mt-1">{t('Overview of your AI customer service performance', 'نظرة عامة على أداء خدمة العملاء بالذكاء الاصطناعي')}</p>
         </div>
-        <DateRangePicker
-          preset={rangePreset}
-          custom={range}
-          onChange={(p, r) => { setRangePreset(p); setRange(r); }}
-        />
+        <div className={isFrozen ? 'pointer-events-none opacity-50' : ''} aria-disabled={isFrozen}>
+          <DateRangePicker
+            preset={rangePreset}
+            custom={range}
+            onChange={(p, r) => { if (isFrozen) return; setRangePreset(p); setRange(r); }}
+          />
+        </div>
       </div>
 
       {/* KPIs — compact */}
