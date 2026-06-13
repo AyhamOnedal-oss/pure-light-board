@@ -5,11 +5,11 @@
 /* Ensure text selection is visible inside dark (blue) AI/agent message bubbles. */
 .msg-bubble-ai ::selection,
 .msg-bubble-ai::selection {
-  background: #ffd166;
-  color: #0b1220;
+  background: #ffffff;
+  color: #000000;
 }
 .msg-bubble-ai ::-moz-selection,
 .msg-bubble-ai::-moz-selection {
-  background: #ffd166;
-  color: #0b1220;
+  background: #ffffff;
+  color: #000000;
 }
