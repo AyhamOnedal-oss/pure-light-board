@@ -62,18 +62,17 @@ export function Layout() {
 
   const [badgeVersion, setBadgeVersion] = useState(0);
   useEffect(() => {
-    const path = location.pathname;
-    if (path === '/dashboard/tickets') {
-      setTs(notifKeys.ticketsListSeen(CURRENT_USER_ID));
-    } else if (path === '/dashboard/conversations') {
-      setTs(notifKeys.conversationsListSeen(CURRENT_USER_ID));
-    }
     setBadgeVersion(v => v + 1);
   }, [location.pathname]);
   useEffect(() => {
     const onFocus = () => setBadgeVersion(v => v + 1);
+    const onBump = () => setBadgeVersion(v => v + 1);
     window.addEventListener('focus', onFocus);
-    return () => { window.removeEventListener('focus', onFocus); };
+    window.addEventListener('fuqah:badges-bump', onBump);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('fuqah:badges-bump', onBump);
+    };
   }, []);
 
   // Sidebar unread badges — live counts from DB.
@@ -83,26 +82,30 @@ export function Layout() {
     if (!tenantId) { setConversationsBadge(0); setTicketsBadge(0); return; }
     let cancelled = false;
     const load = async () => {
-      const convSeen = getTs(notifKeys.conversationsListSeen(CURRENT_USER_ID));
-      const tkSeen = getTs(notifKeys.ticketsListSeen(CURRENT_USER_ID));
-      const convSeenIso = new Date(convSeen || 0).toISOString();
-      const tkSeenIso = new Date(tkSeen || 0).toISOString();
-      const [{ count: convCount }, { count: tkCount }] = await Promise.all([
+      const [{ data: convRows }, { data: tkRows }] = await Promise.all([
         supabase
           .from('conversations_main')
-          .select('id', { head: true, count: 'exact' })
+          .select('id')
           .eq('tenant_id', tenantId)
           .eq('is_test', false)
-          .gt('last_message_at', convSeenIso),
+          .order('last_message_at', { ascending: false })
+          .limit(500),
         supabase
           .from('tickets_main')
-          .select('id', { head: true, count: 'exact' })
+          .select('id')
           .eq('tenant_id', tenantId)
-          .gt('created_at', tkSeenIso),
+          .order('created_at', { ascending: false })
+          .limit(500),
       ]);
       if (cancelled) return;
-      setConversationsBadge(convCount || 0);
-      setTicketsBadge(tkCount || 0);
+      const convUnread = (convRows || []).filter(
+        (r) => !getTs(notifKeys.conversationOpened(CURRENT_USER_ID, r.id as string)),
+      ).length;
+      const tkUnread = (tkRows || []).filter(
+        (r) => !getTs(notifKeys.ticketOpened(CURRENT_USER_ID, r.id as string)),
+      ).length;
+      setConversationsBadge(convUnread);
+      setTicketsBadge(tkUnread);
     };
     load();
 
