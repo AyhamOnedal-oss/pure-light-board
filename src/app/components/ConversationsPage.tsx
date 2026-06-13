@@ -79,10 +79,11 @@ export function ConversationsPage() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const loadConversations = async () => {
     if (!tenantId) return;
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const { data: convs } = await supabase
         .from('conversations_main')
@@ -91,7 +92,12 @@ export function ConversationsPage() {
         .eq('is_test', false)
         .order('last_message_at', { ascending: false });
 
-      if (!convs || convs.length === 0) { setConversations([]); setLoading(false); return; }
+      if (!convs || convs.length === 0) {
+        setConversations([]);
+        setLoading(false);
+        hasLoadedRef.current = true;
+        return;
+      }
 
       const customerIds = Array.from(new Set(convs.map(c => c.customer_id).filter(Boolean) as string[]));
       const convIds = convs.map(c => c.id);
@@ -183,6 +189,7 @@ export function ConversationsPage() {
       }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   };
 
