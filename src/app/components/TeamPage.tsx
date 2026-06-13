@@ -17,6 +17,11 @@ import {
   emptyPermissions,
   SETTINGS_SUB_KEYS,
 } from '../utils/permissions';
+import {
+  fetchDashboardMetrics,
+  fetchTopSubjectsByCategory,
+  fetchRecentAiFeedback,
+} from '../services/metrics';
 
 interface Member {
   id: string;
@@ -400,7 +405,36 @@ export function TeamPage() {
     const member = members.find(x => x.id === id);
     if (!member) return;
     const newStatus = member.status === 'active' ? 'inactive' : 'active';
-    const { error } = await supabase.from('team_members').update({ status: newStatus }).eq('id', id);
+    let updatePayload: Record<string, any> = { status: newStatus };
+    if (newStatus === 'inactive' && tenantId) {
+      // Capture a frozen snapshot of the dashboard for this member to view
+      // while disabled. Last 30 days, same as the dashboard default.
+      try {
+        const day = 24 * 60 * 60 * 1000;
+        const to = new Date();
+        const from = new Date(to.getTime() - 30 * day);
+        const range = { from, to };
+        const [metrics, topSubjects, recentFeedback] = await Promise.all([
+          fetchDashboardMetrics(tenantId, range),
+          fetchTopSubjectsByCategory(tenantId, range),
+          fetchRecentAiFeedback(tenantId, range),
+        ]);
+        updatePayload.dashboard_snapshot = {
+          metrics,
+          topSubjects,
+          recentFeedback,
+          capturedAt: new Date().toISOString(),
+          range: { from: from.toISOString(), to: to.toISOString() },
+        };
+        updatePayload.disabled_at = new Date().toISOString();
+      } catch (e) {
+        console.warn('Failed to capture dashboard snapshot', e);
+      }
+    } else if (newStatus === 'active') {
+      updatePayload.dashboard_snapshot = null;
+      updatePayload.disabled_at = null;
+    }
+    const { error } = await supabase.from('team_members').update(updatePayload).eq('id', id);
     if (error) { showToast(t('Failed to update', 'فشل التحديث')); return; }
     setMembers(m => m.map(x => x.id === id ? { ...x, status: newStatus } : x));
     setMenuOpen(null);
