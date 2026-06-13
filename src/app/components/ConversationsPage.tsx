@@ -176,7 +176,13 @@ export function ConversationsPage() {
             if (r === 'customer_manual' || r === 'ai_request' || r === 'ai_offer_close' || r === 'user_end_conversation' || r === 'idle') return r;
             return undefined;
           })(),
-          category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? (c.category as ChatCategory) : undefined),
+          category: (() => {
+            const allowed = ['inquiry', 'complaint', 'request', 'suggestion'];
+            if (allowed.includes(c.category || '')) return c.category as ChatCategory;
+            const it = (c as { intent_type?: string | null }).intent_type;
+            if (allowed.includes(it || '')) return it as ChatCategory;
+            return undefined;
+          })(),
           createdAt: formatDateTime(c.created_at),
           closedAt: c.resolved_at ? formatDateTime(c.resolved_at) : undefined,
           messages: msgs,
@@ -370,8 +376,8 @@ export function ConversationsPage() {
                   <p className="text-[13px] text-muted-foreground truncate mt-0.5">{c.lastMessage}</p>
                   <div className="mt-1.5 flex items-center gap-1 flex-wrap">
                     {(() => {
-                      const key = (c.category && categoryMap[c.category]) ? c.category : 'none';
-                      const meta = categoryMap[key];
+                      if (!c.category || !categoryMap[c.category]) return null;
+                      const meta = categoryMap[c.category];
                       return (
                         <span
                           className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full"
