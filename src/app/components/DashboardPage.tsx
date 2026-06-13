@@ -124,7 +124,10 @@ export function DashboardPage() {
     payment: { en: 'Payment', ar: 'دفع', color: '#eab308' },
     other: { en: 'Other', ar: 'أخرى', color: '#8b5cf6' },
   };
-  const allowedClassifications = ['inquiry', 'complaint', 'suggestion', 'request'];
+  const allowedClassifications = [
+    'inquiry', 'complaint', 'suggestion', 'request',
+    'shipping', 'refund', 'product', 'payment', 'other',
+  ];
   const classificationData = Object.entries(metrics.classification)
     .filter(([k, v]) => allowedClassifications.includes(k) && v > 0)
     .map(([k, v]) => ({
@@ -674,6 +677,7 @@ export function DashboardPage() {
             ) : (
               recentFeedback.map((row) => {
                 const isPositive = row.feedback === 'positive';
+                const convLabel = row.conversation_code ?? (row.conversation_id ? row.conversation_id.slice(0, 8) : '—');
                 return (
                   <div
                     key={row.id}
@@ -689,9 +693,7 @@ export function DashboardPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
-                        {new Date(row.created_at).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-GB', {
-                          day: '2-digit', month: 'short', year: 'numeric',
-                        })}
+                        {t('Conversation', 'المحادثة')} #{convLabel}
                       </p>
                       <p className="text-[13px] text-foreground break-words line-clamp-5" style={{ fontWeight: 400 }}>
                         {row.body || t('(empty message)', '(رسالة فارغة)')}
@@ -750,7 +752,7 @@ export function DashboardPage() {
                   <p className="break-words whitespace-pre-wrap">{feedbackConvo.body || t('(empty message)', '(رسالة فارغة)')}</p>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-3">
-                  {t('Conversation', 'المحادثة')} #{feedbackConvo.conversation_code ?? '—'}
+                  {t('Conversation', 'المحادثة')} #{feedbackConvo.conversation_code ?? (feedbackConvo.conversation_id ? String(feedbackConvo.conversation_id).slice(0, 8) : '—')}
                 </p>
               </div>
 
