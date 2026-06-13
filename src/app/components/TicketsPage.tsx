@@ -760,8 +760,8 @@ export function TicketsPage() {
           onAddNote={addNote}
           onEditNote={editNote}
           onDeleteNote={deleteNote}
-          currentUser={CURRENT_USER.name}
-          currentUserRole={CURRENT_USER.role}
+          currentUser={authorName}
+          currentUserRole={authorRole}
         />
       )}
 
