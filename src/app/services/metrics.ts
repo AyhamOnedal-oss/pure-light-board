@@ -16,6 +16,8 @@ export interface TopSubject {
   id: string;
   subject: string;
   count: number;
+  conversationId?: string;
+  lastAt?: string;
 }
 
 export interface RecentAiFeedback {
@@ -147,7 +149,7 @@ export async function fetchTopSubjectsByCategory(
   const from = range?.from ?? new Date(to.getTime() - 30 * day);
   const { data, error } = await supabase
     .from('conversations_main')
-    .select('category, subject')
+    .select('id, category, subject, unanswered_question, last_message_at, created_at')
     .eq('tenant_id', tenantId)
     .eq('is_test', false)
     .in('status', ['closed', 'resolved'])
@@ -158,23 +160,57 @@ export async function fetchTopSubjectsByCategory(
     console.warn('metrics: top subjects fetch failed', error);
     return buckets;
   }
-  const tallies: Record<string, Map<string, number>> = {
+  // Normalize for grouping near-duplicates: lowercase, strip diacritics & trailing punctuation,
+  // collapse whitespace. Keeps the most-recent original phrasing as the display string.
+  const normalize = (s: string): string =>
+    s
+      .normalize('NFKD')
+      .replace(/[\u064B-\u065F\u0670]/g, '') // Arabic diacritics
+      .replace(/[\s]+/g, ' ')
+      .replace(/[؟?.!،,;:"'«»()\[\]]+$/g, '')
+      .trim()
+      .toLowerCase();
+
+  type Agg = { display: string; count: number; conversationId: string; lastAt: string };
+  const tallies: Record<string, Map<string, Agg>> = {
     complaint: new Map(), inquiry: new Map(), request: new Map(),
     suggestion: new Map(), other: new Map(),
   };
   for (const row of data ?? []) {
-    const cat = (row as any).category as string | null;
-    const subjRaw = ((row as any).subject as string | null) ?? '';
-    const subj = subjRaw.trim();
-    if (!subj) continue;
+    const r = row as any;
+    const cat = r.category as string | null;
     const bucket = cat && tallies[cat] ? cat : 'other';
+    // Unknown bucket uses the actual customer question; other buckets keep the AI subject.
+    const display = bucket === 'other'
+      ? ((r.unanswered_question as string | null) ?? (r.subject as string | null) ?? '').trim()
+      : ((r.subject as string | null) ?? '').trim();
+    if (!display) continue;
+    const key = normalize(display);
+    if (!key) continue;
+    const at = (r.last_message_at as string | null) ?? (r.created_at as string | null) ?? '';
     const m = tallies[bucket];
-    m.set(subj, (m.get(subj) ?? 0) + 1);
+    const existing = m.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (at && at > existing.lastAt) {
+        existing.lastAt = at;
+        existing.display = display;
+        existing.conversationId = r.id as string;
+      }
+    } else {
+      m.set(key, { display, count: 1, conversationId: r.id as string, lastAt: at });
+    }
   }
   for (const k of Object.keys(buckets)) {
     buckets[k] = Array.from(tallies[k].entries())
-      .map(([subject, count], i) => ({ id: `${k}-${i}-${subject.slice(0, 20)}`, subject, count }))
-      .sort((a, b) => b.count - a.count)
+      .map(([key, agg], i) => ({
+        id: `${k}-${i}-${key.slice(0, 24)}`,
+        subject: agg.display,
+        count: agg.count,
+        conversationId: agg.conversationId,
+        lastAt: agg.lastAt,
+      }))
+      .sort((a, b) => b.count - a.count || (b.lastAt ?? '').localeCompare(a.lastAt ?? ''))
       .slice(0, limitPerCategory);
   }
   return buckets;
