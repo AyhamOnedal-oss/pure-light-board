@@ -13,7 +13,6 @@ import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, toMs } from '../utils/notifications';
 import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
-import { AccountDisabledScreen } from './AccountDisabledScreen';
 
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
@@ -329,10 +328,6 @@ export function Layout() {
       </div>
     </div>
   );
-
-  if (userDisabled) {
-    return <AccountDisabledScreen />;
-  }
 
   return (
     <div className="flex min-h-screen">
