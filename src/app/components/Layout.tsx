@@ -163,7 +163,7 @@ export function Layout() {
   ];
 
   const canSettings = permsLoading
-    ? false
+    ? true
     : userPerms === 'all'
       ? true
       : !!(userPerms as MemberPermissions).settings;
