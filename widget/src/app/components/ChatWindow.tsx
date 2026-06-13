@@ -657,8 +657,8 @@ export function ChatWindow({
               // that the silent countdown was snapping the widget back.
               inactivitySeconds={0}
               onRatingSubmit={(stars, fb) => {
-                postRating(evCtx, { stars, feedback: fb });
-                trackEvent('rating.submitted', evCtx, { stars, feedback: fb });
+                const comment = typeof fb === 'string' ? fb.trim() : '';
+                postRating(evCtx, { stars, comment: comment.length > 0 ? comment : undefined });
                 closeConversation(evCtx, 'rating_submit');
               }}
               onRatingSkip={() => {

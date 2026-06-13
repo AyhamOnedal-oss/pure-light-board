@@ -65,7 +65,10 @@ Deno.serve(async (req) => {
     // ── Customer submitted CSAT rating (also closes the conversation)
     if (event === "rating.submitted" && conversation_id) {
       const stars = Number(payload?.stars ?? payload?.rating ?? 0);
-      const comment = payload?.comment ? String(payload.comment).slice(0, 1000) : null;
+      const rawComment = payload?.comment ?? payload?.feedback ?? null;
+      const trimmedComment =
+        typeof rawComment === "string" ? rawComment.trim() : "";
+      const comment = trimmedComment.length > 0 ? trimmedComment.slice(0, 1000) : null;
       if (!stars || stars < 1 || stars > 5) {
         return jsonResponse({ ok: false, error: "invalid_rating" }, 400);
       }

@@ -130,9 +130,15 @@ export function closeConversation(
 
 export function postRating(
   ctx: EventContext,
-  rating: { stars: number; comment?: string },
+  rating: { stars: number; comment?: string; feedback?: string; skipped?: boolean },
 ): void {
-  trackEvent("rating.submitted", ctx, rating);
+  const raw = rating.comment ?? rating.feedback ?? "";
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  trackEvent("rating.submitted", ctx, {
+    stars: rating.stars,
+    comment: trimmed.length > 0 ? trimmed : null,
+    ...(rating.skipped ? { skipped: true } : {}),
+  });
 }
 
 export async function postTicket(
