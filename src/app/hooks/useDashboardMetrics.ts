@@ -21,7 +21,7 @@ import {
  *   and refetches the whole metric set, debounced, on any change.
  * - Returns the latest metrics + a loading flag.
  */
-export function useDashboardMetrics(range?: DateRange, frozen: boolean = false) {
+export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, snapshot?: any | null) {
   const { tenantId } = useApp();
   const [metrics, setMetrics] = useState<DashboardMetrics>(EMPTY_METRICS);
   const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>({
@@ -34,6 +34,18 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false) 
   const toKey = range?.to.getTime();
 
   useEffect(() => {
+    // Frozen mode (disabled member): use the snapshot captured at disable time.
+    // No fetches, no realtime — pure static data.
+    if (frozen) {
+      if (snapshot && typeof snapshot === 'object') {
+        if (snapshot.metrics) setMetrics(snapshot.metrics as DashboardMetrics);
+        if (snapshot.topSubjects) setTopSubjects(snapshot.topSubjects);
+        if (snapshot.recentFeedback) setRecentFeedback(snapshot.recentFeedback);
+      }
+      setLoading(false);
+      return;
+    }
+
     if (!tenantId) {
       setMetrics(EMPTY_METRICS);
       setLoading(false);
@@ -55,11 +67,6 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false) 
       }
     };
     void load();
-
-    // Frozen mode (disabled member): load once, no realtime, no refetch.
-    if (frozen) {
-      return () => { cancelled = true; };
-    }
 
     const scheduleRefetch = () => {
       if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
