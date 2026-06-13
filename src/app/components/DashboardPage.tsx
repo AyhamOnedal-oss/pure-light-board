@@ -27,7 +27,9 @@ function formatNumber(n: number): string {
 
 function formatSeconds(s: number): string {
   if (!s || s < 0) return '0 ث';
-  return `${Math.max(0, Math.round(s))} ث`;
+  if (s < 1) return `${Math.round(s * 1000)} مث`;
+  if (s < 10) return `${s.toFixed(1)} ث`;
+  return `${Math.round(s)} ث`;
 }
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
@@ -124,9 +126,10 @@ export function DashboardPage() {
     payment: { en: 'Payment', ar: 'دفع', color: '#eab308' },
     other: { en: 'Other', ar: 'أخرى', color: '#8b5cf6' },
   };
+  // Only the four main categories appear in the classification chart.
+  // "other" is intentionally hidden — it's a catch-all and not meaningful here.
   const allowedClassifications = [
     'inquiry', 'complaint', 'suggestion', 'request',
-    'shipping', 'refund', 'product', 'payment', 'other',
   ];
   const classificationData = Object.entries(metrics.classification)
     .filter(([k, v]) => allowedClassifications.includes(k) && v > 0)
