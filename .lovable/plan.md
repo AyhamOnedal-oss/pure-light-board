@@ -1,45 +1,47 @@
-# Per-Item Sidebar Badge Decrement
+# Improve "Unknown Questions" Insight Card
 
-## Current behavior
+## Problem
+The "Unknown Questions" (أسئلة غير معروفة) card lists AI-generated `subject` summaries for conversations the classifier bucketed as `other`. For unknown questions these summaries are vague ("سؤال غير مفهوم", "محادثة عامة"), so the store owner can't tell what the customer actually asked or act on it.
 
-Visiting `/dashboard/conversations` or `/dashboard/tickets` writes a single "list seen" timestamp (`conversationsListSeen` / `ticketsListSeen`) to localStorage. The badge query then counts items newer than that timestamp — so the badge zeroes out the moment the user lands on the list page, even if they haven't opened any individual chat/ticket.
-
-## Desired behavior
-
-The badge equals the number of conversations / tickets the user has not yet **opened individually**. Opening one chat (or one ticket) decrements the badge by exactly one. The badge reaches zero only when every item has been opened at least once.
-
-Per-item "opened" timestamps already exist:
-- `notifKeys.conversationOpened(uid, conversationId)` — written by `ConversationsPage` when a chat is selected.
-- `notifKeys.ticketOpened(uid, ticketId)` — written by `TicketsPage` when a ticket is selected.
-
-So no schema work — only the badge calculation needs to change.
+## Goal
+Replace the vague summary with the **actual question the customer asked that the AI failed to answer**, presented clearly with light context (Arabic excerpt, date, link to the conversation).
 
 ## Changes
 
-### 1. `src/app/components/Layout.tsx`
+### 1. Backend — extract a real unanswered question per "other" conversation
+File: `supabase/functions/classify-conversation/index.ts`
+- Extend the model's JSON output with an extra field used **only when category = other**:
+  - `unanswered_question`: the exact customer message (verbatim, ≤ 200 chars) that the AI did not or could not answer. Empty string if none.
+- Update the prompt to:
+  - Pick the most representative customer question the assistant couldn't answer, fell back on, or escalated.
+  - Return the customer's wording (no paraphrase).
+- Persist it on `conversations_main` in a new column `unanswered_question text` (new migration with proper GRANTs already present on the table; column add only).
 
-- Remove the `setTs(conversationsListSeen/ticketsListSeen)` writes in the `location.pathname` effect (lines 64–72). Keep the `setBadgeVersion` bump so navigating the sidebar still refreshes the count.
-- Replace the count-only badge query with an **ID query** scoped to the recent window so it scales:
-  - Conversations: `select id from conversations_main where tenant_id=... and is_test=false order by last_message_at desc limit 500`.
-  - Tickets: `select id from tickets_main where tenant_id=... order by created_at desc limit 500`.
-- Filter client-side: keep only IDs that do **not** have a `conversationOpened` / `ticketOpened` entry in localStorage. Set the badge to that filtered length.
-- The Realtime channel stays as is — a new INSERT bumps the badge automatically because the new ID has no opened-key yet.
+### 2. Data source for the card
+File: `src/app/services/metrics.ts` → `fetchTopSubjectsByCategory`
+- For the `other` bucket only, select `unanswered_question, last_message_at, id` instead of `subject`.
+- Build the list from `unanswered_question` (fallback: first customer message body from `conversations_messages` for legacy rows where the new column is null).
+- Group near-duplicate questions (normalize whitespace + lowercase + strip punctuation) and keep a `count` + a representative original phrasing + a `conversationId` of the most recent occurrence.
+- Return shape stays `TopSubject[]` but extended: `{ id, subject, count, conversationId?, lastAt? }`.
 
-### 2. `src/app/components/ConversationsPage.tsx` and `TicketsPage.tsx`
+### 3. Card rendering
+File: `src/app/components/DashboardPage.tsx` (Insight Modal block)
+- When `openInsight === 'unknown'`:
+  - Render each item as a quoted question (with Arabic quotation marks « »), monospace-free, full text wrapped (no truncation).
+  - Show a small meta row: relative date of last occurrence + "فُتحت X مرة" badge.
+  - Add an "افتح المحادثة" button that navigates to `/dashboard/conversations?open=<conversationId>` so the owner can read the full context.
+  - Keep existing Resolve / Delete buttons.
+- Empty state copy: "لا توجد أسئلة لم يتمكن الذكاء من الإجابة عليها في هذه الفترة."
 
-- When a row is selected and the per-item `*Opened` timestamp is written (existing code), also dispatch a `window` event `window.dispatchEvent(new Event('fuqah:badges-bump'))`. This is a same-tab signal — `storage` events don't fire in the same tab.
-
-### 3. `src/app/components/Layout.tsx` (listener)
-
-- Add a `window` listener on `'fuqah:badges-bump'` that calls `setBadgeVersion(v => v + 1)`. That re-runs the badge effect, recomputes against the now-updated localStorage, and the badge drops by one.
-
-## Edge cases
-
-- The 500-item cap means once a tenant has more than ~500 historical chats, only the most recent 500 contribute to the unread count. This matches what a human inbox does and avoids loading thousands of IDs into the browser.
-- If a user clears localStorage, the badge correctly re-shows everything in the recent window as "unopened" — same as a fresh login.
-- Demo/seed runs reset both badges via the existing `is_test=false` filter for conversations and tenant scoping for tickets.
+### 4. Backfill (one-time)
+- For existing `other` conversations with null `unanswered_question`, populate from the first `conversations_messages` row where `sender = 'customer'` (SQL update in the same migration).
 
 ## Out of scope
+- Re-classifying past conversations through the LLM.
+- Changing the donut chart (already filtered to 4 categories).
+- Per-question merge UI / manual editing.
 
-- Deleting/archiving the legacy `*ListSeen` keys — they simply stop being read.
-- Per-message unread counts inside a single conversation (the request is about the sidebar number only).
+## Technical notes
+- New column: `ALTER TABLE public.conversations_main ADD COLUMN unanswered_question text;` (existing GRANTs cover it).
+- Normalization for grouping: trim, collapse internal whitespace, strip trailing `؟?.!،,` and Arabic diacritics before hashing.
+- Cap fetched rows at 500 unknown conversations per range to keep the dashboard fast; group then take top 8.
