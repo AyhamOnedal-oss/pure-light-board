@@ -237,6 +237,7 @@ export function TicketsPage() {
       }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   };
 
