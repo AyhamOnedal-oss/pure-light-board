@@ -1,35 +1,35 @@
-# Show customer rating comment as a bar in the conversation view
+# Rating comment still missing — diagnosis & next step
 
-## Problem
-The dashboard already renders a yellow "rating comment" bar between the conversation details (header) and the chat messages. It never appears because `conversations_main.rating_comment` is always `NULL` — the widget sends the wrong field name when posting the rating.
+## What I verified
+- All three fixes from the previous turn are present in code:
+  - `widget/src/app/utils/analytics.ts` → `postRating` now forwards `comment` (mapping `feedback` → `comment`, trims, sends `null` for empty).
+  - `widget/src/app/components/ChatWindow.tsx` → `onRatingSubmit` calls `postRating(evCtx, { stars, comment: fb.trim() || undefined })`.
+  - `supabase/functions/widget-events/index.ts` → accepts `payload?.comment ?? payload?.feedback`, trims, stores `NULL` for blank.
+- I queried the DB for conversation `4e622870`: `csat_rating = 4`, `rating_comment = NULL`. So the comment never reached the server for that test.
 
-## Root cause
-1. `widget/src/app/components/ChatWindow.tsx` calls `postRating(evCtx, { stars, feedback: fb })`.
-2. `widget/src/app/utils/analytics.ts` → `postRating` is typed as `{ stars, comment? }`, so `feedback` is forwarded unchanged.
-3. `supabase/functions/widget-events/index.ts` only reads `payload?.comment`, so the comment never reaches `rating_comment`.
+## Why the user's test still shows NULL
+The storefront widget runs inside an iframe whose `src` is built in `supabase/functions/widget-loader/index.ts`:
 
-## Fix (3 small edits)
-1. **`widget/src/app/utils/analytics.ts`** — change `postRating` to accept `{ stars, comment?, feedback?, skipped? }` and forward as `comment` (map `feedback` → `comment` for back-compat).
-2. **`widget/src/app/components/ChatWindow.tsx`** — at the `onRatingSubmit` call site, send `{ stars, comment: fb }` instead of `{ stars, feedback: fb }`. Only pass `comment` when `fb.trim()` is non-empty so empty textareas stay `NULL` in the DB.
-3. **`supabase/functions/widget-events/index.ts`** — in the `rating.submitted` branch, accept either `payload?.comment` or `payload?.feedback`, and treat empty/whitespace-only strings as `null` so we never store blank comments.
-
-## Display rule (no change needed, just confirming)
-The dashboard bar is already conditional on a real written comment:
-
-```tsx
-{selected.ratingComment && (
-  <div className="... bg-yellow-500/5 ...">
-    <Star ... />
-    <p>"{selected.ratingComment}"</p>
-  </div>
-)}
+```
+iframe.src = APP_BASE_URL + "/widget/chat?..."
 ```
 
-Because step 2 + step 3 above guarantee `rating_comment` is either a non-empty string or `NULL`, the bar will:
-- **Show** only when the customer actually typed words in the rating screen.
-- **Stay hidden** for star-only ratings, skipped ratings, and conversations with no rating at all.
+`APP_BASE_URL` defaults to `https://pure-light-board.lovable.app` — the **published** Lovable URL, not the live preview. So even when the merchant tests inside the dashboard preview, the chat iframe loads the **last published** widget bundle, which still contains the old `feedback`-key payload. The edge function then drops the comment because `payload.comment` is undefined.
+
+## Action required
+**Publish the project.** Once published, the next rating with written feedback will store `rating_comment` and the yellow comment bar will appear in the conversation view. No further code changes are needed.
+
+## Optional verification after publish
+1. Open the storefront / test page, send a few messages, close the chat, give 4 stars, type a comment in Arabic, submit.
+2. Open the conversation in the dashboard — the yellow bar with the comment should appear between the header pills and the chat bubbles.
+3. (Optional DB check) run:
+   ```sql
+   SELECT id, csat_rating, rating_comment
+   FROM conversations_main
+   ORDER BY updated_at DESC LIMIT 5;
+   ```
+   to confirm new rows have `rating_comment` populated.
 
 ## Out of scope
-- No schema change (`rating_comment` column already exists).
-- No backfill of past ratings (their comments were never sent by the widget; they're unrecoverable).
-- No styling change to the bar itself.
+- Past ratings (including the `تعامل جيد` one) cannot be recovered — the widget never sent the comment, so it isn't stored anywhere.
+- No further code edits needed; this turn is purely a "publish and re-test" action.
