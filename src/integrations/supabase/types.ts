@@ -985,6 +985,7 @@ export type Database = {
           intent_type: string | null
           is_test: boolean
           language: string
+          last_customer_message_at: string | null
           last_message_at: string
           rating_comment: string | null
           resolved_at: string | null
@@ -1016,6 +1017,7 @@ export type Database = {
           intent_type?: string | null
           is_test?: boolean
           language?: string
+          last_customer_message_at?: string | null
           last_message_at?: string
           rating_comment?: string | null
           resolved_at?: string | null
@@ -1047,6 +1049,7 @@ export type Database = {
           intent_type?: string | null
           is_test?: boolean
           language?: string
+          last_customer_message_at?: string | null
           last_message_at?: string
           rating_comment?: string | null
           resolved_at?: string | null
