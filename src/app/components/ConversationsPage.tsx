@@ -274,6 +274,7 @@ export function ConversationsPage() {
     setTs(notifKeys.conversationOpened(CURRENT_USER_ID, c.id));
     setSelected(c);
     setBumpV(v => v + 1);
+    window.dispatchEvent(new Event('fuqah:badges-bump'));
   };
 
   const getDisplayName = (name: string) => resolveVisitorName(name, t);

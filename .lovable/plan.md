@@ -1,73 +1,45 @@
-# Three Dashboard Fixes: No Polling, AI Close Label, Goal Score Logic
+# Per-Item Sidebar Badge Decrement
 
-## 1. Remove 5-second polling — use Realtime + focus only
+## Current behavior
 
-Two pages still poll the database on a timer, which is what causes "the page refreshes every 5 seconds":
+Visiting `/dashboard/conversations` or `/dashboard/tickets` writes a single "list seen" timestamp (`conversationsListSeen` / `ticketsListSeen`) to localStorage. The badge query then counts items newer than that timestamp — so the badge zeroes out the moment the user lands on the list page, even if they haven't opened any individual chat/ticket.
 
-| File | Current poll | Change |
-|---|---|---|
-| `src/app/components/TicketsPage.tsx` (line ~240) | `setInterval(loadTickets, 15000)` | Remove. Realtime channel on `tickets_main` + `tickets_activities` is already set up and covers every change. Keep a one-shot reload on `visibilitychange → visible` and `window.focus` as a safety net. |
-| `src/app/components/Layout.tsx` (line ~76) | `setInterval(onFocus, 5000)` bumping the sidebar badge version | Remove. Replace with a Supabase Realtime channel filtered by `tenant_id` that listens for INSERTs on `conversations_main` and `tickets_main` and triggers `setBadgeVersion(v=>v+1)` (debounced 400ms). |
-| `src/app/components/Layout.tsx` (line ~109) | `setInterval(load, 8000)` to refresh badge counts | Remove. The same Realtime channel above already triggers a reload via `badgeVersion`. Keep the initial `load()` + the existing focus listener. |
+## Desired behavior
 
-`ConversationsPage.tsx` was already cleaned up in the previous turn (no poll, silent background refresh). Verify it still subscribes only to Realtime + focus events.
+The badge equals the number of conversations / tickets the user has not yet **opened individually**. Opening one chat (or one ticket) decrements the badge by exactly one. The badge reaches zero only when every item has been opened at least once.
 
-## 2. Always show the close reason — including "Closed by AI"
+Per-item "opened" timestamps already exist:
+- `notifKeys.conversationOpened(uid, conversationId)` — written by `ConversationsPage` when a chat is selected.
+- `notifKeys.ticketOpened(uid, ticketId)` — written by `TicketsPage` when a ticket is selected.
 
-In `src/app/components/ConversationsPage.tsx` (line ~478) the close-reason badge is hidden whenever the conversation has a ticket:
+So no schema work — only the badge calculation needs to change.
 
-```tsx
-{selected.chatStatus === 'closed' && selected.closeReason && !selected.hasTicket && (...)}
-```
+## Changes
 
-That's why an AI-closed conversation that also opened a support ticket shows no "Closed by AI" pill.
+### 1. `src/app/components/Layout.tsx`
 
-Changes:
-- Drop the `!selected.hasTicket` condition so the badge always renders when there is a `close_reason`.
-- Extend `closeReasonMap` to cover all reasons written by the backend that currently fall through to nothing:
-  - `ai_offer_close` → en: "Closed by AI", ar: "أُغلقت بواسطة الذكاء", icon: `Bot`
-  - `user_end_conversation` → en: "Ended by customer", ar: "أنهاها العميل", icon: `User`
-  - keep existing `customer_manual`, `ai_request` (relabel ar to "أُغلقت بواسطة الذكاء"), `idle`.
-- Render the same pill in the list-row tooltip (line ~401) without the `!c.hasTicket` guard.
+- Remove the `setTs(conversationsListSeen/ticketsListSeen)` writes in the `location.pathname` effect (lines 64–72). Keep the `setBadgeVersion` bump so navigating the sidebar still refreshes the count.
+- Replace the count-only badge query with an **ID query** scoped to the recent window so it scales:
+  - Conversations: `select id from conversations_main where tenant_id=... and is_test=false order by last_message_at desc limit 500`.
+  - Tickets: `select id from tickets_main where tenant_id=... order by created_at desc limit 500`.
+- Filter client-side: keep only IDs that do **not** have a `conversationOpened` / `ticketOpened` entry in localStorage. Set the badge to that filtered length.
+- The Realtime channel stays as is — a new INSERT bumps the badge automatically because the new ID has no opened-key yet.
 
-No schema changes needed — `close_reason` is already stored.
+### 2. `src/app/components/ConversationsPage.tsx` and `TicketsPage.tsx`
 
-## 3. Fix "Goal Achievement" so it respects rating + outcome
+- When a row is selected and the per-item `*Opened` timestamp is written (existing code), also dispatch a `window` event `window.dispatchEvent(new Event('fuqah:badges-bump'))`. This is a same-tab signal — `storage` events don't fire in the same tab.
 
-Problem: `completion_score` (and `goal_met`) come from one LLM call in `supabase/functions/classify-conversation/index.ts` that runs the moment the conversation closes. CSAT rating arrives later (or not at all), so a chat can be scored 90% even though the customer rated 1★.
+### 3. `src/app/components/Layout.tsx` (listener)
 
-Two-part fix:
+- Add a `window` listener on `'fuqah:badges-bump'` that calls `setBadgeVersion(v => v + 1)`. That re-runs the badge effect, recomputes against the now-updated localStorage, and the badge drops by one.
 
-### a. Cap the model's score by CSAT when present (Postgres trigger)
+## Edge cases
 
-Add a `BEFORE UPDATE` trigger on `public.conversations_main` (`enforce_completion_vs_rating`) that runs whenever `csat_rating`, `completion_score`, or `goal_met` is written. Rules:
-
-```text
-rating 1 → cap completion_score at 15, force goal_met=false
-rating 2 → cap completion_score at 35, force goal_met=false
-rating 3 → cap completion_score at 60
-rating 4 → cap completion_score at 85
-rating 5 → no cap
-```
-
-This guarantees that the moment a customer submits a low rating, the dashboard pill updates automatically — no re-classification needed. It also fixes historical rows when their rating row is updated.
-
-A second one-shot `UPDATE` in the migration applies the same rules to every existing row so chats like `7e846491…` correct themselves immediately.
-
-### b. Feed the rating to the classifier when it's already known
-
-In `classify-conversation/index.ts`:
-- When loading the conversation, also select `csat_rating` and `rating_comment`.
-- If a rating is present, append a "Customer rating: N/5 — <comment>" line at the top of the transcript and add a sentence to the system prompt: *"If a customer rating is provided, it must dominate `completion_score` and `goal_met` — 1–2 stars means the goal was NOT met."*
-- After parsing the model's JSON, apply the same cap function as the trigger before the `UPDATE`, so the value written is already consistent.
-
-## Technical notes
-
-- The Realtime tables (`conversations_main`, `tickets_main`, `tickets_activities`) are already in `supabase_realtime`; no new publication grants needed.
-- The trigger is the source of truth — the edge-function cap is just an optimization so the first write is already correct.
-- No UI strings need translation beyond the closeReasonMap additions.
+- The 500-item cap means once a tenant has more than ~500 historical chats, only the most recent 500 contribute to the unread count. This matches what a human inbox does and avoids loading thousands of IDs into the browser.
+- If a user clears localStorage, the badge correctly re-shows everything in the recent window as "unopened" — same as a fresh login.
+- Demo/seed runs reset both badges via the existing `is_test=false` filter for conversations and tenant scoping for tickets.
 
 ## Out of scope
 
-- Widget bundle, ticket notes, and rating-screen timer (handled earlier).
-- Re-running historical classification — only the score caps will be back-applied.
+- Deleting/archiving the legacy `*ListSeen` keys — they simply stop being read.
+- Per-message unread counts inside a single conversation (the request is about the sidebar number only).
