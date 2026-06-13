@@ -123,20 +123,20 @@ export function PlansPage() {
           </div>
 
           <div className="flex-1 flex flex-col items-center justify-center py-2">
-            <div className="relative" style={{ width: 200, height: 207 }}>
+            <div className="relative" style={{ width: 200, height: 200 }}>
               <motion.div
                 key={chartKey}
                 initial={{ opacity: 0.78, rotate: -360, scale: 0.94 }}
                 animate={{ opacity: 1, rotate: 0, scale: 1 }}
                 transition={{ duration: 1.65, ease: [0.22, 1, 0.36, 1] }}
-                style={{ width: 200, height: 207 }}
+                style={{ width: 200, height: 200, transformOrigin: '50% 50%' }}
               >
-                <ResponsiveContainer width={200} height={207}>
+                <ResponsiveContainer width={200} height={200}>
                 <PieChart key={chartKey} onMouseLeave={() => setActiveIdx(undefined)}>
                   {chartReady && (
                   <Pie
                     data={usageData}
-                    cx="50%" cy="45%"
+                    cx="50%" cy="50%"
                     innerRadius={60} outerRadius={85}
                     dataKey="value" paddingAngle={4} strokeWidth={0}
                     isAnimationActive={true} animationBegin={400} animationDuration={1400} animationEasing="ease-out"
@@ -183,7 +183,7 @@ export function PlansPage() {
                 </PieChart>
                 </ResponsiveContainer>
               </motion.div>
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingBottom: 22 }}>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <p className="text-[22px] text-foreground" style={{ fontWeight: 800 }}>{animatedPercent}%</p>
               </div>
             </div>
