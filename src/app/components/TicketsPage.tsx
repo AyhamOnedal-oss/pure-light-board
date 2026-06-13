@@ -302,6 +302,7 @@ export function TicketsPage() {
     setTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
     setSelected(tk);
     bump();
+    window.dispatchEvent(new Event('fuqah:badges-bump'));
   };
 
   const getDisplayName = (name: string) => resolveVisitorName(name, t);
