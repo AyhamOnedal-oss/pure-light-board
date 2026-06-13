@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
   // Idempotency guard: skip if already analyzed.
   const { data: convRow } = await supabase
     .from("conversations_main")
-    .select("analysis_done")
+    .select("analysis_done, csat_rating, rating_comment")
     .eq("id", conversation_id)
     .eq("tenant_id", tenant_id)
     .maybeSingle();
@@ -136,7 +136,10 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: "empty" });
   }
 
-  const transcript = messages
+  const ratingHeader = typeof convRow?.csat_rating === "number"
+    ? `CUSTOMER_RATING: ${convRow.csat_rating}/5${convRow.rating_comment ? ` — ${String(convRow.rating_comment).slice(0, 200)}` : ""}\n\n`
+    : "";
+  const transcript = ratingHeader + messages
     .map((m) => `${(m.sender ?? "user").toUpperCase()}: ${(m.body ?? "").trim()}`)
     .join("\n");
 
