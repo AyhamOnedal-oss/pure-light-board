@@ -1615,6 +1615,8 @@ export type Database = {
       team_members: {
         Row: {
           created_at: string
+          dashboard_snapshot: Json | null
+          disabled_at: string | null
           email: string
           id: string
           invited_by: string | null
@@ -1628,6 +1630,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          dashboard_snapshot?: Json | null
+          disabled_at?: string | null
           email: string
           id?: string
           invited_by?: string | null
@@ -1641,6 +1645,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          dashboard_snapshot?: Json | null
+          disabled_at?: string | null
           email?: string
           id?: string
           invited_by?: string | null
