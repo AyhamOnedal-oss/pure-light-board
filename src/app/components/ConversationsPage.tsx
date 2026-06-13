@@ -18,7 +18,7 @@ interface Message {
   attachmentContentType?: string;
 }
 
-type ChatCloseReason = 'customer_manual' | 'ai_request' | 'idle';
+type ChatCloseReason = 'customer_manual' | 'ai_request' | 'ai_offer_close' | 'user_end_conversation' | 'idle';
 type ChatCategory = 'inquiry' | 'complaint' | 'request' | 'suggestion';
 
 export interface Conversation {
@@ -170,7 +170,12 @@ export function ConversationsPage() {
           hasTicket: !!c.ticket_status,
           ticketStatus: (c.ticket_status === 'open' || c.ticket_status === 'closed') ? c.ticket_status : undefined,
           chatStatus: (isClosed || ratedOrResolved) ? 'closed' : 'open',
-          closeReason: (c.close_reason as ChatCloseReason | null) || undefined,
+          closeReason: ((): ChatCloseReason | undefined => {
+            const r = c.close_reason as string | null;
+            if (!r) return undefined;
+            if (r === 'customer_manual' || r === 'ai_request' || r === 'ai_offer_close' || r === 'user_end_conversation' || r === 'idle') return r;
+            return undefined;
+          })(),
           category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? (c.category as ChatCategory) : undefined),
           createdAt: formatDateTime(c.created_at),
           closedAt: c.resolved_at ? formatDateTime(c.resolved_at) : undefined,
@@ -287,7 +292,9 @@ export function ConversationsPage() {
 
   const closeReasonMap: Record<ChatCloseReason, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
     customer_manual: { en: 'Closed by customer', ar: 'أغلقها العميل', icon: User },
-    ai_request: { en: 'Closed by AI request', ar: 'أغلقت بطلب من الذكاء', icon: Bot },
+    user_end_conversation: { en: 'Ended by customer', ar: 'أنهاها العميل', icon: User },
+    ai_request: { en: 'Closed by AI', ar: 'أُغلقت بواسطة الذكاء', icon: Bot },
+    ai_offer_close: { en: 'Closed by AI', ar: 'أُغلقت بواسطة الذكاء', icon: Bot },
     idle: { en: 'Closed due to inactivity', ar: 'أُغلقت بسبب الخمول', icon: Clock },
   };
 
@@ -398,7 +405,7 @@ export function ConversationsPage() {
                       <span
                         className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-[1px] rounded-full bg-muted text-muted-foreground"
                         style={{ fontWeight: 600 }}
-                        title={c.closeReason && !c.hasTicket ? t(closeReasonMap[c.closeReason].en, closeReasonMap[c.closeReason].ar) : ''}
+                        title={c.closeReason ? t(closeReasonMap[c.closeReason].en, closeReasonMap[c.closeReason].ar) : ''}
                       >
                         <Lock className="w-2.5 h-2.5" />
                         {t('Chat Closed', 'محادثة مغلقة')}
@@ -475,7 +482,7 @@ export function ConversationsPage() {
                 {selected.chatStatus === 'open' ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                 {selected.chatStatus === 'open' ? t('Open', 'مفتوحة') : t('Closed', 'مغلقة')}
               </span>
-              {selected.chatStatus === 'closed' && selected.closeReason && !selected.hasTicket && (() => {
+              {selected.chatStatus === 'closed' && selected.closeReason && (() => {
                 const r = closeReasonMap[selected.closeReason];
                 const Icon = r.icon;
                 return (

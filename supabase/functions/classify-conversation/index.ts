@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
   // Idempotency guard: skip if already analyzed.
   const { data: convRow } = await supabase
     .from("conversations_main")
-    .select("analysis_done")
+    .select("analysis_done, csat_rating, rating_comment")
     .eq("id", conversation_id)
     .eq("tenant_id", tenant_id)
     .maybeSingle();
@@ -136,7 +136,10 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: "empty" });
   }
 
-  const transcript = messages
+  const ratingHeader = typeof convRow?.csat_rating === "number"
+    ? `CUSTOMER_RATING: ${convRow.csat_rating}/5${convRow.rating_comment ? ` — ${String(convRow.rating_comment).slice(0, 200)}` : ""}\n\n`
+    : "";
+  const transcript = ratingHeader + messages
     .map((m) => `${(m.sender ?? "user").toUpperCase()}: ${(m.body ?? "").trim()}`)
     .join("\n");
 
@@ -241,6 +244,14 @@ Deno.serve(async (req) => {
     " 40-69  = partially resolved or escalated.",
     " 0-39   = unresolved, abandoned, or AI failed to help.",
     "",
+    "If the transcript begins with a CUSTOMER_RATING line, that rating is the",
+    "ground truth and MUST dominate completion_score and goal_met:",
+    "  1/5 => completion_score <= 15, goal_met = false",
+    "  2/5 => completion_score <= 35, goal_met = false",
+    "  3/5 => completion_score <= 60",
+    "  4/5 => completion_score <= 85",
+    "  5/5 => no cap.",
+    "",
     "Priority guide (urgency + sentiment):",
     " high   = angry/frustrated tone, damaged or lost order, payment problems,",
     "          explicit refund/cancellation demands, repeated complaints,",
@@ -307,7 +318,16 @@ Deno.serve(async (req) => {
   if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
     completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
   }
-  const goal_met: boolean | null = typeof parsed.goal_met === "boolean" ? parsed.goal_met : null;
+  let goal_met: boolean | null = typeof parsed.goal_met === "boolean" ? parsed.goal_met : null;
+
+  // Defence in depth: enforce the CSAT-based cap even if the model ignored it.
+  // (A DB trigger also re-applies this on every write.)
+  const rating = typeof convRow?.csat_rating === "number" ? convRow.csat_rating : null;
+  if (rating !== null) {
+    const cap = rating === 1 ? 15 : rating === 2 ? 35 : rating === 3 ? 60 : rating === 4 ? 85 : 100;
+    if (completion_score !== null) completion_score = Math.min(completion_score, cap);
+    if (rating <= 2) goal_met = false;
+  }
   const priority: Priority = (ALLOWED_PRIORITIES as readonly string[]).includes(parsed.priority ?? "")
     ? (parsed.priority as Priority)
     : "medium";

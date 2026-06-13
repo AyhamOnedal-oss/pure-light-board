@@ -99,12 +99,13 @@ export function TicketsPage() {
   const [bumpV, setBumpV] = useState(0);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const hasLoadedRef = React.useRef(false);
   const bump = () => setBumpV(v => v + 1);
   React.useMemo(() => bumpV, [bumpV]);
 
   const loadTickets = async () => {
     if (!tenantId) return;
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const { data: rows } = await supabase
         .from('tickets_main')
@@ -112,7 +113,12 @@ export function TicketsPage() {
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
-      if (!rows || rows.length === 0) { setTickets([]); setLoading(false); return; }
+      if (!rows || rows.length === 0) {
+        setTickets([]);
+        setLoading(false);
+        hasLoadedRef.current = true;
+        return;
+      }
 
       const ticketIds = rows.map(r => r.id);
       const convIds = rows.map(r => r.conversation_id).filter(Boolean) as string[];
@@ -231,15 +237,13 @@ export function TicketsPage() {
       }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   };
 
   useEffect(() => {
     loadTickets();
     if (!tenantId) return;
-    const poll = setInterval(() => {
-      if (document.visibilityState === 'visible') loadTickets();
-    }, 15000);
 
     // Realtime: any teammate's note/edit/delete appears within a tick.
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -257,10 +261,16 @@ export function TicketsPage() {
         debouncedReload)
       .subscribe();
 
+    const onFocus = () => loadTickets();
+    const onVisible = () => { if (document.visibilityState === 'visible') loadTickets(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
-      clearInterval(poll);
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
     };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [tenantId]);

@@ -73,8 +73,7 @@ export function Layout() {
   useEffect(() => {
     const onFocus = () => setBadgeVersion(v => v + 1);
     window.addEventListener('focus', onFocus);
-    const id = window.setInterval(onFocus, 5000);
-    return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
+    return () => { window.removeEventListener('focus', onFocus); };
   }, []);
 
   // Sidebar unread badges — live counts from DB.
@@ -106,8 +105,30 @@ export function Layout() {
       setTicketsBadge(tkCount || 0);
     };
     load();
-    const id = window.setInterval(() => { if (!cancelled) load(); }, 8000);
-    return () => { cancelled = true; window.clearInterval(id); };
+
+    // Realtime: bump badges as soon as a new conversation or ticket arrives.
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => { if (!cancelled) load(); }, 400);
+    };
+    const channel = supabase
+      .channel(`sidebar-badges-${tenantId}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'conversations_main', filter: `tenant_id=eq.${tenantId}` },
+        scheduleLoad)
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations_main', filter: `tenant_id=eq.${tenantId}` },
+        scheduleLoad)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tickets_main', filter: `tenant_id=eq.${tenantId}` },
+        scheduleLoad)
+      .subscribe();
+    return () => {
+      cancelled = true;
+      if (debounce) clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
   }, [tenantId, location.pathname, badgeVersion]);
 
   // While permissions are loading, treat everything as locked so the
