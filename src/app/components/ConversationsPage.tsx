@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Search, Star, ArrowLeft, Download, MessageSquare, Ticket, CheckCircle, ThumbsUp, ThumbsDown, CircleDot, Lock, Unlock, Clock, User, Bot, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { AttachmentBubble } from './chat/AttachmentBubble';
@@ -79,10 +79,11 @@ export function ConversationsPage() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const loadConversations = async () => {
     if (!tenantId) return;
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const { data: convs } = await supabase
         .from('conversations_main')
@@ -91,7 +92,12 @@ export function ConversationsPage() {
         .eq('is_test', false)
         .order('last_message_at', { ascending: false });
 
-      if (!convs || convs.length === 0) { setConversations([]); setLoading(false); return; }
+      if (!convs || convs.length === 0) {
+        setConversations([]);
+        setLoading(false);
+        hasLoadedRef.current = true;
+        return;
+      }
 
       const customerIds = Array.from(new Set(convs.map(c => c.customer_id).filter(Boolean) as string[]));
       const convIds = convs.map(c => c.id);
@@ -183,6 +189,7 @@ export function ConversationsPage() {
       }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   };
 
@@ -218,14 +225,8 @@ export function ConversationsPage() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
 
-    // Lightweight 5s poll so new conversations/messages appear automatically.
-    const poll = setInterval(() => {
-      if (document.visibilityState === 'visible') scheduleReload();
-    }, 5000);
-
     return () => {
       if (timer) clearTimeout(timer);
-      clearInterval(poll);
       supabase.removeChannel(channel);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
