@@ -564,7 +564,7 @@ export function ChatWindow({
     const showTimer = setTimeout(() => {
       if (activityBumpRef.current === startBump) {
         setShowInactivityPrompt(true);
-        trackEvent('inactivity.prompt_shown', evCtx);
+        trackEvent('inactivity.prompt_shown', evCtx());
       }
     }, promptSeconds * 1000);
     return () => clearTimeout(showTimer);
@@ -574,7 +574,7 @@ export function ChatWindow({
     if (!showInactivityPrompt) return;
     const closeTimer = setTimeout(() => {
       setShowInactivityPrompt(false);
-      closeConversation(evCtx, 'inactivity');
+      closeConversation(evCtx(), 'inactivity');
       setCurrentScreen('rating');
     }, closeSeconds * 1000);
     return () => clearTimeout(closeTimer);
@@ -582,14 +582,14 @@ export function ChatWindow({
   }, [showInactivityPrompt, closeSeconds]);
 
   const handleInactivityContinue = () => {
-    trackEvent('inactivity.continued', evCtx);
+    trackEvent('inactivity.continued', evCtx());
     setShowInactivityPrompt(false);
     bumpActivity();
   };
   const handleInactivityEnd      = () => {
-    trackEvent('inactivity.ended', evCtx);
+    trackEvent('inactivity.ended', evCtx());
     setShowInactivityPrompt(false);
-    closeConversation(evCtx, 'inactivity');
+    closeConversation(evCtx(), 'inactivity');
     setCurrentScreen('rating');
   };
 
