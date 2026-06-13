@@ -183,7 +183,6 @@ export function NotesActivityPanel({
             </div>
             <div className="min-w-0">
               <p className="text-[14px] truncate" style={{ fontWeight: 700 }}>{t('Notes', 'ملاحظات')}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{ticketId}</p>
             </div>
           </div>
           <button
