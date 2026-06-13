@@ -18,7 +18,7 @@ interface Message {
   attachmentContentType?: string;
 }
 
-type ChatCloseReason = 'customer_manual' | 'ai_request' | 'idle';
+type ChatCloseReason = 'customer_manual' | 'ai_request' | 'ai_offer_close' | 'user_end_conversation' | 'idle';
 type ChatCategory = 'inquiry' | 'complaint' | 'request' | 'suggestion';
 
 export interface Conversation {
@@ -170,7 +170,12 @@ export function ConversationsPage() {
           hasTicket: !!c.ticket_status,
           ticketStatus: (c.ticket_status === 'open' || c.ticket_status === 'closed') ? c.ticket_status : undefined,
           chatStatus: (isClosed || ratedOrResolved) ? 'closed' : 'open',
-          closeReason: (c.close_reason as ChatCloseReason | null) || undefined,
+          closeReason: ((): ChatCloseReason | undefined => {
+            const r = c.close_reason as string | null;
+            if (!r) return undefined;
+            if (r === 'customer_manual' || r === 'ai_request' || r === 'ai_offer_close' || r === 'user_end_conversation' || r === 'idle') return r;
+            return undefined;
+          })(),
           category: (['inquiry', 'complaint', 'request', 'suggestion'].includes(c.category || '') ? (c.category as ChatCategory) : undefined),
           createdAt: formatDateTime(c.created_at),
           closedAt: c.resolved_at ? formatDateTime(c.resolved_at) : undefined,
@@ -287,7 +292,9 @@ export function ConversationsPage() {
 
   const closeReasonMap: Record<ChatCloseReason, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
     customer_manual: { en: 'Closed by customer', ar: 'أغلقها العميل', icon: User },
-    ai_request: { en: 'Closed by AI request', ar: 'أغلقت بطلب من الذكاء', icon: Bot },
+    user_end_conversation: { en: 'Ended by customer', ar: 'أنهاها العميل', icon: User },
+    ai_request: { en: 'Closed by AI', ar: 'أُغلقت بواسطة الذكاء', icon: Bot },
+    ai_offer_close: { en: 'Closed by AI', ar: 'أُغلقت بواسطة الذكاء', icon: Bot },
     idle: { en: 'Closed due to inactivity', ar: 'أُغلقت بسبب الخمول', icon: Clock },
   };
 
