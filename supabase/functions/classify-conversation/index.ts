@@ -316,7 +316,7 @@ Deno.serve(async (req) => {
     ? (parsed.intent_type as Intent)
     : (category !== "other" ? (category as Intent) : "inquiry");
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
-  const unanswered_question = ((parsed.unanswered_question ?? "").toString().trim().slice(0, 200)) || null;
+  const unanswered_question = sanitizeUnansweredQuestion(parsed.unanswered_question);
   let completion_score: number | null = null;
   if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
     completion_score = Math.max(0, Math.min(100, Math.round(parsed.completion_score)));
@@ -343,7 +343,7 @@ Deno.serve(async (req) => {
       intent_type,
       completion_score,
       goal_met,
-      unanswered_question: ((parsed.category ?? "") === "other" || category === "other") ? unanswered_question : null,
+      unanswered_question,
       analysis_done: true,
     })
     .eq("id", conversation_id)
