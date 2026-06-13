@@ -21,7 +21,7 @@ import {
  *   and refetches the whole metric set, debounced, on any change.
  * - Returns the latest metrics + a loading flag.
  */
-export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, snapshot?: any | null) {
+export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, snapshot?: any | null, frozenAt?: string | null) {
   const { tenantId } = useApp();
   const [metrics, setMetrics] = useState<DashboardMetrics>(EMPTY_METRICS);
   const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>({
@@ -38,10 +38,34 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
     // No fetches, no realtime — pure static data.
     if (frozen) {
       if (snapshot && typeof snapshot === 'object') {
-        if (snapshot.metrics) setMetrics(snapshot.metrics as DashboardMetrics);
-        if (snapshot.topSubjects) setTopSubjects(snapshot.topSubjects);
-        if (snapshot.recentFeedback) setRecentFeedback(snapshot.recentFeedback);
+        setMetrics((snapshot.metrics as DashboardMetrics) ?? EMPTY_METRICS);
+        setTopSubjects(snapshot.topSubjects ?? { complaint: [], inquiry: [], request: [], suggestion: [], other: [] });
+        setRecentFeedback(snapshot.recentFeedback ?? []);
+        setLoading(false);
+        return;
       }
+      if (tenantId && frozenAt) {
+        let cancelled = false;
+        setLoading(true);
+        const to = new Date(frozenAt);
+        const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const frozenRange = { from, to };
+        void Promise.all([
+          fetchDashboardMetrics(tenantId, frozenRange),
+          fetchTopSubjectsByCategory(tenantId, frozenRange),
+          fetchRecentAiFeedback(tenantId, frozenRange),
+        ]).then(([m, subs, fb]) => {
+          if (cancelled) return;
+          setMetrics(m);
+          setTopSubjects(subs);
+          setRecentFeedback(fb);
+          setLoading(false);
+        });
+        return () => { cancelled = true; };
+      }
+      setMetrics(EMPTY_METRICS);
+      setTopSubjects({ complaint: [], inquiry: [], request: [], suggestion: [], other: [] });
+      setRecentFeedback([]);
       setLoading(false);
       return;
     }
@@ -90,7 +114,7 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
       if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
       void supabase.removeChannel(channel);
     };
-  }, [tenantId, fromKey, toKey, frozen]);
+  }, [tenantId, fromKey, toKey, frozen, snapshot, frozenAt]);
 
   return { metrics, topSubjects, recentFeedback, loading };
 }

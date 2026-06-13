@@ -113,7 +113,7 @@ export function useCurrentMemberPermissions(
   userId: string | null | undefined,
   tenantId: string | null | undefined,
   isSuperAdmin: boolean,
-): { perms: ResolvedPermissions; loading: boolean; disabled: boolean; snapshot: any | null } {
+): { perms: ResolvedPermissions; loading: boolean; disabled: boolean; snapshot: any | null; frozenAt: string | null } {
   // Start locked-down. Never default to 'all' — otherwise the sidebar and
   // route guards briefly treat invited employees as full admins on the
   // initial render, before the async role/permission query resolves.
@@ -121,9 +121,10 @@ export function useCurrentMemberPermissions(
   const [loading, setLoading] = useState<boolean>(true);
   const [disabled, setDisabled] = useState<boolean>(false);
   const [snapshot, setSnapshot] = useState<any | null>(null);
+  const [frozenAt, setFrozenAt] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isSuperAdmin) { setPerms('all'); setLoading(false); setDisabled(false); setSnapshot(null); return; }
+    if (isSuperAdmin) { setPerms('all'); setLoading(false); setDisabled(false); setSnapshot(null); setFrozenAt(null); return; }
     if (!userId || !tenantId) {
       // Safe default while we don't know the user/tenant yet: deny everything.
       // Returning 'all' here was unlocking restricted pages (tickets, etc.)
@@ -132,6 +133,7 @@ export function useCurrentMemberPermissions(
       setLoading(true);
       setDisabled(false);
       setSnapshot(null);
+      setFrozenAt(null);
       return;
     }
     let cancelled = false;
@@ -146,12 +148,12 @@ export function useCurrentMemberPermissions(
         .maybeSingle();
       const role = tm?.role as string | undefined;
       if (role === 'owner' || role === 'admin') {
-        if (!cancelled) { setPerms('all'); setLoading(false); setDisabled(false); setSnapshot(null); }
+        if (!cancelled) { setPerms('all'); setLoading(false); setDisabled(false); setSnapshot(null); setFrozenAt(null); }
         return;
       }
       const { data: row } = await supabase
         .from('team_members')
-        .select('permissions, status, dashboard_snapshot')
+        .select('permissions, status, dashboard_snapshot, disabled_at, updated_at')
         .eq('tenant_id', tenantId)
         .eq('user_id', userId)
         .maybeSingle();
@@ -161,12 +163,13 @@ export function useCurrentMemberPermissions(
       setPerms(p);
       setDisabled(isDisabled);
       setSnapshot(isDisabled ? ((row as any)?.dashboard_snapshot ?? null) : null);
+      setFrozenAt(isDisabled ? (((row as any)?.disabled_at ?? (row as any)?.updated_at) ?? null) : null);
       setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [userId, tenantId, isSuperAdmin]);
 
-  return { perms, loading, disabled, snapshot };
+  return { perms, loading, disabled, snapshot, frozenAt };
 }
 
 export function firstAllowedPath(perms: ResolvedPermissions): string {
