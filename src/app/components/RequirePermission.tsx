@@ -8,7 +8,6 @@ import {
   isAllowed,
   useCurrentMemberPermissions,
 } from '../utils/permissions';
-import { AccountDisabledScreen } from './AccountDisabledScreen';
 
 export function RequirePermission({ children }: { children: React.ReactNode }) {
   const { user, tenantId, isSuperAdmin, tenantLoading } = useApp();
@@ -23,7 +22,14 @@ export function RequirePermission({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (disabled) return <AccountDisabledScreen />;
+  // Disabled members: allow viewing the frozen main dashboard only,
+  // block every other route by redirecting back to /dashboard.
+  if (disabled) {
+    if (location.pathname !== '/dashboard') {
+      return <Navigate to="/dashboard" replace />;
+    }
+    return <>{children}</>;
+  }
 
   const key: PermissionKey | undefined = PATH_TO_PERMISSION[location.pathname];
   if (!key) return <>{children}</>; // unknown route — let it render
