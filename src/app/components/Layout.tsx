@@ -11,7 +11,7 @@ import {
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 import { supabase } from '../../integrations/supabase/client';
-import { CURRENT_USER_ID, notifKeys, getTs, setTs, toMs } from '../utils/notifications';
+import { CURRENT_USER_ID, notifKeys, getTs, toMs } from '../utils/notifications';
 import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
 
 export function Layout() {
