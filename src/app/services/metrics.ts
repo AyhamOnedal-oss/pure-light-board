@@ -26,6 +26,7 @@ export interface RecentAiFeedback {
   body: string;
   feedback: 'positive' | 'negative';
   created_at: string;
+  conversation_code: string | null;
 }
 
 export async function fetchRecentAiFeedback(
@@ -35,7 +36,7 @@ export async function fetchRecentAiFeedback(
 ): Promise<RecentAiFeedback[]> {
   let q = supabase
     .from('conversations_messages')
-    .select('id, conversation_id, body, feedback, created_at')
+    .select('id, conversation_id, body, feedback, created_at, conversation:conversations_main!conversations_messages_conversation_id_fkey(display_code)')
     .eq('tenant_id', tenantId)
     .in('sender', ['ai', 'agent'])
     .not('feedback', 'is', null)
@@ -57,6 +58,7 @@ export async function fetchRecentAiFeedback(
       body: String(r.body ?? ''),
       feedback: r.feedback as 'positive' | 'negative',
       created_at: String(r.created_at),
+      conversation_code: r.conversation?.display_code ?? null,
     }));
 }
 
