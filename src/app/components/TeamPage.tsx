@@ -359,6 +359,7 @@ export function TeamPage() {
         .from('team_members')
         .select('id, name, email, phone, status, permissions')
         .eq('tenant_id', tenantId)
+        .is('deleted_at', null)
         .order('created_at', { ascending: true });
       if (cancelled) return;
       if (error) {
