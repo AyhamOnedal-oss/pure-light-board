@@ -13,6 +13,7 @@ import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, toMs } from '../utils/notifications';
 import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
+import { AccountDisabledScreen } from './AccountDisabledScreen';
 
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
@@ -331,31 +332,6 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen">
-      {userDisabled && (
-        <div className="fixed inset-0 z-[100] bg-background flex items-center justify-center p-6">
-          <div className="max-w-md w-full bg-card border border-border rounded-2xl shadow-2xl p-8 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-full bg-red-500/10 flex items-center justify-center">
-              <LogOut className="w-7 h-7 text-red-500" />
-            </div>
-            <h2 className="text-[20px]" style={{ fontWeight: 700 }}>
-              {t('Your account has been disabled', 'تم تعطيل حسابك')}
-            </h2>
-            <p className="text-[13px] text-muted-foreground">
-              {t(
-                'Please contact your workspace administrator to regain access.',
-                'يرجى التواصل مع مسؤول المساحة الخاصة بك لاستعادة الوصول.',
-              )}
-            </p>
-            <button
-              onClick={handleLogout}
-              className="w-full py-2.5 rounded-xl bg-[#043CC8] hover:bg-[#0330a0] text-white text-[14px] transition-colors"
-              style={{ fontWeight: 600 }}
-            >
-              {t('Log Out', 'تسجيل الخروج')}
-            </button>
-          </div>
-        </div>
-      )}
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-[260px] bg-sidebar border-e border-sidebar-border flex-col shrink-0 h-screen sticky top-0">
         <SidebarContent />
