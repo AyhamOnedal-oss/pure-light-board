@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       if (!stars || stars < 1 || stars > 5) {
         return jsonResponse({ ok: false, error: "invalid_rating" }, 400);
       }
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("conversations_main")
         .update({
           csat_rating: stars,
@@ -89,10 +89,14 @@ Deno.serve(async (req) => {
         console.error("widget-events: rating update failed", error);
         return jsonResponse({ ok: false, error: "rating_update_failed", message: error.message }, 500);
       }
+      if (!data || data.length === 0) {
+        console.warn("widget-events: rating update matched no rows", { conversation_id, tenant_id, stars });
+      }
       console.log("widget-events rating", {
         conversation_id,
         tenant_id,
         stars,
+        updated: data?.length ?? 0,
         has_comment: comment !== null,
         comment_len: comment?.length ?? 0,
       });
