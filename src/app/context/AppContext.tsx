@@ -249,6 +249,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTenantId(null);
   }, []);
 
+  // Push a bell notification for every new ticket on this tenant.
+  // - Subscribes to realtime INSERTs on tickets_main
+  // - Backfills the last 24h on mount so the bell is populated after login
+  // - De-dupes per ticketId using a persistent localStorage set so we don't
+  //   re-push across refreshes or multiple tabs.
+  useEffect(() => {
+    if (!tenantId || !session?.user?.id) return;
+    const uid = session.user.id;
+    const SEEN_KEY = `fuqah.notif.${uid}.ticket_new.seen`;
+    const readSeen = (): Set<string> => {
+      try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
+      catch { return new Set(); }
+    };
+    const writeSeen = (s: Set<string>) => {
+      try {
+        // cap at 500 most-recent ids to keep storage bounded
+        const arr = Array.from(s);
+        const capped = arr.length > 500 ? arr.slice(arr.length - 500) : arr;
+        localStorage.setItem(SEEN_KEY, JSON.stringify(capped));
+      } catch {}
+    };
+    const pushTicket = (row: { id: string; display_code?: string | null; customer_name?: string | null }) => {
+      const seen = readSeen();
+      if (seen.has(row.id)) return;
+      seen.add(row.id);
+      writeSeen(seen);
+      const code = row.display_code || row.id.slice(0, 8);
+      const who = row.customer_name?.trim() || 'Storefront visitor';
+      const whoAr = row.customer_name?.trim() || 'زائر المتجر';
+      pushNotification({
+        kind: 'ticket_new',
+        ticketId: row.id,
+        title: 'New ticket opened',
+        titleAr: 'تم فتح تذكرة جديدة',
+        message: `${who} — ${code}`,
+        messageAr: `${whoAr} — ${code}`,
+      });
+    };
+
+    let cancelled = false;
+    (async () => {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from('tickets_main')
+        .select('id, display_code, customer_name, created_at')
+        .eq('tenant_id', tenantId)
+        .gte('created_at', since)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      if (cancelled || !data) return;
+      data.forEach(pushTicket);
+    })();
+
+    const channel = supabase
+      .channel(`bell-tickets-${tenantId}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tickets_main', filter: `tenant_id=eq.${tenantId}` },
+        (payload) => {
+          const row = payload.new as { id: string; display_code?: string | null; customer_name?: string | null };
+          if (row?.id) pushTicket(row);
+        })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [tenantId, session?.user?.id, pushNotification]);
+
   const sendPasswordReset = useCallback(async (email: string) => {
     try {
       const { error } = await supabase.functions.invoke('send-password-reset', {
