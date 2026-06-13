@@ -237,9 +237,6 @@ export function TicketsPage() {
   useEffect(() => {
     loadTickets();
     if (!tenantId) return;
-    const poll = setInterval(() => {
-      if (document.visibilityState === 'visible') loadTickets();
-    }, 15000);
 
     // Realtime: any teammate's note/edit/delete appears within a tick.
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -257,10 +254,16 @@ export function TicketsPage() {
         debouncedReload)
       .subscribe();
 
+    const onFocus = () => loadTickets();
+    const onVisible = () => { if (document.visibilityState === 'visible') loadTickets(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
-      clearInterval(poll);
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
     };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [tenantId]);
