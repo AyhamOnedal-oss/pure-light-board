@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     subject: "تم تجديد اشتراكك في فقاعة AI بنجاح",
     html: renewalConfirmationHtml({
       store_name: "متجر التجربة",
-      plan_name: "Growth",
+      plan_name: "الاحترافية",
       new_end_date: "14 Jul 2026",
       monthly_quota: "100,000",
     }),
