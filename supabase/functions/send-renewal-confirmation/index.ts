@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     if (!tenant_id) return json({ error: "missing tenant_id" }, 400);
 
     const { data: plan } = await admin.from("settings_plans")
-      .select("plan, monthly_word_quota, subscription_end_date").eq("tenant_id", tenant_id).maybeSingle();
+      .select("monthly_word_quota, subscription_end_date").eq("tenant_id", tenant_id).maybeSingle();
     const { data: ws } = await admin.from("settings_workspace").select("name, plan").eq("id", tenant_id).maybeSingle();
     const { data: member } = await admin.from("auth_tenant_members")
       .select("user_id").eq("tenant_id", tenant_id).eq("role", "owner")
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
     const end = plan?.subscription_end_date ? new Date(String(plan.subscription_end_date) + "T00:00:00Z") : null;
     const html = renewalConfirmationHtml({
       store_name: ws?.name ?? "متجرك",
-      plan_name: planLabel((plan as any)?.plan ?? ws?.plan),
+      plan_name: planLabel(ws?.plan),
       new_end_date: end ? formatRiyadhDate(end) : "—",
       monthly_quota: (plan?.monthly_word_quota ?? 0).toLocaleString("en-US"),
     });
