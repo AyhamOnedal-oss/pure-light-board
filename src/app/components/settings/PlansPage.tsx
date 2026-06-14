@@ -1,16 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, Sector } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CreditCard, Zap } from 'lucide-react';
-import { useLocation } from 'react-router';
 
 export function PlansPage() {
   const { t, theme, tenantId } = useApp();
-  const location = useLocation();
-  const [activeIdx, setActiveIdx] = React.useState<number | undefined>(undefined);
+  const [chartLoaded, setChartLoaded] = useState(false);
   const [planData, setPlanData] = useState({
     name: 'Free',
     price: '0 SAR/mo',
@@ -21,8 +18,12 @@ export function PlansPage() {
   });
 
   useEffect(() => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      setChartLoaded(true);
+      return;
+    }
     let cancelled = false;
+    setChartLoaded(false);
     (async () => {
       const [{ data: plan }, { data: workspace }] = await Promise.all([
         supabase.from('settings_plans').select('monthly_word_quota, monthly_words_used, period_start').eq('tenant_id', tenantId).maybeSingle(),
@@ -40,6 +41,7 @@ export function PlansPage() {
         totalWords: plan?.monthly_word_quota ?? 100000,
         usedWords: plan?.monthly_words_used ?? 0,
       });
+      setChartLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -114,58 +116,23 @@ export function PlansPage() {
           </div>
 
           <div className="flex-1 flex flex-col items-center justify-center py-2">
-            <div className="relative" style={{ width: 200, height: 200 }}>
-              <div style={{ width: 200, height: 200 }}>
-                <ResponsiveContainer width={200} height={200}>
-                <PieChart onMouseLeave={() => setActiveIdx(undefined)}>
-                  <Pie
-                    data={usageData}
-                    cx="50%" cy="50%"
-                    innerRadius={60} outerRadius={85}
-                    dataKey="value" paddingAngle={4} strokeWidth={0}
-                    isAnimationActive={true} animationBegin={500} animationDuration={1200} animationEasing="ease-out"
-                    activeIndex={activeIdx}
-                    onMouseLeave={() => setActiveIdx(undefined)}
-                    activeShape={({ cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill }: any) => (
-                      <g>
-                        <Sector cx={cx} cy={cy} innerRadius={innerRadius - 2} outerRadius={outerRadius + 4} startAngle={startAngle} endAngle={endAngle} fill={fill} style={{ filter: 'drop-shadow(0 0 4px rgba(4,60,200,0.3))' }} />
-                      </g>
-                    )}
-                  >
-                    {usageData.map((entry, i) => <Cell key={i} fill={entry.color} style={{ cursor: 'pointer', transition: 'opacity 0.2s' }} onMouseEnter={() => setActiveIdx(i)} onMouseLeave={() => setActiveIdx(undefined)} />)}
-                  </Pie>
-                  <Tooltip content={({ active, payload }: any) => {
-                    if (!active || !payload?.length || activeIdx === undefined) return null;
-                    const item = payload[0];
-                    return (
-                      <div style={{
-                        backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff',
-                        border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
-                        borderRadius: '10px',
-                        padding: '8px 14px',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        boxShadow: theme === 'dark' ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.1)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                      }}>
-                        <span style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          backgroundColor: item.payload?.color || '#043CC8',
-                          display: 'inline-block',
-                          flexShrink: 0,
-                        }} />
-                        <span style={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }}>{item.name}</span>
-                        <span style={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }}>{Number(item.value).toLocaleString()}</span>
-                      </div>
-                    );
-                  }} />
-                </PieChart>
+            <div className="relative h-[200px] w-full">
+              {chartLoaded && (
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={usageData}
+                      cx="50%" cy="50%"
+                      innerRadius={50} outerRadius={78}
+                      dataKey="value" paddingAngle={4} strokeWidth={0}
+                      isAnimationActive animationBegin={500} animationDuration={1200} animationEasing="ease-out"
+                    >
+                      {usageData.map((entry, i) => <Cell key={`usage-${i}`} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff', border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`, borderRadius: '10px', color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }} itemStyle={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }} labelStyle={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }} />
+                  </PieChart>
                 </ResponsiveContainer>
-              </div>
+              )}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <p className="text-[22px] text-foreground" style={{ fontWeight: 800 }}>{animatedPercent}%</p>
               </div>
