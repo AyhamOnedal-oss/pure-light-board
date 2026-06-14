@@ -1,6 +1,7 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.31 (Hostinger embed: anchor chat to bottom bar without floating)
+ * Version: 4.7.31 (Hostinger embed: anchor chat to bottom bar without floating;
+ *                  no idle while ticket raised; rating idle = skip-close)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
@@ -353,6 +354,7 @@
     inactivityEnabled: true,
     inactivityPromptSeconds: 90,
     inactivityCloseSeconds: 60,
+    ratingInactivitySeconds: 900,
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -438,6 +440,7 @@
     inactivityActivityBump: 0,
     inactivityPromptTimer: null,
     inactivityCloseTimer: null,
+    ratingInactivityTimer: null,
     welcomeBubbleDismissed: false,
     pendingTicketTimer: null,
   };
@@ -2726,6 +2729,7 @@
           if (typeof s.inactivity_enabled === 'boolean') settings.inactivityEnabled = s.inactivity_enabled;
           if (typeof s.inactivity_prompt_seconds === 'number') settings.inactivityPromptSeconds = s.inactivity_prompt_seconds;
           if (typeof s.inactivity_close_seconds === 'number') settings.inactivityCloseSeconds = s.inactivity_close_seconds;
+          if (typeof s.rating_inactivity_seconds === 'number') settings.ratingInactivitySeconds = s.rating_inactivity_seconds;
           if (s.workspace_name) settings.storeName = s.workspace_name;
           if (s.logo_url) settings.storeLogo = s.logo_url;
           if (s.icon_url) settings.storeIcon = s.icon_url;
