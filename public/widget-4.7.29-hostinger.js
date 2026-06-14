@@ -1,6 +1,6 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.28 (Hostinger embed: no duplicate ticket offer, no back arrow on ticket-created, no idle on ticket screen, chat sits flush with bottom)
+ * Version: 4.7.29 (Hostinger embed: harden ticket prompt/confirm dedupe + lock back arrow after ticket)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
