@@ -2,7 +2,7 @@ import React from 'react';
 import { Target, CheckCircle2, XCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
-export type IntentType = 'complaint' | 'inquiry' | 'request' | 'suggestion';
+export type IntentType = 'complaint' | 'inquiry' | 'request' | 'suggestion' | 'other';
 
 /**
  * Color mapping per spec:
@@ -48,6 +48,7 @@ const INTENT_LABELS: Record<IntentType, { en: string; ar: string; color: string 
   inquiry: { en: 'Inquiry', ar: 'استفسار', color: '#043CC8' },
   request: { en: 'Request', ar: 'طلب', color: '#f59e0b' },
   suggestion: { en: 'Suggestion', ar: 'اقتراح', color: '#10b981' },
+  other: { en: 'Other', ar: 'أخرى', color: '#8b95a8' },
 };
 
 export function IntentBadge({ type, size = 'sm' }: { type: IntentType | null | undefined; size?: 'sm' | 'md' }) {
