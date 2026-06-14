@@ -473,13 +473,21 @@ export async function fetchDashboardMetrics(
   // Completion + classification from conversations_main
   let resolved = 0;
   const classification: Record<string, number> = {};
+  let completionSum = 0;
+  let completionCount = 0;
   for (const c of convRows.data ?? []) {
     if (c.status === 'resolved' || c.status === 'closed') resolved++;
     const cat = (c as any).category ?? null;
     if (cat) classification[cat] = (classification[cat] ?? 0) + 1;
+    const cs = (c as any).completion_score;
+    if (cs != null && Number.isFinite(Number(cs))) {
+      completionSum += Number(cs);
+      completionCount++;
+    }
   }
   const totalConv = (convRows.data ?? []).length;
-  const completionRate = totalConv > 0 ? resolved / totalConv : 0;
+  // Average per-conversation completion_score (0..100). Stored as 0..1 for the UI.
+  const completionRate = completionCount > 0 ? (completionSum / completionCount) / 100 : 0;
 
   // Avg response time: per conversation, average gap between a customer
   // message and the next ai/agent message.
