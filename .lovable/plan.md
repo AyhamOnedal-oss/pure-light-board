@@ -1,40 +1,55 @@
 ## Goal
-Allow signing in as different accounts in different browser tabs of the same browser, without one tab's login hijacking another.
 
-## Root cause
-`src/integrations/supabase/client.ts` configures the Supabase client with `storage: localStorage`. `localStorage` is shared across all tabs of the same origin, and supabase-js also fires `onAuthStateChange` across tabs via the storage event. So signing in on tab B overwrites tab A's session and tab A's `AppContext` listener immediately swaps to the new user.
+Make the "تم استلام تذكرتك" email show a meaningful AI-generated title and one-line scenario description, and clean up the contact line.
 
-## Fix — per-tab session isolation
+## Problems today
 
-Switch the auth client to a **tab-scoped storage** so each tab keeps its own session, while keeping "remember me across reloads" behavior for that same tab.
+1. **العنوان** is hardcoded to `"تذكرة من المحادثة"` (or fallback `"تذكرة جديدة من المحادثة"`) at ticket-insert time in `widget-events`. The AI classifier later sets `conversations_main.subject` but never touches `tickets_main.subject`.
+2. **الوصف** ends up as `[object Object]` because no real description text is ever passed through `postTicket` — the field is empty/object and renders badly. There is no AI-generated description for the ticket.
+3. The contact box reads `📞 تواصل مع عميلك Storefront visitor عبر واتساب: ...` because the template injects `customer_name` ("Storefront visitor" is the default for widget-originated tickets).
+4. The email fires on the AFTER INSERT trigger of `tickets_main`, **before** any AI classification runs, so even if classify wrote a better subject/description, the email would already be gone with placeholders.
 
-### 1. `src/integrations/supabase/client.ts`
-- Replace `storage: localStorage` with a small custom `Storage` adapter that:
-  - Reads/writes under a per-tab key prefix held in `sessionStorage` (e.g. `fuqah_tab_id` → random uuid generated once per tab; `sessionStorage` is naturally per-tab and survives reloads).
-  - Backing store is still `localStorage` (so a tab reload restores its own session), but keys are namespaced as `sb-<tabId>-<originalKey>`.
-  - On tab close, optionally GC its namespace (best-effort, via `beforeunload`).
-- Also set `multiTab: false` semantics by ignoring cross-tab `storage` events — supabase-js v2 honors the custom storage and won't sync if keys differ per tab, so no extra flag needed. Confirm no `BroadcastChannel`-based sync is enabled (default is off in v2).
+## Plan
 
-### 2. `src/app/context/AppContext.tsx`
-- No logic change required; the existing `onAuthStateChange` listener will now only react to this tab's session.
-- Remove/skip the "TOKEN_REFRESHED with no session → redirect" branch only if it misfires under the new storage; otherwise leave as-is.
+### 1. Email template (`supabase/functions/_shared/email-templates-ar.ts`)
+- In `ticketReceivedHtml`, change the contact line to drop the customer name:
+  ```
+  📞 تواصل مع عميلك عبر واتساب: ${customer_phone}
+  ```
+- Remove `customer_name` from the template's parameter type (and stop passing it from `send-ticket-received`).
 
-### 3. `auth-attacher.ts` and other helpers
-- They call `supabase.auth.getSession()` which goes through the same client, so they automatically pick the tab-scoped session. No change.
+### 2. AI classifier (`supabase/functions/classify-conversation/index.ts`)
+- Extend the JSON shape returned by the model with two new fields:
+  - `ticket_title` — short Arabic label (≤ 60 chars). Examples: `"طلب رفع تذكرة"`, `"شكوى في تأخر الشحن"`, `"استفسار عن سياسة الإرجاع"`. Picked from the conversation intent.
+  - `ticket_description` — one sentence (≤ 180 chars) in Arabic describing what happened: customer's situation + outcome (e.g. "العميل يشتكي من عدم وصول طلبه بعد ١٠ أيام ويطلب التحدث مع موظف بشري.").
+- Update prompt + examples + parsing/validation.
+- When a linked ticket exists for the conversation, also write `subject = ticket_title` and `description = ticket_description` on `tickets_main` in the same update that currently sets `priority` and `category`.
 
-### 4. Edge cases to handle
-- **New tab opened via Ctrl/Cmd+Click or "Duplicate tab":** `sessionStorage` is copied for duplicated tabs in some browsers; generate the tab id lazily and, if a session already exists under that id from another live tab, mint a fresh id so the new tab starts logged-out (detect via a heartbeat key in `localStorage` keyed by tabId that's refreshed every few seconds).
-- **Password reset / OAuth redirect flows:** these land in a fresh tab — they'll get their own tabId and their own session, which is the desired behavior.
-- **Sign-out:** only clears this tab's namespaced keys; other tabs stay signed in.
-- **Storage quota / cleanup:** add a `beforeunload` handler that removes this tab's keys from `localStorage` so abandoned tabs don't pile up. Reloads use `pagehide` with `persisted` check to avoid wiping on reload.
+### 3. Delay the ticket email until after classification
+
+Currently `notify_ticket_received` (AFTER INSERT trigger on `tickets_main`) fires `send-ticket-received` immediately. We instead want the email to go out **after** classify has filled in title/description.
+
+New migration:
+- Drop the AFTER INSERT trigger `notify_ticket_received` on `tickets_main`.
+- Add an AFTER UPDATE trigger on `tickets_main` that fires `send-ticket-received` exactly once per ticket, when both `subject` and `description` first become non-null/non-placeholder (use a new boolean column `email_sent_at timestamptz` or simply a guard `OLD.description IS NULL AND NEW.description IS NOT NULL`). Store `email_sent_at` to make it idempotent.
+- Keep the same `_app_secrets` URL + secret + `pg_net` call already used.
+
+### 4. Widget ticket-insert path (`supabase/functions/widget-events/index.ts`)
+- Insert the ticket with `subject = null` and `description = null` (instead of the hardcoded `"تذكرة من المحادثة"` / `[object Object]`). The new UPDATE-based email trigger won't fire yet.
+- After insert + conversation close, classification runs (already triggered by the conversation-close path). When classify writes `subject` + `description` to `tickets_main`, the new UPDATE trigger fires the email with real AI content.
+
+### 5. Fallback / safety
+- If classify fails or is unavailable, schedule a fallback: a small pg_cron job (or a `setTimeout`-style retry in `widget-events` via `pg_net`) sets a generic title + description on tickets that have been waiting > 60 seconds with NULL subject, so the email still goes out (with safe defaults: `subject = "طلب رفع تذكرة من المحادثة"`, `description = "تم استلام طلب جديد من محادثة الويدجت."`). This avoids "silent ticket, no email".
+
+## Technical notes (for the dev reading later)
+
+- `send-ticket-received` already receives `customer_name` from the ticket row; we just stop using it in the template. No need to drop the DB column.
+- The current AFTER INSERT trigger lives in migration `20260607020303_…`. We won't edit it; the new migration will `DROP TRIGGER … ON public.tickets_main` and `CREATE TRIGGER … AFTER UPDATE …`.
+- `tickets_main` already has `subject text` and `description text`; no schema change needed there. Only add `email_sent_at timestamptz` for idempotency.
+- The classify prompt change must keep all existing fields (`category`, `intent_type`, `subject`, `close_reason`, `completion_score`, `goal_met`, `priority`, `unanswered_question`) and ADD `ticket_title` + `ticket_description`. Old `subject` keeps its meaning for `conversations_main`.
 
 ## Out of scope
-- No DB changes.
-- No changes to `RequireAuth`, `RequirePermission`, `LoginPage`, edge functions, or the invite/delete flows fixed previously.
 
-## Verification
-1. Open the app in two tabs.
-2. Sign in as admin in tab A → tab A shows admin.
-3. Sign in as `ayhamonedal@icloud.com` in tab B → tab B shows employee; tab A still shows admin after refresh.
-4. Sign out in tab B → tab A unaffected.
-5. Invite/deactivate/delete the employee from tab A and observe the effect in tab B in real-world timing.
+- No UI changes in the dashboard or widget.
+- No changes to other email templates.
+- Status-update / escalation emails are untouched.
