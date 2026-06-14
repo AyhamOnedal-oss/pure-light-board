@@ -1,39 +1,80 @@
-## Diagnosis
+## Goal
+Classifier outputs one of **5 categories**: `inquiry`, `complaint`, `request`, `suggestion`, or `other` (`أخرى`).
+- 4 real categories require a real customer intent, chosen by **dominant intent across the whole transcript** (not the last message), ignoring internal system actions like "raise a ticket" or "end conversation".
+- `other` / `أخرى` covers **any conversation without one of the 4 real intents**: gibberish (`ىؤتيراهاالر`, `يسهتارخقا`), random keystrokes, empty/test messages, and **pure greetings/thanks/chit-chat with no follow-up question or request** (e.g. only `السلام عليكم`, only `شكراً`, only `هلا`, only emojis).
 
-Your screenshot is the **storefront widget served from `widget.fuqah.net/widget.js`** (Hostinger). That file is still **v4.7.31** — the old version with no counter and the `restSubmitRating(state.rating, '')` bug that drops the feedback comment before it reaches the dashboard.
+## Scope
+- `supabase/functions/classify-conversation/index.ts` — prompt + post-parse + fallback.
+- `src/app/components/ConversationsPage.tsx` — render `أخرى` as a real category chip and stop filtering it out.
 
-The fixes for both issues are already in the file I produced last turn:
+No DB migration.
 
-- `/mnt/documents/widget-4.7.32-hostinger.js`
-  - 115-char hard limit on `<textarea>` (`maxLength=115` + slice clamp)
-  - Live transparent counter at bottom-left (`{n}/115`, turns red at ≥110)
-  - Feedback comment now actually forwarded: `restSubmitRating(state.rating, (state.feedback || '').trim())` instead of `''`
-  - Backend (`widget-events`) already writes `rating_comment` to `conversations_main` and the dashboard (`ConversationsPage.tsx` line 520-527) already renders the yellow comment bar from that column.
+## Changes
 
-**Nothing else in the codebase needs to change.** The dashboard side, the React widget side, and the Hostinger file are all correct in this repo — the live `widget.fuqah.net/widget.js` just hasn't been replaced yet.
+### 1. Prompt — dominant intent rule
+Add before the examples block:
+- Read the **entire** transcript. Pick the customer's **dominant / most impactful intent**, not the last message.
+- For multi-intent conversations (e.g. inquiry → side suggestion → "raise a ticket") pick the one with the most substance.
+- **Ignore as category signals** (system actions, not customer intent):
+  - "ارفع تذكرة", "أبغى أتواصل مع موظف", "حولني لموظف"
+  - "أنهي المحادثة", "خلاص شكراً انهِ"
+- These never decide the category.
 
-## Verification that the code path works
+### 2. Prompt — strict definition of `other`
+Use `other` **only** when the conversation has no real customer intent among the 4. This includes:
+- Gibberish / random characters: `ىؤتيراهاالر`, `asdfgh`, `يسهتارخقا`.
+- Empty / whitespace-only messages or test pings.
+- **Pure greetings, thanks, or chit-chat with no follow-up question, complaint, request, or suggestion**: e.g. only `السلام عليكم`, only `مرحبا`, only `هلا`, only `شكراً`, only `تمام`, only emojis.
+- If a greeting is **followed** by a real question/complaint/request/suggestion, classify by that real intent — not `other`.
+If even a partial real intent exists, pick one of the 4 buckets.
 
-I will, in build mode:
+Add worked examples:
+```
+Example 15:
+CUSTOMER: ىؤتيراهاالر
+CUSTOMER: يسهتارخقا
+→ category: other, intent_type: inquiry
+(Gibberish — no real intent.)
 
-1. Re-open `/mnt/documents/widget-4.7.32-hostinger.js` and grep-verify all three patches are present:
-   - `FQ_FB_MAX = 115` block with counter element
-   - `state.feedback || ''` in the submit handler
-   - `Version: 4.7.32` header
-2. Run `node --check` on it again to confirm syntax.
-3. Re-publish the artifact via `<presentation-artifact>` so you can re-download it directly from this turn (in case the previous download link is gone).
+Example 16:
+CUSTOMER: السلام عليكم
+→ category: other, intent_type: inquiry
+(Greeting only, no follow-up — no real intent.)
 
-## What you need to do on your side
+Example 17:
+CUSTOMER: شكراً
+CUSTOMER: 🌹
+→ category: other, intent_type: inquiry
+(Thanks + emoji only — no real intent.)
 
-1. Download the artifact from this message.
-2. In Hostinger File Manager, open the directory that serves `https://widget.fuqah.net/widget.js`.
-3. **Replace** `widget.js` with the downloaded file (rename `widget-4.7.32-hostinger.js` → `widget.js`).
-4. Hard-refresh the storefront with cache cleared (DevTools → Network → Disable cache, then reload), or append `?v=4.7.32` to the snippet `src` temporarily to bypass CDN cache. The merchant snippet is `<script src="https://widget.fuqah.net/widget.js" ...>` — Hostinger may cache the old file for up to ~10 min.
-5. Open the chat, rate, type feedback → counter appears, capped at 115, and the comment shows in the dashboard's conversation yellow bar.
+Example 18:
+CUSTOMER: السلام عليكم، أبغى أعرف هل عندكم توصيل للدمام؟
+CUSTOMER: بالمناسبة ياليت تضيفون طرق دفع أكثر
+CUSTOMER: طيب ارفعوا لي تذكرة عشان أتابع
+→ category: inquiry, intent_type: inquiry
+(Dominant intent is shipping inquiry. Suggestion is a side note;
+"raise a ticket" is a system action — ignored.)
+```
 
-If after upload + hard refresh you still don't see the counter, screenshot the **Network** tab showing `widget.js` response headers (so I can see if Hostinger/Cloudflare is serving a cached copy) and I'll add an `if-modified-since`-friendly cache buster.
+### 3. Post-parse + fallback
+- Keep `ALLOWED_CATEGORIES` = `['complaint','inquiry','request','suggestion','other']`.
+- Fallback writer stays `category: "other"` (we genuinely don't know when OpenAI fails).
+
+### 4. `ConversationsPage.tsx`
+- Add `'other'` to the `ChatCategory` union.
+- `categoryMap`:
+  ```
+  other: { en: 'Other', ar: 'أخرى', color: '#8b95a8' }
+  ```
+- Include `'other'` in the `allowed` array (~line 181) so it isn't dropped from rendering.
+- Remove the unused `none` entry.
+- If a category filter dropdown exists, add `Other / أخرى` to it (confirmed during implementation).
 
 ## Out of scope
+- No backfill. Newly analyzed conversations follow the new rules; existing rows already stored as `other` will now render as `أخرى` instead of being hidden.
 
-- No edits to React widget, dashboard, or edge functions — they are already correct.
-- No version-number change beyond 4.7.32.
+## Verification
+- Re-analyze a `السلام عليكم`-only conversation → `أخرى`.
+- Re-analyze a gibberish conversation → `أخرى`.
+- Re-analyze a conversation that starts with a greeting then asks about shipping → `استفسار`.
+- Re-analyze a multi-intent conversation ending with "ارفع تذكرة" → category reflects the dominant earlier intent, not `request`.

@@ -19,7 +19,7 @@ interface Message {
 }
 
 type ChatCloseReason = 'customer_manual' | 'ai_request' | 'ai_offer_close' | 'user_end_conversation' | 'idle';
-type ChatCategory = 'inquiry' | 'complaint' | 'request' | 'suggestion';
+type ChatCategory = 'inquiry' | 'complaint' | 'request' | 'suggestion' | 'other';
 
 export interface Conversation {
   id: string; name: string; avatarColor: string; lastMessage: string;
@@ -179,7 +179,7 @@ export function ConversationsPage() {
             return undefined;
           })(),
           category: (() => {
-            const allowed = ['inquiry', 'complaint', 'request', 'suggestion'];
+            const allowed = ['inquiry', 'complaint', 'request', 'suggestion', 'other'];
             if (allowed.includes(c.category || '')) return c.category as ChatCategory;
             const it = (c as { intent_type?: string | null }).intent_type;
             if (allowed.includes(it || '')) return it as ChatCategory;
@@ -292,12 +292,12 @@ export function ConversationsPage() {
     return display.split(' ').map(n => n[0]).join('').slice(0, 2);
   };
 
-  const categoryMap: Record<ChatCategory | 'none', { en: string; ar: string; color: string }> = {
+  const categoryMap: Record<ChatCategory, { en: string; ar: string; color: string }> = {
     complaint: { en: 'Complaint', ar: 'شكوى', color: '#ff4466' },
     inquiry: { en: 'Inquiry', ar: 'استفسار', color: '#043CC8' },
     request: { en: 'Request', ar: 'طلب', color: '#f59e0b' },
     suggestion: { en: 'Suggestion', ar: 'اقتراح', color: '#10b981' },
-    none: { en: 'None', ar: 'بدون', color: '#8b95a8' },
+    other: { en: 'Other', ar: 'أخرى', color: '#8b95a8' },
   };
 
   const closeReasonMap: Record<ChatCloseReason, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
