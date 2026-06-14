@@ -8,9 +8,155 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
+// ---------------------------------------------------------------------------
+// Per-tab auth storage
+// ---------------------------------------------------------------------------
+// Supabase's default `localStorage` is shared across every tab of the same
+// origin, so signing in on one tab hijacks every other tab via the storage
+// event. We want each tab to hold its own independent session (useful for
+// testing admin vs invited employee flows side-by-side, and for general
+// "different account per tab" usage).
+//
+// Strategy:
+//   • Generate a stable per-tab id and keep it in `sessionStorage` so it
+//     survives reloads but never leaks to other tabs.
+//   • Back the actual session in `localStorage` under a tab-namespaced key
+//     prefix, so a reload of the same tab restores the same session.
+//   • A heartbeat in `localStorage` tracks which tab ids are currently live;
+//     duplicated tabs (which inherit sessionStorage in some browsers) detect
+//     the clash and mint a fresh id so they start signed-out.
+//   • On tab close we GC this tab's namespace to avoid unbounded growth.
+// ---------------------------------------------------------------------------
+
+const TAB_ID_KEY = 'fuqah_tab_id';
+const HEARTBEAT_PREFIX = 'fuqah_tab_alive:';
+const HEARTBEAT_TTL_MS = 15_000;
+const STORAGE_PREFIX = 'sb-tab';
+
+function genId(): string {
+  try {
+    // crypto.randomUUID is available in all modern browsers.
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isAlive(tabId: string): boolean {
+  try {
+    const raw = localStorage.getItem(HEARTBEAT_PREFIX + tabId);
+    if (!raw) return false;
+    const ts = Number(raw);
+    if (!Number.isFinite(ts)) return false;
+    return Date.now() - ts < HEARTBEAT_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+function resolveTabId(): string {
+  if (typeof window === 'undefined') return 'ssr';
+  try {
+    let id = sessionStorage.getItem(TAB_ID_KEY);
+    // If sessionStorage was duplicated into a new tab (Chrome's "Duplicate
+    // tab" / middle-click in some setups), the heartbeat for the original
+    // id will still be fresh — mint a new one for this tab.
+    if (id && isAlive(id)) {
+      id = null;
+    }
+    if (!id) {
+      id = genId();
+      sessionStorage.setItem(TAB_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return genId();
+  }
+}
+
+const TAB_ID = resolveTabId();
+
+function keyFor(k: string): string {
+  return `${STORAGE_PREFIX}-${TAB_ID}::${k}`;
+}
+
+const tabScopedStorage: Storage | undefined =
+  typeof window === 'undefined'
+    ? undefined
+    : ({
+        getItem: (k: string) => {
+          try { return localStorage.getItem(keyFor(k)); } catch { return null; }
+        },
+        setItem: (k: string, v: string) => {
+          try { localStorage.setItem(keyFor(k), v); } catch { /* quota */ }
+        },
+        removeItem: (k: string) => {
+          try { localStorage.removeItem(keyFor(k)); } catch { /* ignore */ }
+        },
+        // The remaining Storage methods are not used by supabase-js but we
+        // implement them defensively to satisfy the interface.
+        clear: () => {
+          try {
+            const prefix = `${STORAGE_PREFIX}-${TAB_ID}::`;
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+              const k = localStorage.key(i);
+              if (k && k.startsWith(prefix)) localStorage.removeItem(k);
+            }
+          } catch { /* ignore */ }
+        },
+        key: (i: number) => {
+          try { return localStorage.key(i); } catch { return null; }
+        },
+        get length() {
+          try { return localStorage.length; } catch { return 0; }
+        },
+      } as Storage);
+
+if (typeof window !== 'undefined') {
+  const beat = () => {
+    try { localStorage.setItem(HEARTBEAT_PREFIX + TAB_ID, String(Date.now())); } catch { /* ignore */ }
+  };
+  beat();
+  setInterval(beat, 5_000);
+
+  // GC orphaned tab namespaces (their heartbeat is stale and not this tab).
+  try {
+    const now = Date.now();
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.startsWith(HEARTBEAT_PREFIX)) {
+        const id = k.slice(HEARTBEAT_PREFIX.length);
+        if (id === TAB_ID) continue;
+        const ts = Number(localStorage.getItem(k));
+        if (!Number.isFinite(ts) || now - ts > HEARTBEAT_TTL_MS * 4) {
+          localStorage.removeItem(k);
+          const prefix = `${STORAGE_PREFIX}-${id}::`;
+          for (let j = localStorage.length - 1; j >= 0; j--) {
+            const kk = localStorage.key(j);
+            if (kk && kk.startsWith(prefix)) localStorage.removeItem(kk);
+          }
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Best-effort cleanup when the tab is actually closing (not on a reload).
+  window.addEventListener('pagehide', (e) => {
+    if ((e as PageTransitionEvent).persisted) return;
+    try {
+      localStorage.removeItem(HEARTBEAT_PREFIX + TAB_ID);
+    } catch { /* ignore */ }
+  });
+}
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: tabScopedStorage,
+    storageKey: `sb-auth-${TAB_ID}`,
     persistSession: true,
     autoRefreshToken: true,
     // We handle recovery-token parsing manually in ResetPasswordPage so

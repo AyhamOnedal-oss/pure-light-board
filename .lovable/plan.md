@@ -1,64 +1,40 @@
-## Issues found
+## Goal
+Allow signing in as different accounts in different browser tabs of the same browser, without one tab's login hijacking another.
 
-### 1. Re-inviting a previously-deleted user fails ("فشل إضافة العضو") — root cause of the screenshot
+## Root cause
+`src/integrations/supabase/client.ts` configures the Supabase client with `storage: localStorage`. `localStorage` is shared across all tabs of the same origin, and supabase-js also fires `onAuthStateChange` across tabs via the storage event. So signing in on tab B overwrites tab A's session and tab A's `AppContext` listener immediately swaps to the new user.
 
-`supabase/functions/invite-employee/index.ts` runs two duplicate checks against `team_members` **without filtering out soft-deleted rows**:
+## Fix — per-tab session isolation
 
-- Lines 165–173: `select id from team_members where tenant_id=? and email=?` → returns the old soft-deleted row → returns `409 email_exists` → UI toasts "فشل إضافة العضو".
-- Lines 176–186: same problem for `phone`.
+Switch the auth client to a **tab-scoped storage** so each tab keeps its own session, while keeping "remember me across reloads" behavior for that same tab.
 
-Because `delete-employee` soft-deletes (`deleted_at=now()`) instead of hard-deleting, that old row blocks every re-invite of the same email/phone in the same tenant.
+### 1. `src/integrations/supabase/client.ts`
+- Replace `storage: localStorage` with a small custom `Storage` adapter that:
+  - Reads/writes under a per-tab key prefix held in `sessionStorage` (e.g. `fuqah_tab_id` → random uuid generated once per tab; `sessionStorage` is naturally per-tab and survives reloads).
+  - Backing store is still `localStorage` (so a tab reload restores its own session), but keys are namespaced as `sb-<tabId>-<originalKey>`.
+  - On tab close, optionally GC its namespace (best-effort, via `beforeunload`).
+- Also set `multiTab: false` semantics by ignoring cross-tab `storage` events — supabase-js v2 honors the custom storage and won't sync if keys differ per tab, so no extra flag needed. Confirm no `BroadcastChannel`-based sync is enabled (default is off in v2).
 
-A secondary bug in the same function: the upsert branch at lines 230–251 finds the soft-deleted row and updates it but **doesn't clear `deleted_at` / `auth_revoked_at`**, so even if the duplicate check were bypassed, the row stays hidden in the UI (which filters `deleted_at IS NULL`).
+### 2. `src/app/context/AppContext.tsx`
+- No logic change required; the existing `onAuthStateChange` listener will now only react to this tab's session.
+- Remove/skip the "TOKEN_REFRESHED with no session → redirect" branch only if it misfires under the new storage; otherwise leave as-is.
 
-### 2. "Deactivate" doesn't actually freeze the user
+### 3. `auth-attacher.ts` and other helpers
+- They call `supabase.auth.getSession()` which goes through the same client, so they automatically pick the tab-scoped session. No change.
 
-The DB has `disabled_at`, `dashboard_snapshot`, `status='inactive'`, and an `AccountDisabledScreen` component exists — but nothing in `AppContext` / `RequireAuth` / `LoginPage` ever checks them. A disabled employee can still log in and use every page normally. The captured `dashboard_snapshot` is also never read.
+### 4. Edge cases to handle
+- **New tab opened via Ctrl/Cmd+Click or "Duplicate tab":** `sessionStorage` is copied for duplicated tabs in some browsers; generate the tab id lazily and, if a session already exists under that id from another live tab, mint a fresh id so the new tab starts logged-out (detect via a heartbeat key in `localStorage` keyed by tabId that's refreshed every few seconds).
+- **Password reset / OAuth redirect flows:** these land in a fresh tab — they'll get their own tabId and their own session, which is the desired behavior.
+- **Sign-out:** only clears this tab's namespaced keys; other tabs stay signed in.
+- **Storage quota / cleanup:** add a `beforeunload` handler that removes this tab's keys from `localStorage` so abandoned tabs don't pile up. Reloads use `pagehide` with `persisted` check to avoid wiping on reload.
 
-### 3. "Delete" already revokes login correctly
+## Out of scope
+- No DB changes.
+- No changes to `RequireAuth`, `RequirePermission`, `LoginPage`, edge functions, or the invite/delete flows fixed previously.
 
-`delete-employee` soft-deletes the row, removes `auth_tenant_members`, and calls `auth.admin.deleteUser` when the user has no other memberships. That part is fine — it just needs the re-invite path (issue 1) to actually work afterwards.
-
----
-
-## Plan
-
-### A. Fix re-invite of deleted users (`invite-employee` edge function)
-
-1. In both duplicate-check queries, add `.is('deleted_at', null)` so soft-deleted rows are ignored. A deleted member's email/phone is treated as free.
-2. In the "find existing row to update" lookup (line 230), keep matching any row (deleted or not), but on update **always set `deleted_at: null`, `auth_revoked_at: null`, `disabled_at: null`, `dashboard_snapshot: null`, `status: 'active'`** alongside the new name/phone/permissions. This revives a previously-deleted member instead of inserting a duplicate (avoids violating any unique key on `tenant_id,email`).
-3. If the previous auth user was hard-deleted by `delete-employee`, the existing "find or create auth user" block already handles that — it falls through to `createUser` and links the new `user_id`. No extra change needed.
-
-### B. Enforce "Deactivated user is frozen at last dashboard" (no other access)
-
-1. Extend `AppContext` to load the current user's `team_members` row for the active tenant (`status`, `disabled_at`, `dashboard_snapshot`, `deleted_at`) and expose `memberStatus`, `isDisabled`, `isDeleted`, `frozenSnapshot`.
-2. `LoginPage`: after successful login, if the matching `team_members` row has `deleted_at IS NOT NULL`, sign the user out immediately and show "تم حذف حسابك من هذا المتجر".
-3. `RequireAuth`: if `isDisabled`, redirect every route except `/dashboard` to `/dashboard`. The dashboard becomes the only reachable page.
-4. `DashboardPage`: when `isDisabled && frozenSnapshot` exists, render the snapshot in read-only mode (no date-range picker, no refresh, no live queries) with an Arabic banner: "تم تعطيل حسابك — هذه آخر لقطة من لوحة التحكم". Owners/admins are unaffected (they have no `team_members` row tied to themselves, or their row isn't disabled).
-5. Tenant-owner / super-admin paths skip the check entirely.
-
-### C. Cleanup / safety
-
-- Add a small DB index `team_members(tenant_id, email) where deleted_at is null` for the new duplicate lookup (optional, only if migration is desired).
-- No schema changes are strictly required; all needed columns already exist.
-
----
-
-## Technical details
-
-**Files to change**
-- `supabase/functions/invite-employee/index.ts` — duplicate-check filters + revive logic on update.
-- `src/app/context/AppContext.tsx` — load `team_members` self-row, expose `isDisabled` / `isDeleted` / `frozenSnapshot`.
-- `src/app/components/RequireAuth.tsx` — redirect disabled users to `/dashboard` only; sign out deleted users.
-- `src/app/components/LoginPage.tsx` — block sign-in for `deleted_at IS NOT NULL` rows.
-- `src/app/components/DashboardPage.tsx` — render frozen snapshot when disabled.
-- (Optional) one migration adding the partial unique index above.
-
-**Out of scope**
-No changes to `delete-employee` (already correct). No changes to permissions model. No changes to widget files.
-
-## What this delivers
-
-- Admin can re-invite a previously deleted user with the same email/phone — invitation email goes out and the row reappears as active.
-- "Deactivate" really freezes the user: they can log in, but every page is locked except a read-only dashboard frozen at the moment of deactivation.
-- "Delete" already kicks them out immediately and removes login privileges while keeping the historical row in the DB for archiving.
+## Verification
+1. Open the app in two tabs.
+2. Sign in as admin in tab A → tab A shows admin.
+3. Sign in as `ayhamonedal@icloud.com` in tab B → tab B shows employee; tab A still shows admin after refresh.
+4. Sign out in tab B → tab A unaffected.
+5. Invite/deactivate/delete the employee from tab A and observe the effect in tab B in real-world timing.
