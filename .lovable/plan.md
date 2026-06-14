@@ -1,49 +1,47 @@
-# إضافة إيميلَين جديدَين
+## Scope
 
-بناءً على اختياراتك، نضيف اثنين فقط ونتجاوز إيميل تحديث الباقة.
+Three changes: widget rating screen char limit + counter, verify dashboard feedback bar persists, and investigate the ~13s widget render delay.
 
-## 1) تنبيه الرصيد المنخفض (80%)
+### 1. Widget rating screen — `widget/src/app/components/RatingScreen.tsx`
 
-**المنطق:** يُرسل مرة واحدة في كل دورة شهرية لما الاستهلاك يعبر 80% من `monthly_word_quota`، قبل ما الخدمة توقف عند 100%.
+- Add `maxLength={115}` to the feedback `<textarea>` and clamp state.
+- Add a transparent character counter at the bottom-left of the textarea:
+  - `{feedback.length}/115`, `font-size: 11px`, `opacity: 0.5`, `pointer-events: none`, absolutely positioned inside a relative wrapper (`bottom: 6px; left: 10px`).
+  - Color shifts to soft red (`#ef4444`) when `length >= 110`.
+- No other layout changes.
 
-**التنفيذ:**
-- تعديل دالة `bump_word_usage()` في DB: نضيف فحص عتبة 80% بجانب فحص 100% الحالي، ونطلق webhook جديد.
-- عمود جديد في `settings_plans`: `low_balance_emailed_period date` (نفس نمط `service_paused_emailed_period`) لمنع التكرار في نفس الشهر.
-- مفتاحان جديدان في `_app_secrets`: `low_balance_webhook_secret` + `low_balance_webhook_url`.
-- إدج فنكشن جديدة: `send-low-balance-warning/index.ts` تبني الإيميل العربي وترسله عبر `sendResendEmail` للمالك.
-- قالب HTML عربي جديد في `_shared/email-templates-ar.ts`: `lowBalanceWarningHtml({ store_name, used_percent, used_words, total_words, remaining_words, renewal_link })`.
-- تسجيل الفنكشن في `supabase/config.toml` مع `verify_jwt = false`.
+### 2. Dashboard feedback bar — `src/app/components/ConversationsPage.tsx`
 
-**محتوى الإيميل (مختصر):**
-- عنوان: "وصلت إلى 80% من رصيدك في فقاعة AI"
-- يوضح: النسبة المستهلكة، الكلمات المتبقية، تحذير من توقف الخدمة عند 100%، زر تجديد/ترقية.
+The yellow bar (⭐ + comment, lines 520-527) already exists and renders when `selected.ratingComment` is set. It isn't appearing for real conversations because the widget likely doesn't persist the comment.
 
-## 2) تأكيد تجديد الاشتراك (عند تجديد ناجح)
+- Trace the `onRatingSubmit(stars, feedback)` wiring from `RatingScreen` through `ChatWindow` / `chatApi` and confirm the rating endpoint writes `rating_comment` to the `conversations` row.
+- If missing, include `comment` in the rate payload so the existing dashboard bar renders.
 
-**المنطق:** يُرسل حين يتم تمديد `subscription_end_date` بنجاح للباقة الحالية أو ترقيتها مع دفع جديد.
+No styling change to the dashboard bar.
 
-**التنفيذ:**
-- ترايجر DB جديد على `settings_plans` يكتشف لما `subscription_end_date` يتغير لتاريخ مستقبلي أبعد من السابق (= تجديد).
-- مفتاحان جديدان في `_app_secrets`: `renewal_confirmation_webhook_secret` + `renewal_confirmation_webhook_url`.
-- إدج فنكشن جديدة: `send-renewal-confirmation/index.ts` ترسل التأكيد للمالك.
-- قالب HTML عربي جديد: `renewalConfirmationHtml({ store_name, plan_name, new_end_date, monthly_quota })`.
-- تسجيل الفنكشن في `supabase/config.toml`.
-- إضافة عمود `last_renewal_emailed_for_end date` على `settings_plans` لمنع تكرار الإرسال لنفس تاريخ الانتهاء.
+### 3. Widget render delay (~13s)
 
-**محتوى الإيميل:**
-- عنوان: "تم تجديد اشتراكك في فقاعة AI بنجاح"
-- يوضح: اسم الباقة، تاريخ الانتهاء الجديد، حصة الكلمات الشهرية، رابط لوحة التحكم.
+Goal: bubble must appear immediately on the storefront, not after ~13s.
 
-## بعد التطبيق
+Investigation steps:
+- Profile `widget-loader` edge function and `widget-config` / `widget-resolve` calls — check cold-start, serial vs parallel fetches, and whether the loader awaits all data before painting.
+- Check `public/widget-4.7.31-hostinger.js` bundle size and how the storefront snippet injects it (async/defer, blocking script, position in `<head>` vs end of `<body>`).
+- Check `useFetchChatSettings` + `useFetchStoreBranding` in `widget/src/app/hooks/` — if the bubble waits on both before mounting, that's the stall.
 
-- إضافة المفاتيح الأربعة الجديدة في `_app_secrets` (URLs + secrets) عبر insert SQL.
-- اختبار يدوي:
-  - رفع `monthly_words_used` لـ 80% لتفعيل إيميل التنبيه.
-  - تمديد `subscription_end_date` يدوياً لتفعيل إيميل التجديد.
+Fixes (apply the ones that match findings):
+- Render the launcher bubble synchronously from the loader script using cached/default config (logo, color, position) so it shows in < 200ms; hydrate real config in the background and reconcile.
+- Make `widget-config` and `widget-resolve` calls parallel (`Promise.all`) and add a short in-memory + `localStorage` cache keyed by `tenant_id` so repeat visits paint instantly.
+- Ensure the loader `<script>` tag is `async` and that the IIFE doesn't block on the full React bundle before showing the launcher (split: tiny loader paints bubble → lazy-loads chat window on click).
+- Set `Cache-Control: public, max-age=300, stale-while-revalidate=86400` on `widget-config` for anon reads.
+- Preconnect to the Supabase functions origin from the loader.
 
-## التفاصيل التقنية
+### 4. Rebuild widget bundle
 
-- جميع الإيميلات عبر `RESEND_API_KEY` الموجود مسبقاً ودومين `support@fuqah.net`.
-- المستلم = مالك الـ tenant (نفس نمط `send-service-paused` و`process-subscription-expiry`).
-- استخدام `formatRiyadhDate` لتنسيق التواريخ بنفس أسلوب باقي الإيميلات.
-- اللغة عربية فقط، RTL، يطابق هوية باقي القوالب في `email-templates-ar.ts`.
+- I edit `widget/` source, not the minified file.
+- Build: `cd widget && bun install && bun run build`.
+- Copy `widget/dist/widget.js` → `public/widget-4.7.32-hostinger.js`.
+- You upload that to `https://widget.fuqah.net/widget.js` (the build does not auto-publish to Hostinger).
+
+### Out of scope
+
+No dashboard layout changes, no new tables, no edge function rewrites beyond what's needed for #2 and #3.

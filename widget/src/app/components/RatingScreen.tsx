@@ -29,6 +29,7 @@ export function RatingScreen({ onClose, onBack, storeName, theme, isDarkMode = f
   const [hoveredRating, setHoveredRating] = useState(0);
   const [feedback, setFeedback] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const FEEDBACK_MAX = 115;
 
   // ── Auto-skip on inactivity ─────────────────────────────────────────────
   // Timer resets whenever rating or feedback changes (user activity).
@@ -195,14 +196,15 @@ export function RatingScreen({ onClose, onBack, storeName, theme, isDarkMode = f
         </p>
 
         {/* Feedback textarea */}
-        <div className="w-full mb-4">
+        <div className="w-full mb-4 relative">
           <textarea
             value={feedback}
-            onChange={e => setFeedback(e.target.value)}
+            onChange={e => setFeedback(e.target.value.slice(0, FEEDBACK_MAX))}
+            maxLength={FEEDBACK_MAX}
             placeholder="أخبرنا برأيك... (اختياري)"
             rows={3}
             dir="rtl"
-            className="w-full p-3.5 rounded-xl resize-none transition-colors"
+            className="w-full p-3.5 pb-6 rounded-xl resize-none transition-colors"
             style={{
               fontSize: '14px',
               border: `1.5px solid ${textareaBorder}`,
@@ -214,6 +216,22 @@ export function RatingScreen({ onClose, onBack, storeName, theme, isDarkMode = f
             onFocus={e => (e.target.style.borderColor = accentColor)}
             onBlur={e => (e.target.style.borderColor = textareaBorder)}
           />
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              bottom: 8,
+              left: 12,
+              fontSize: '11px',
+              fontWeight: 500,
+              opacity: 0.55,
+              pointerEvents: 'none',
+              color: feedback.length >= 110 ? '#ef4444' : descColor,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {feedback.length}/{FEEDBACK_MAX}
+          </div>
         </div>
       </div>
 
