@@ -197,12 +197,46 @@ const LOADER_JS = `
       };
     } catch (e) {}
 
+    // ── Instant paint: hydrate from localStorage cache so the bubble shows
+    // in < 200ms on repeat visits instead of waiting for the resolve+config
+    // round-trip (which can take 10+ seconds on edge cold starts).
+    var cacheKey = "fuqah_widget_cache_" + ctx.platform + "_" + (ctx.external_id || "");
+    var cached = null;
+    try {
+      var raw = window.localStorage && window.localStorage.getItem(cacheKey);
+      if (raw) cached = JSON.parse(raw);
+    } catch (e) {}
+    var mounted = false;
+    if (cached && cached.tenant_id && cached.cfg) {
+      try { window.__FUQAH_TENANT_ID = cached.tenant_id; } catch (e) {}
+      try { mount(cached.tenant_id, ctx, cached.cfg); mounted = true; } catch (e) {}
+    }
+
     api("/widget-resolve?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id))
       .then(function (res) {
         if (!res || !res.tenant_id || !res.is_active) { return; }
         try { window.__FUQAH_TENANT_ID = res.tenant_id; } catch (e) {}
         return api("/widget-config?tenant_id=" + res.tenant_id).then(function (cfg) {
-          mount(res.tenant_id, ctx, cfg || {});
+          var fresh = cfg || {};
+          try {
+            window.localStorage && window.localStorage.setItem(cacheKey, JSON.stringify({
+              tenant_id: res.tenant_id,
+              cfg: fresh,
+              ts: Date.now(),
+            }));
+          } catch (e) {}
+          // Re-mount only if we didn't already paint, or if visible config changed.
+          if (!mounted) {
+            mount(res.tenant_id, ctx, fresh);
+            return;
+          }
+          var cachedCfg = (cached && cached.cfg) || {};
+          var visualKeys = ["bubble_visible","position","bubble_offset_x","bubble_offset_y","bubble_size","widget_outer_color","widget_inner_color","welcome_bubble_enabled","welcome_bubble_line1","welcome_bubble_line2","auto_open_delay"];
+          var changed = cached.tenant_id !== res.tenant_id;
+          for (var k = 0; k < visualKeys.length && !changed; k++) {
+            if (cachedCfg[visualKeys[k]] !== fresh[visualKeys[k]]) changed = true;
+          }
+          if (changed) mount(res.tenant_id, ctx, fresh);
         });
       })
       .catch(function (e) { console.error("fuqah loader error", e); });
