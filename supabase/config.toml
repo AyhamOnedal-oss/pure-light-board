@@ -61,3 +61,6 @@ verify_jwt = false
 
 [functions.send-renewal-confirmation]
 verify_jwt = false
+
+[functions.preview-mock-emails]
+verify_jwt = false
