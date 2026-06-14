@@ -1,55 +1,46 @@
-## Goal
+## Root cause (from `widget-events` edge log)
 
-Make the "تم استلام تذكرتك" email show a meaningful AI-generated title and one-line scenario description, and clean up the contact line.
+```
+ticket insert failed: null value in column "subject" of relation "tickets_main" violates not-null constraint
+```
 
-## Problems today
+Last round we changed `widget-events` to insert `subject: null` / `description: null` so the new AFTER UPDATE trigger could fire once classify wrote real values. But `tickets_main.subject` (and likely `description`) is still `NOT NULL`, so the insert is rejected. Result chain:
 
-1. **العنوان** is hardcoded to `"تذكرة من المحادثة"` (or fallback `"تذكرة جديدة من المحادثة"`) at ticket-insert time in `widget-events`. The AI classifier later sets `conversations_main.subject` but never touches `tickets_main.subject`.
-2. **الوصف** ends up as `[object Object]` because no real description text is ever passed through `postTicket` — the field is empty/object and renders badly. There is no AI-generated description for the ticket.
-3. The contact box reads `📞 تواصل مع عميلك Storefront visitor عبر واتساب: ...` because the template injects `customer_name` ("Storefront visitor" is the default for widget-originated tickets).
-4. The email fires on the AFTER INSERT trigger of `tickets_main`, **before** any AI classification runs, so even if classify wrote a better subject/description, the email would already be gone with placeholders.
+- Widget shows "تعذّر إنشاء التذكرة".
+- No ticket row → AFTER INSERT/UPDATE triggers never fire → no `send-ticket-received` call → no email (matches the empty `send-ticket-received` logs).
+- Classify never gets a ticket to attach subject/description to, and `conversations_main.category` (تصنيف) only gets written when classify finishes — if OpenAI fails or the conversation never closes cleanly, تصنيف stays empty.
 
 ## Plan
 
-### 1. Email template (`supabase/functions/_shared/email-templates-ar.ts`)
-- In `ticketReceivedHtml`, change the contact line to drop the customer name:
-  ```
-  📞 تواصل مع عميلك عبر واتساب: ${customer_phone}
-  ```
-- Remove `customer_name` from the template's parameter type (and stop passing it from `send-ticket-received`).
+### 1. DB migration
 
-### 2. AI classifier (`supabase/functions/classify-conversation/index.ts`)
-- Extend the JSON shape returned by the model with two new fields:
-  - `ticket_title` — short Arabic label (≤ 60 chars). Examples: `"طلب رفع تذكرة"`, `"شكوى في تأخر الشحن"`, `"استفسار عن سياسة الإرجاع"`. Picked from the conversation intent.
-  - `ticket_description` — one sentence (≤ 180 chars) in Arabic describing what happened: customer's situation + outcome (e.g. "العميل يشتكي من عدم وصول طلبه بعد ١٠ أيام ويطلب التحدث مع موظف بشري.").
-- Update prompt + examples + parsing/validation.
-- When a linked ticket exists for the conversation, also write `subject = ticket_title` and `description = ticket_description` on `tickets_main` in the same update that currently sets `priority` and `category`.
+- `ALTER TABLE public.tickets_main ALTER COLUMN subject DROP NOT NULL;`
+- `ALTER TABLE public.tickets_main ALTER COLUMN description DROP NOT NULL;` (only if it's also NOT NULL — check first).
+- Re-confirm the previous migration is in place: `email_sent_at` column, AFTER UPDATE `notify_ticket_received`, AFTER INSERT `notify_ticket_received_insert`, and the `pg_cron` job calling `tickets_fill_pending_email_fallback()` every minute. If the cron job is missing, schedule it here.
+- Read-only sanity check on `_app_secrets` for `ticket_email_webhook_url` / `ticket_email_webhook_secret` / `classify_webhook_url` / `classify_webhook_secret` and surface any missing keys in the migration summary.
 
-### 3. Delay the ticket email until after classification
+### 2. Classify fallback (so تصنيف is always set)
 
-Currently `notify_ticket_received` (AFTER INSERT trigger on `tickets_main`) fires `send-ticket-received` immediately. We instead want the email to go out **after** classify has filled in title/description.
+Edit `supabase/functions/classify-conversation/index.ts` so every error path (OpenAI unreachable, non-2xx, invalid JSON) still writes a safe fallback to `conversations_main` and the linked ticket instead of just returning an error:
 
-New migration:
-- Drop the AFTER INSERT trigger `notify_ticket_received` on `tickets_main`.
-- Add an AFTER UPDATE trigger on `tickets_main` that fires `send-ticket-received` exactly once per ticket, when both `subject` and `description` first become non-null/non-placeholder (use a new boolean column `email_sent_at timestamptz` or simply a guard `OLD.description IS NULL AND NEW.description IS NOT NULL`). Store `email_sent_at` to make it idempotent.
-- Keep the same `_app_secrets` URL + secret + `pg_net` call already used.
+- `conversations_main`: `category = 'other'`, `intent_type = 'inquiry'`, `subject = 'محادثة من الويدجت'`, `analysis_done = true`.
+- `tickets_main` (if linked): `subject = 'طلب رفع تذكرة من المحادثة'`, `description = 'تم استلام طلب جديد من محادثة الويدجت.'` so the AFTER UPDATE trigger fires the email.
 
-### 4. Widget ticket-insert path (`supabase/functions/widget-events/index.ts`)
-- Insert the ticket with `subject = null` and `description = null` (instead of the hardcoded `"تذكرة من المحادثة"` / `[object Object]`). The new UPDATE-based email trigger won't fire yet.
-- After insert + conversation close, classification runs (already triggered by the conversation-close path). When classify writes `subject` + `description` to `tickets_main`, the new UPDATE trigger fires the email with real AI content.
+Keep returning the error code in the HTTP response for observability, but never leave a conversation un-classified or a ticket without subject/description.
 
-### 5. Fallback / safety
-- If classify fails or is unavailable, schedule a fallback: a small pg_cron job (or a `setTimeout`-style retry in `widget-events` via `pg_net`) sets a generic title + description on tickets that have been waiting > 60 seconds with NULL subject, so the email still goes out (with safe defaults: `subject = "طلب رفع تذكرة من المحادثة"`, `description = "تم استلام طلب جديد من محادثة الويدجت."`). This avoids "silent ticket, no email".
+### 3. Widget code — no further change
 
-## Technical notes (for the dev reading later)
+Once the NOT NULL constraint is dropped, the existing `subject: null` insert in `widget-events` succeeds. AFTER INSERT no-ops; classify (or the 60s `pg_cron` fallback) populates subject/description; AFTER UPDATE trigger fires `send-ticket-received` exactly once (guarded by `email_sent_at`).
 
-- `send-ticket-received` already receives `customer_name` from the ticket row; we just stop using it in the template. No need to drop the DB column.
-- The current AFTER INSERT trigger lives in migration `20260607020303_…`. We won't edit it; the new migration will `DROP TRIGGER … ON public.tickets_main` and `CREATE TRIGGER … AFTER UPDATE …`.
-- `tickets_main` already has `subject text` and `description text`; no schema change needed there. Only add `email_sent_at timestamptz` for idempotency.
-- The classify prompt change must keep all existing fields (`category`, `intent_type`, `subject`, `close_reason`, `completion_score`, `goal_met`, `priority`, `unanswered_question`) and ADD `ticket_title` + `ticket_description`. Old `subject` keeps its meaning for `conversations_main`.
+### 4. Verification after deploy
+
+1. Open widget → "ارفعلي تذكرة" → confirm phone → widget shows success (no red error).
+2. `select id, subject, description, email_sent_at, created_at from tickets_main order by created_at desc limit 3` — subject/description populated within ~60s, `email_sent_at` set.
+3. `send-ticket-received` edge logs show one POST per ticket, status 200.
+4. `select category, subject, analysis_done from conversations_main order by created_at desc limit 3` — تصنيف populated even on classify failures.
+5. `select status, error_message, created_at from email_send_log where template_name like '%ticket%' order by created_at desc limit 10` — confirms `sent`; surface any `dlq`/`failed` reason.
 
 ## Out of scope
 
-- No UI changes in the dashboard or widget.
-- No changes to other email templates.
-- Status-update / escalation emails are untouched.
+- No UI/template changes (template was already fixed).
+- No other email flows touched.
