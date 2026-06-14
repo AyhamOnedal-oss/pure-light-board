@@ -13,8 +13,7 @@ interface Notification {
   messageAr: string;
   time: string;
   read: boolean;
-  kind?: 'ticket_new' | string;
-  ticketId?: string;
+  kind?: 'word_limit_warning' | 'word_limit_reached' | 'subscription_renewed' | 'admin_message' | string;
 }
 
 interface Toast {
@@ -33,7 +32,7 @@ interface AppContextType {
   markRead: (id: string) => void;
   markTicketNotificationRead: (ticketId: string) => void;
   unreadCount: number;
-  pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => void;
+  pushNotification: (n: { title: string; message: string }) => Promise<{ ok: boolean; error?: string }>;
   toasts: Toast[];
   showToast: (message: string) => void;
   // Auth
@@ -52,13 +51,6 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
-const defaultNotifications: Notification[] = [
-  { id: '1', title: 'New Feature', titleAr: 'ميزة جديدة', message: 'AI response quality improved by 40%', messageAr: 'تحسين جودة استجابة الذكاء الاصطناعي بنسبة 40%', time: '2 hours ago', read: false },
-  { id: '2', title: 'System Update', titleAr: 'تحديث النظام', message: 'Scheduled maintenance tonight at 2AM', messageAr: 'صيانة مجدولة الليلة الساعة 2 صباحاً', time: '5 hours ago', read: false },
-  { id: '3', title: 'Plan Alert', titleAr: 'تنبيه الخطة', message: 'You have used 80% of your word quota', messageAr: 'لقد استخدمت 80% من حصة الكلمات', time: '1 day ago', read: false },
-  { id: '4', title: 'New Integration', titleAr: 'تكامل جديد', message: 'WhatsApp Business API now available', messageAr: 'واجهة WhatsApp Business متاحة الآن', time: '2 days ago', read: true },
-];
-
 export function AppProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
     const saved = localStorage.getItem('fuqah_language');
@@ -68,54 +60,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('fuqah_theme');
     return (saved === 'dark' || saved === 'light') ? saved : 'dark';
   });
-  const BROADCAST_KEY = 'fuqah.broadcast.notifications';
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    try {
-      const raw = localStorage.getItem(BROADCAST_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return defaultNotifications;
-  });
-
-  useEffect(() => {
-    try { localStorage.setItem(BROADCAST_KEY, JSON.stringify(notifications)); } catch {}
-  }, [notifications]);
-
-  useEffect(() => {
-    const sync = (e: StorageEvent) => {
-      if (e.key !== BROADCAST_KEY || !e.newValue) return;
-      try {
-        const parsed = JSON.parse(e.newValue);
-        if (Array.isArray(parsed)) setNotifications(parsed);
-      } catch {}
-    };
-    window.addEventListener('storage', sync);
-    return () => window.removeEventListener('storage', sync);
-  }, []);
-
-  const pushNotification = useCallback((n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => {
-    setNotifications(prev => {
-      // De-dupe ticket_new by ticketId so we don't stack the same alert
-      // when realtime + backfill both fire, or across tab refreshes.
-      if (n.kind === 'ticket_new' && n.ticketId && prev.some(p => (p as any).ticketId === n.ticketId)) {
-        return prev;
-      }
-      return [{
-        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-        title: n.title,
-        titleAr: n.titleAr,
-        message: n.message,
-        messageAr: n.messageAr,
-        time: 'now',
-        read: false,
-        kind: n.kind,
-        ticketId: n.ticketId,
-      }, ...prev];
-    });
-  }, []);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   // Per-message cooldown so the same error can't be re-shown immediately
   // after it auto-dismisses. Without this, components that retry on every
