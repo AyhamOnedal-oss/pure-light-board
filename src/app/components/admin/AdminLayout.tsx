@@ -55,15 +55,19 @@ export function AdminLayout() {
     navigate('/login', { replace: true });
   };
 
-  const handleSendNotification = () => {
+  const handleSendNotification = async () => {
     const title = notifTitle.trim();
     const body = notifText.trim();
     if (!title || !body) return;
-    pushNotification({ title, titleAr: title, message: body, messageAr: body });
-    showToast(t('Notification sent successfully', 'تم إرسال الإشعار بنجاح'));
-    setNotifTitle('');
-    setNotifText('');
-    setSendNotifOpen(false);
+    const res = await pushNotification({ title, message: body });
+    if (res.ok) {
+      showToast(t('Notification sent successfully', 'تم إرسال الإشعار بنجاح'));
+      setNotifTitle('');
+      setNotifText('');
+      setSendNotifOpen(false);
+    } else {
+      showToast(res.error || t('Failed to send notification', 'فشل إرسال الإشعار'));
+    }
   };
 
   const navItems = [
