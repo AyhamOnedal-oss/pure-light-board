@@ -884,12 +884,14 @@
       var mob = isMobile();
       dom.window.className = 'fq-chat-window fq-no-scrollbar ' + pos + (mob ? ' fq-mobile' : ' fq-desktop');
       if (!mob) {
-        var _bottomGap = 90 + state.bottomOffset;
+        var _bottomGap = state.bottomOffset > 0 ? state.bottomOffset : 20;
         var _topGap = 16;
         var _desired = 580;
         var _avail = (window.innerHeight || 800) - _bottomGap - _topGap;
-        var _h = Math.max(360, Math.min(_desired, _avail));
+        var _h = _avail < 360 ? Math.max(240, _avail) : Math.min(_desired, _avail);
         dom.window.style.bottom = _bottomGap + 'px';
+        dom.window.style.minHeight = '0';
+        dom.window.style.maxHeight = _desired + 'px';
         dom.window.style.height = _h + 'px';
         dom.window.style.transformOrigin = isRight ? 'right bottom' : 'left bottom';
       }
