@@ -91,7 +91,6 @@ export function ticketReceivedHtml(v: {
   ticket_category: string;
   ticket_priority: string;
   ticket_status: string;
-  customer_name: string;
   customer_phone: string;
 }): string {
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
@@ -114,7 +113,7 @@ export function ticketReceivedHtml(v: {
     </tbody></table>
   </td></tr></tbody></table>
   <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#ecfdf5;border:1px solid #10b981;border-radius:10px"><tbody><tr><td style="padding:12px">
-    <p style="margin:0;color:#065f46;font-size:13px">📞 تواصل مع عميلك <strong>${esc(v.customer_name)}</strong> عبر واتساب: ${esc(v.customer_phone)}</p>
+    <p style="margin:0;color:#065f46;font-size:13px">📞 تواصل مع عميلك عبر واتساب: ${esc(v.customer_phone)}</p>
   </td></tr></tbody></table>
   <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
     <a href="${DASHBOARD_URL}/tickets" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:12px 28px" target="_blank">🔗 لوحة التحكم</a>
