@@ -117,6 +117,15 @@ export function ChatWindow({
   const [currentScreen, setCurrentScreen]     = useState<ScreenView>('chat');
   const [ticketId, setTicketId]               = useState(generateTicketId);
 
+  /**
+   * Thumbs feedback per message, kept in a separate map so it survives any
+   * re-creation of the `messages` array (e.g. when a parent reseats the state
+   * or a stale closure rebuilds a message object without the feedback field).
+   * The map is the source of truth for the UI; `message.feedback` is only a
+   * fallback for first paint.
+   */
+  const [feedbackById, setFeedbackById] = useState<Record<string, 'up' | 'down' | null>>({});
+
   // ── Theme colors based on mode ──────────────────────────────────────────────
   const isDarkMode = themeSettings?.mode === 'dark';
   const modeColors = isDarkMode ? DARK_MODE_COLORS : LIGHT_MODE_COLORS;
