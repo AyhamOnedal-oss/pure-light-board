@@ -133,7 +133,6 @@ export function PlansPage() {
                     cx="50%" cy="50%"
                     innerRadius={60} outerRadius={85}
                     dataKey="value" paddingAngle={4} strokeWidth={0}
-                    startAngle={90} endAngle={450}
                     isAnimationActive={true} animationBegin={500} animationDuration={1200} animationEasing="ease-out"
                     activeIndex={activeIdx}
                     onMouseLeave={() => setActiveIdx(undefined)}
