@@ -1,6 +1,12 @@
 // Temporary: send mock low-balance + renewal emails for preview.
 import { sendResendEmail } from "../_shared/resend.ts";
-import { lowBalanceWarningHtml, renewalConfirmationHtml } from "../_shared/email-templates-ar.ts";
+import {
+  lowBalanceWarningHtml,
+  renewalConfirmationHtml,
+  subscriptionExpiredHtml,
+  subscriptionExpiryWarningHtml,
+  storeDisconnectedHtml,
+} from "../_shared/email-templates-ar.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -35,7 +41,48 @@ Deno.serve(async (req) => {
     }),
   });
 
-  return new Response(JSON.stringify({ low, renew }), {
+  const expired = await sendResendEmail({
+    to,
+    subject: "انتهى اشتراكك في فقاعة AI",
+    html: subscriptionExpiredHtml({
+      store_name: "متجر التجربة",
+      expiry_date: "14 Jun 2026",
+      renewal_link: "https://fuqah.ai/?settings=plans",
+    }),
+  });
+
+  const warn = await sendResendEmail({
+    to,
+    subject: "باقتك تنتهي خلال 5 يوم",
+    html: subscriptionExpiryWarningHtml({
+      store_name: "متجر التجربة",
+      days_remaining: "5",
+      package_name: "الاحترافية",
+      renewal_link: "https://fuqah.ai/?settings=plans",
+    }),
+  });
+
+  const sallaDisc = await sendResendEmail({
+    to,
+    subject: "تم إلغاء ربط متجرك مع سلة",
+    html: storeDisconnectedHtml({
+      store_name: "متجر التجربة",
+      platform_name: "سلة",
+      disconnect_date: "14 Jun 2026",
+    }),
+  });
+
+  const zidDisc = await sendResendEmail({
+    to,
+    subject: "تم إلغاء ربط متجرك مع زد",
+    html: storeDisconnectedHtml({
+      store_name: "متجر التجربة",
+      platform_name: "زد",
+      disconnect_date: "14 Jun 2026",
+    }),
+  });
+
+  return new Response(JSON.stringify({ low, renew, expired, warn, sallaDisc, zidDisc }), {
     headers: { ...cors, "content-type": "application/json" },
   });
 });
