@@ -1924,6 +1924,15 @@
     state.currentScreen = 'rating';
     state.rating = 0;
     state.feedback = '';
+    // Rating-screen idle timer: on expiry, perform the exact same action as
+    // the "تخطي وإغلاق" button — close immediately and reset for next open.
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    var ratingIdleMs = Math.max(30, settings.ratingInactivitySeconds || 900) * 1000;
+    state.ratingInactivityTimer = setTimeout(function () {
+      state.ratingInactivityTimer = null;
+      try { restCloseConversation('rating_skip'); } catch (e) {}
+      resetConversationForNextOpen();
+    }, ratingIdleMs);
     var c = mc();
     var accentColor = settings.mainColor;
     var pageBg = isDark() ? '#1e293b' : '#FFFFFF';
@@ -2469,6 +2478,7 @@
     if (state.inactivityPromptTimer) { clearTimeout(state.inactivityPromptTimer); state.inactivityPromptTimer = null; }
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     if (dom.textarea) { dom.textarea.disabled = false; dom.textarea.placeholder = 'اكتب رسالتك...'; }
     if (dom.attachBtn) dom.attachBtn.disabled = false;
     try { renderChatScreen(); } catch (e) {}
@@ -2496,6 +2506,7 @@
     if (state.inactivityPromptTimer) { clearTimeout(state.inactivityPromptTimer); state.inactivityPromptTimer = null; }
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     // v4.7.21 — immediately rebuild the chat screen so the next open is guaranteed fresh
     try { renderChatScreen(); } catch(e) {}
     dom.window.classList.add('fq-window-exit');
