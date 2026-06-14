@@ -1,6 +1,6 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.30 (Hostinger embed: cap chat window height above bottom bar — no clipping)
+ * Version: 4.7.31 (Hostinger embed: anchor chat to bottom bar without floating)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
@@ -612,6 +612,7 @@
   function lockBody() {
     savedScrollY = window.scrollY;
     savedBodyCSS = document.body.style.cssText;
+    if (!isMobile()) return;
     document.body.style.overflow = 'hidden';
     document.body.style.touchAction = 'none';
     document.body.style.position = 'fixed';
@@ -878,12 +879,14 @@
       var mob = isMobile();
       dom.window.className = 'fq-chat-window fq-no-scrollbar ' + pos + (mob ? ' fq-mobile' : ' fq-desktop');
       if (!mob) {
-        var _bottomGap = 90 + state.bottomOffset;
+        var _bottomGap = state.bottomOffset > 0 ? state.bottomOffset : 20;
         var _topGap = 16;
         var _desired = 580;
         var _avail = (window.innerHeight || 800) - _bottomGap - _topGap;
-        var _h = Math.max(360, Math.min(_desired, _avail));
+        var _h = _avail < 360 ? Math.max(240, _avail) : Math.min(_desired, _avail);
         dom.window.style.bottom = _bottomGap + 'px';
+        dom.window.style.minHeight = '0';
+        dom.window.style.maxHeight = _desired + 'px';
         dom.window.style.height = _h + 'px';
         dom.window.style.transformOrigin = isRight ? 'right bottom' : 'left bottom';
       }
