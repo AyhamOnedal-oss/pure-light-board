@@ -664,10 +664,10 @@ export function ChatWindow({
               theme={theme}
               isDarkMode={isDarkMode}
               mainColor={mainColor}
-              // Disable rating-screen auto-close. The conversation is already
-              // closed before this screen mounts, and customers complained
-              // that the silent countdown was snapping the widget back.
-              inactivitySeconds={0}
+              // Auto-close after configured idle (default 15 min). Matches the
+              // server-side stale-conversation cutoff so the dashboard and the
+              // widget UI stay in sync.
+              inactivitySeconds={themeSettings?.ratingInactivitySeconds ?? 900}
               onRatingSubmit={(stars, fb) => {
                 const comment = typeof fb === 'string' ? fb.trim() : '';
                 postRating(evCtx(), { stars, comment: comment.length > 0 ? comment : undefined });
@@ -676,7 +676,10 @@ export function ChatWindow({
                 trackEvent('rating.skipped', evCtx());
                 closeConversation(evCtx(), 'rating_skip');
               }}
-              onRatingAutoClose={() => { /* disabled */ }}
+              onRatingAutoClose={() => {
+                trackEvent('rating.auto_closed', evCtx(), { reason: 'inactivity' });
+                closeConversation(evCtx(), 'inactivity');
+              }}
             />
           )}
 
