@@ -1935,6 +1935,15 @@
     state.currentScreen = 'rating';
     state.rating = 0;
     state.feedback = '';
+    // Rating-screen idle timer: on expiry perform the exact same action as
+    // the "تخطي وإغلاق" button — close immediately and reset for next open.
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    var ratingIdleMs = Math.max(30, settings.ratingInactivitySeconds || 120) * 1000;
+    state.ratingInactivityTimer = setTimeout(function () {
+      state.ratingInactivityTimer = null;
+      try { restCloseConversation('rating_skip'); } catch (e) {}
+      try { resetConversationForNextOpen(); } catch (e) {}
+    }, ratingIdleMs);
     var c = mc();
     var accentColor = settings.mainColor;
     var pageBg = isDark() ? '#1e293b' : '#FFFFFF';
