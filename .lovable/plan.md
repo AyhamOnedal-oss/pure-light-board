@@ -1,47 +1,55 @@
-## Scope
+## Goal
 
-Three changes: widget rating screen char limit + counter, verify dashboard feedback bar persists, and investigate the ~13s widget render delay.
+Produce a new Hostinger-ready widget file `widget-4.7.32-hostinger.js` (based on your uploaded `widget-4.7.31-hostinger (2).js`) with two changes applied, saved to `/mnt/documents` so you can download it and push to `https://widget.fuqah.net/widget.js`.
 
-### 1. Widget rating screen — `widget/src/app/components/RatingScreen.tsx`
+## Changes to apply inside the IIFE
 
-- Add `maxLength={115}` to the feedback `<textarea>` and clamp state.
-- Add a transparent character counter at the bottom-left of the textarea:
-  - `{feedback.length}/115`, `font-size: 11px`, `opacity: 0.5`, `pointer-events: none`, absolutely positioned inside a relative wrapper (`bottom: 6px; left: 10px`).
-  - Color shifts to soft red (`#ef4444`) when `length >= 110`.
-- No other layout changes.
+### 1. Rating feedback: 115-char limit + transparent counter
 
-### 2. Dashboard feedback bar — `src/app/components/ConversationsPage.tsx`
+Locate the rating screen builder (the function that renders the stars + feedback textarea after a conversation ends). Apply:
 
-The yellow bar (⭐ + comment, lines 520-527) already exists and renders when `selected.ratingComment` is set. It isn't appearing for real conversations because the widget likely doesn't persist the comment.
+- Add `maxLength = 115` attribute to the feedback `<textarea>`.
+- On `input`, clamp `value` to 115 chars.
+- Insert a small counter element positioned at the bottom-left **inside** the textarea wrapper:
+  - text: `{len}/115`
+  - styles: `position:absolute; bottom:6px; left:10px; font-size:11px; opacity:.45; pointer-events:none; font-family:inherit;`
+  - color flips to `#ef4444` and opacity to `.8` when `len >= 110`.
+- Ensure the textarea wrapper has `position:relative` and a bit of bottom padding (`padding-bottom:18px`) so the counter doesn't overlap typed text.
+- RTL-safe: when locale is Arabic, swap `left:10px` → `right:10px`.
 
-- Trace the `onRatingSubmit(stars, feedback)` wiring from `RatingScreen` through `ChatWindow` / `chatApi` and confirm the rating endpoint writes `rating_comment` to the `conversations` row.
-- If missing, include `comment` in the rate payload so the existing dashboard bar renders.
+### 2. Instant render (kill the ~13s delay)
 
-No styling change to the dashboard bar.
+In the bootstrap section (the part that fetches `widget-resolve` + `widget-config` before painting), add a localStorage cache so repeat visits paint the bubble in <200ms:
 
-### 3. Widget render delay (~13s)
+- Cache key: `fuqah_widget_cache_{platform}_{external_id}` storing `{ tenant_id, cfg, ts }`.
+- On boot: if cache exists, immediately call the existing mount/render with cached `tenant_id` + `cfg`. Mark `mounted = true`.
+- In parallel, still fire `widget-resolve` → `widget-config`. When fresh data arrives:
+  - Write it back to localStorage.
+  - If `!mounted`, mount now.
+  - If mounted, diff against cached visual keys (`bubble_visible`, `position`, `bubble_offset_x/y`, `bubble_size`, `widget_outer_color`, `widget_inner_color`, `welcome_bubble_enabled`, `welcome_bubble_line1/2`, `auto_open_delay`, `logo_url`, `icon_url`). Only re-mount if a visual key changed.
+- Add `<link rel="preconnect">` injection for the Supabase functions origin at the very top of the IIFE so the first network call is faster on cold visits too.
+- Run `widget-resolve` + `widget-config` with `Promise.all` style (resolve still has to come first since config needs `tenant_id`, but config + branding fetches inside the script run in parallel where applicable).
 
-Goal: bubble must appear immediately on the storefront, not after ~13s.
+No other behavior changes — header text, footer, ticket flow, thumbs feedback, idle close, and bottom-bar anchoring all stay exactly as 4.7.31.
 
-Investigation steps:
-- Profile `widget-loader` edge function and `widget-config` / `widget-resolve` calls — check cold-start, serial vs parallel fetches, and whether the loader awaits all data before painting.
-- Check `public/widget-4.7.31-hostinger.js` bundle size and how the storefront snippet injects it (async/defer, blocking script, position in `<head>` vs end of `<body>`).
-- Check `useFetchChatSettings` + `useFetchStoreBranding` in `widget/src/app/hooks/` — if the bubble waits on both before mounting, that's the stall.
+## Header bump
 
-Fixes (apply the ones that match findings):
-- Render the launcher bubble synchronously from the loader script using cached/default config (logo, color, position) so it shows in < 200ms; hydrate real config in the background and reconcile.
-- Make `widget-config` and `widget-resolve` calls parallel (`Promise.all`) and add a short in-memory + `localStorage` cache keyed by `tenant_id` so repeat visits paint instantly.
-- Ensure the loader `<script>` tag is `async` and that the IIFE doesn't block on the full React bundle before showing the launcher (split: tiny loader paints bubble → lazy-loads chat window on click).
-- Set `Cache-Control: public, max-age=300, stale-while-revalidate=86400` on `widget-config` for anon reads.
-- Preconnect to the Supabase functions origin from the loader.
+Update the top comment block to:
 
-### 4. Rebuild widget bundle
+```
+* Version: 4.7.32 (Hostinger embed: + 115-char feedback limit with counter;
+*                  + instant render via localStorage cache;
+*                  + preconnect to Supabase functions origin)
+```
 
-- I edit `widget/` source, not the minified file.
-- Build: `cd widget && bun install && bun run build`.
-- Copy `widget/dist/widget.js` → `public/widget-4.7.32-hostinger.js`.
-- You upload that to `https://widget.fuqah.net/widget.js` (the build does not auto-publish to Hostinger).
+## Deliverable
 
-### Out of scope
+- File: `/mnt/documents/widget-4.7.32-hostinger.js` (full 2932+ line script with the edits above).
+- Presented via `<presentation-artifact>` so you can click to download, then upload to Hostinger as `widget.js`.
+- No changes to the React `widget/` workspace in this step — this is purely the standalone Hostinger embed file.
 
-No dashboard layout changes, no new tables, no edge function rewrites beyond what's needed for #2 and #3.
+## Out of scope
+
+- No dashboard changes.
+- No edge-function changes (the loader/config edits from the previous round already shipped; this Hostinger file is a separate, self-contained script that doesn't go through `widget-loader`).
+- No new versions of `public/widget-*.js` in the repo unless you ask.
