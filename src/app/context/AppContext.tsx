@@ -13,8 +13,7 @@ interface Notification {
   messageAr: string;
   time: string;
   read: boolean;
-  kind?: 'ticket_new' | string;
-  ticketId?: string;
+  kind?: 'word_limit_warning' | 'word_limit_reached' | 'subscription_renewed' | 'admin_message' | string;
 }
 
 interface Toast {
@@ -33,7 +32,7 @@ interface AppContextType {
   markRead: (id: string) => void;
   markTicketNotificationRead: (ticketId: string) => void;
   unreadCount: number;
-  pushNotification: (n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => void;
+  pushNotification: (n: { title: string; message: string }) => Promise<{ ok: boolean; error?: string }>;
   toasts: Toast[];
   showToast: (message: string) => void;
   // Auth
@@ -52,13 +51,6 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
-const defaultNotifications: Notification[] = [
-  { id: '1', title: 'New Feature', titleAr: 'ميزة جديدة', message: 'AI response quality improved by 40%', messageAr: 'تحسين جودة استجابة الذكاء الاصطناعي بنسبة 40%', time: '2 hours ago', read: false },
-  { id: '2', title: 'System Update', titleAr: 'تحديث النظام', message: 'Scheduled maintenance tonight at 2AM', messageAr: 'صيانة مجدولة الليلة الساعة 2 صباحاً', time: '5 hours ago', read: false },
-  { id: '3', title: 'Plan Alert', titleAr: 'تنبيه الخطة', message: 'You have used 80% of your word quota', messageAr: 'لقد استخدمت 80% من حصة الكلمات', time: '1 day ago', read: false },
-  { id: '4', title: 'New Integration', titleAr: 'تكامل جديد', message: 'WhatsApp Business API now available', messageAr: 'واجهة WhatsApp Business متاحة الآن', time: '2 days ago', read: true },
-];
-
 export function AppProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
     const saved = localStorage.getItem('fuqah_language');
@@ -68,54 +60,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('fuqah_theme');
     return (saved === 'dark' || saved === 'light') ? saved : 'dark';
   });
-  const BROADCAST_KEY = 'fuqah.broadcast.notifications';
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    try {
-      const raw = localStorage.getItem(BROADCAST_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return defaultNotifications;
-  });
-
-  useEffect(() => {
-    try { localStorage.setItem(BROADCAST_KEY, JSON.stringify(notifications)); } catch {}
-  }, [notifications]);
-
-  useEffect(() => {
-    const sync = (e: StorageEvent) => {
-      if (e.key !== BROADCAST_KEY || !e.newValue) return;
-      try {
-        const parsed = JSON.parse(e.newValue);
-        if (Array.isArray(parsed)) setNotifications(parsed);
-      } catch {}
-    };
-    window.addEventListener('storage', sync);
-    return () => window.removeEventListener('storage', sync);
-  }, []);
-
-  const pushNotification = useCallback((n: { title: string; titleAr: string; message: string; messageAr: string; kind?: string; ticketId?: string }) => {
-    setNotifications(prev => {
-      // De-dupe ticket_new by ticketId so we don't stack the same alert
-      // when realtime + backfill both fire, or across tab refreshes.
-      if (n.kind === 'ticket_new' && n.ticketId && prev.some(p => (p as any).ticketId === n.ticketId)) {
-        return prev;
-      }
-      return [{
-        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-        title: n.title,
-        titleAr: n.titleAr,
-        message: n.message,
-        messageAr: n.messageAr,
-        time: 'now',
-        read: false,
-        kind: n.kind,
-        ticketId: n.ticketId,
-      }, ...prev];
-    });
-  }, []);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   // Per-message cooldown so the same error can't be re-shown immediately
   // after it auto-dismisses. Without this, components that retry on every
@@ -262,74 +207,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTenantId(null);
   }, []);
 
-  // Push a bell notification for every new ticket on this tenant.
-  // - Subscribes to realtime INSERTs on tickets_main
-  // - Backfills the last 24h on mount so the bell is populated after login
-  // - De-dupes per ticketId using a persistent localStorage set so we don't
-  //   re-push across refreshes or multiple tabs.
+  // Load bell notifications for the current tenant from app_notifications.
+  // Subscribes to realtime so new events (word limit, renewal, admin
+  // broadcast) appear instantly. Per-user "read" tracking lives in the
+  // row's read_by jsonb array.
+  const userIdForRead = session?.user?.id ?? null;
   useEffect(() => {
-    if (!tenantId || !session?.user?.id) return;
-    const uid = session.user.id;
-    const SEEN_KEY = `fuqah.notif.${uid}.ticket_new.seen`;
-    const readSeen = (): Set<string> => {
-      try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
-      catch { return new Set(); }
-    };
-    const writeSeen = (s: Set<string>) => {
-      try {
-        // cap at 500 most-recent ids to keep storage bounded
-        const arr = Array.from(s);
-        const capped = arr.length > 500 ? arr.slice(arr.length - 500) : arr;
-        localStorage.setItem(SEEN_KEY, JSON.stringify(capped));
-      } catch {}
-    };
-    const pushTicket = (row: { id: string; display_code?: string | null; customer_name?: string | null }) => {
-      const seen = readSeen();
-      if (seen.has(row.id)) return;
-      seen.add(row.id);
-      writeSeen(seen);
-      const code = row.display_code || row.id.slice(0, 8);
-      const who = row.customer_name?.trim() || 'Storefront visitor';
-      const whoAr = row.customer_name?.trim() || 'زائر المتجر';
-      pushNotification({
-        kind: 'ticket_new',
-        ticketId: row.id,
-        title: 'New ticket opened',
-        titleAr: 'تم فتح تذكرة جديدة',
-        message: `${who} — ${code}`,
-        messageAr: `${whoAr} — ${code}`,
-      });
+    if (!tenantId || !userIdForRead) { setNotifications([]); return; }
+    let cancelled = false;
+
+    const mapRow = (r: any): Notification => {
+      const readBy: string[] = Array.isArray(r.read_by) ? r.read_by : [];
+      return {
+        id: r.id,
+        title: r.title_en ?? '',
+        titleAr: r.title_ar ?? '',
+        message: r.message_en ?? '',
+        messageAr: r.message_ar ?? '',
+        time: r.created_at ?? '',
+        read: readBy.includes(userIdForRead),
+        kind: r.kind,
+      };
     };
 
-    let cancelled = false;
-    (async () => {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const load = async () => {
       const { data } = await supabase
-        .from('tickets_main')
-        .select('id, display_code, customer_name, created_at')
+        .from('app_notifications')
+        .select('id, kind, title_en, title_ar, message_en, message_ar, read_by, created_at')
         .eq('tenant_id', tenantId)
-        .gte('created_at', since)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(50);
-      if (cancelled || !data) return;
-      data.forEach(pushTicket);
-    })();
+      if (cancelled) return;
+      setNotifications((data ?? []).map(mapRow));
+    };
+    load();
 
     const channel = supabase
-      .channel(`bell-tickets-${tenantId}`)
+      .channel(`bell-notifs-${tenantId}`)
       .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'tickets_main', filter: `tenant_id=eq.${tenantId}` },
-        (payload) => {
-          const row = payload.new as { id: string; display_code?: string | null; customer_name?: string | null };
-          if (row?.id) pushTicket(row);
-        })
+        { event: '*', schema: 'public', table: 'app_notifications', filter: `tenant_id=eq.${tenantId}` },
+        () => load())
       .subscribe();
 
-    return () => {
-      cancelled = true;
-      void supabase.removeChannel(channel);
-    };
-  }, [tenantId, session?.user?.id, pushNotification]);
+    return () => { cancelled = true; void supabase.removeChannel(channel); };
+  }, [tenantId, userIdForRead]);
+
+  const pushNotification = useCallback(async (n: { title: string; message: string }) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('broadcast-admin-notification', {
+        body: { title: n.title, message: n.message },
+      });
+      if (error) return { ok: false, error: error.message };
+      if ((data as any)?.error) return { ok: false, error: String((data as any).error) };
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'failed' };
+    }
+  }, []);
 
   const sendPasswordReset = useCallback(async (email: string) => {
     try {
@@ -368,12 +302,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const t = (en: string, ar: string) => language === 'ar' ? ar : en;
   const dir = language === 'ar' ? 'rtl' as const : 'ltr' as const;
-  const markRead = (id: string) => setNotifications(n => n.map(x => x.id === id ? { ...x, read: true } : x));
-  const markTicketNotificationRead = useCallback((ticketId: string) => {
-    setNotifications(n => n.map(x =>
-      x.kind === 'ticket_new' && x.ticketId === ticketId ? { ...x, read: true } : x
-    ));
-  }, []);
+  const markRead = useCallback(async (id: string) => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    setNotifications(n => n.map(x => x.id === id ? { ...x, read: true } : x));
+    // Append uid to read_by jsonb (idempotent).
+    const { data: row } = await supabase
+      .from('app_notifications')
+      .select('read_by')
+      .eq('id', id)
+      .maybeSingle();
+    const existing: string[] = Array.isArray((row as any)?.read_by) ? (row as any).read_by : [];
+    if (existing.includes(uid)) return;
+    const next = [...existing, uid];
+    await supabase.from('app_notifications').update({ read_by: next }).eq('id', id);
+  }, [session?.user?.id]);
+  // Kept for backward compatibility — ticket notifications were removed.
+  const markTicketNotificationRead = useCallback((_ticketId: string) => {}, []);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const showToast = useCallback((message: string) => {

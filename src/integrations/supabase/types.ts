@@ -810,6 +810,50 @@ export type Database = {
           },
         ]
       }
+      app_notifications: {
+        Row: {
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["app_notification_kind"]
+          message_ar: string
+          message_en: string
+          read_by: Json
+          tenant_id: string
+          title_ar: string
+          title_en: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["app_notification_kind"]
+          message_ar: string
+          message_en: string
+          read_by?: Json
+          tenant_id: string
+          title_ar: string
+          title_en: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["app_notification_kind"]
+          message_ar?: string
+          message_en?: string
+          read_by?: Json
+          tenant_id?: string
+          title_ar?: string
+          title_en?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_notifications_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "settings_workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       auth_tenant_members: {
         Row: {
           created_at: string
@@ -2054,6 +2098,11 @@ export type Database = {
         | "unpaid"
         | "pending"
       admin_team_status: "active" | "inactive"
+      app_notification_kind:
+        | "word_limit_warning"
+        | "word_limit_reached"
+        | "subscription_renewed"
+        | "admin_message"
       app_role: "super_admin" | "support"
       channel_kind:
         | "whatsapp"
@@ -2237,6 +2286,12 @@ export const Constants = {
         "pending",
       ],
       admin_team_status: ["active", "inactive"],
+      app_notification_kind: [
+        "word_limit_warning",
+        "word_limit_reached",
+        "subscription_renewed",
+        "admin_message",
+      ],
       app_role: ["super_admin", "support"],
       channel_kind: [
         "whatsapp",

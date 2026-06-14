@@ -14,6 +14,20 @@ import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, toMs } from '../utils/notifications';
 import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
 
+function formatRelative(iso: string, lang: 'en' | 'ar'): string {
+  if (!iso) return '';
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return '';
+  const diff = Math.max(0, Date.now() - ts);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return lang === 'ar' ? 'الآن' : 'now';
+  if (m < 60) return lang === 'ar' ? `قبل ${m} دقيقة` : `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return lang === 'ar' ? `قبل ${h} ساعة` : `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return lang === 'ar' ? `قبل ${d} يوم` : `${d}d ago`;
+}
+
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
   const { perms: userPerms, loading: permsLoading, disabled: userDisabled } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
@@ -126,12 +140,8 @@ export function Layout() {
     };
   }, [tenantId, location.pathname, badgeVersion]);
 
-  // Sidebar Tickets badge — derived from unread "new ticket" bell
-  // notifications. Decrements only when the user reads the notification
-  // in the bell dropdown, NOT when opening a ticket or conversation.
-  const ticketsBadge = notifications.filter(
-    (n) => (n as { kind?: string }).kind === 'ticket_new' && !n.read,
-  ).length;
+  // Tickets sidebar badge is not derived from bell notifications anymore.
+  const ticketsBadge = 0;
 
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
@@ -401,6 +411,11 @@ export function Layout() {
                       )}
                     </div>
                     <div className="max-h-80 overflow-y-auto">
+                      {notifications.length === 0 && (
+                        <div className="p-6 text-center text-[13px] text-muted-foreground">
+                          {t('No notifications', 'لا توجد إشعارات')}
+                        </div>
+                      )}
                       {notifications.map(n => (
                         <button
                           key={n.id}
@@ -412,7 +427,7 @@ export function Layout() {
                             <div className={!n.read ? '' : 'ps-5'}>
                               <p className="text-[14px]" style={{ fontWeight: 500 }}>{language === 'ar' ? n.titleAr : n.title}</p>
                               <p className="text-[13px] text-muted-foreground mt-0.5">{language === 'ar' ? n.messageAr : n.message}</p>
-                              <p className="text-[11px] text-muted-foreground/60 mt-1.5">{n.time}</p>
+                              <p className="text-[11px] text-muted-foreground/60 mt-1.5">{formatRelative(n.time, language)}</p>
                             </div>
                           </div>
                         </button>
