@@ -1,55 +1,39 @@
-## Goal
+## Diagnosis
 
-Produce a new Hostinger-ready widget file `widget-4.7.32-hostinger.js` (based on your uploaded `widget-4.7.31-hostinger (2).js`) with two changes applied, saved to `/mnt/documents` so you can download it and push to `https://widget.fuqah.net/widget.js`.
+Your screenshot is the **storefront widget served from `widget.fuqah.net/widget.js`** (Hostinger). That file is still **v4.7.31** — the old version with no counter and the `restSubmitRating(state.rating, '')` bug that drops the feedback comment before it reaches the dashboard.
 
-## Changes to apply inside the IIFE
+The fixes for both issues are already in the file I produced last turn:
 
-### 1. Rating feedback: 115-char limit + transparent counter
+- `/mnt/documents/widget-4.7.32-hostinger.js`
+  - 115-char hard limit on `<textarea>` (`maxLength=115` + slice clamp)
+  - Live transparent counter at bottom-left (`{n}/115`, turns red at ≥110)
+  - Feedback comment now actually forwarded: `restSubmitRating(state.rating, (state.feedback || '').trim())` instead of `''`
+  - Backend (`widget-events`) already writes `rating_comment` to `conversations_main` and the dashboard (`ConversationsPage.tsx` line 520-527) already renders the yellow comment bar from that column.
 
-Locate the rating screen builder (the function that renders the stars + feedback textarea after a conversation ends). Apply:
+**Nothing else in the codebase needs to change.** The dashboard side, the React widget side, and the Hostinger file are all correct in this repo — the live `widget.fuqah.net/widget.js` just hasn't been replaced yet.
 
-- Add `maxLength = 115` attribute to the feedback `<textarea>`.
-- On `input`, clamp `value` to 115 chars.
-- Insert a small counter element positioned at the bottom-left **inside** the textarea wrapper:
-  - text: `{len}/115`
-  - styles: `position:absolute; bottom:6px; left:10px; font-size:11px; opacity:.45; pointer-events:none; font-family:inherit;`
-  - color flips to `#ef4444` and opacity to `.8` when `len >= 110`.
-- Ensure the textarea wrapper has `position:relative` and a bit of bottom padding (`padding-bottom:18px`) so the counter doesn't overlap typed text.
-- RTL-safe: when locale is Arabic, swap `left:10px` → `right:10px`.
+## Verification that the code path works
 
-### 2. Instant render (kill the ~13s delay)
+I will, in build mode:
 
-In the bootstrap section (the part that fetches `widget-resolve` + `widget-config` before painting), add a localStorage cache so repeat visits paint the bubble in <200ms:
+1. Re-open `/mnt/documents/widget-4.7.32-hostinger.js` and grep-verify all three patches are present:
+   - `FQ_FB_MAX = 115` block with counter element
+   - `state.feedback || ''` in the submit handler
+   - `Version: 4.7.32` header
+2. Run `node --check` on it again to confirm syntax.
+3. Re-publish the artifact via `<presentation-artifact>` so you can re-download it directly from this turn (in case the previous download link is gone).
 
-- Cache key: `fuqah_widget_cache_{platform}_{external_id}` storing `{ tenant_id, cfg, ts }`.
-- On boot: if cache exists, immediately call the existing mount/render with cached `tenant_id` + `cfg`. Mark `mounted = true`.
-- In parallel, still fire `widget-resolve` → `widget-config`. When fresh data arrives:
-  - Write it back to localStorage.
-  - If `!mounted`, mount now.
-  - If mounted, diff against cached visual keys (`bubble_visible`, `position`, `bubble_offset_x/y`, `bubble_size`, `widget_outer_color`, `widget_inner_color`, `welcome_bubble_enabled`, `welcome_bubble_line1/2`, `auto_open_delay`, `logo_url`, `icon_url`). Only re-mount if a visual key changed.
-- Add `<link rel="preconnect">` injection for the Supabase functions origin at the very top of the IIFE so the first network call is faster on cold visits too.
-- Run `widget-resolve` + `widget-config` with `Promise.all` style (resolve still has to come first since config needs `tenant_id`, but config + branding fetches inside the script run in parallel where applicable).
+## What you need to do on your side
 
-No other behavior changes — header text, footer, ticket flow, thumbs feedback, idle close, and bottom-bar anchoring all stay exactly as 4.7.31.
+1. Download the artifact from this message.
+2. In Hostinger File Manager, open the directory that serves `https://widget.fuqah.net/widget.js`.
+3. **Replace** `widget.js` with the downloaded file (rename `widget-4.7.32-hostinger.js` → `widget.js`).
+4. Hard-refresh the storefront with cache cleared (DevTools → Network → Disable cache, then reload), or append `?v=4.7.32` to the snippet `src` temporarily to bypass CDN cache. The merchant snippet is `<script src="https://widget.fuqah.net/widget.js" ...>` — Hostinger may cache the old file for up to ~10 min.
+5. Open the chat, rate, type feedback → counter appears, capped at 115, and the comment shows in the dashboard's conversation yellow bar.
 
-## Header bump
-
-Update the top comment block to:
-
-```
-* Version: 4.7.32 (Hostinger embed: + 115-char feedback limit with counter;
-*                  + instant render via localStorage cache;
-*                  + preconnect to Supabase functions origin)
-```
-
-## Deliverable
-
-- File: `/mnt/documents/widget-4.7.32-hostinger.js` (full 2932+ line script with the edits above).
-- Presented via `<presentation-artifact>` so you can click to download, then upload to Hostinger as `widget.js`.
-- No changes to the React `widget/` workspace in this step — this is purely the standalone Hostinger embed file.
+If after upload + hard refresh you still don't see the counter, screenshot the **Network** tab showing `widget.js` response headers (so I can see if Hostinger/Cloudflare is serving a cached copy) and I'll add an `if-modified-since`-friendly cache buster.
 
 ## Out of scope
 
-- No dashboard changes.
-- No edge-function changes (the loader/config edits from the previous round already shipped; this Hostinger file is a separate, self-contained script that doesn't go through `widget-loader`).
-- No new versions of `public/widget-*.js` in the repo unless you ask.
+- No edits to React widget, dashboard, or edge functions — they are already correct.
+- No version-number change beyond 4.7.32.
