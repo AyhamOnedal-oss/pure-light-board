@@ -907,6 +907,8 @@
   function renderChatScreen() {
     clearInner();
     state.currentScreen = 'chat';
+    // Leaving the rating screen (Back button etc.) must cancel its idle timer.
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     var c = mc();
 
     dom.window.style.background = c.chatBg;
