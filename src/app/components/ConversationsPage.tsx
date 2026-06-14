@@ -158,7 +158,9 @@ export function ConversationsPage() {
         const isClosed = c.status === 'closed' || c.status === 'resolved';
         const ratedOrResolved = !!c.csat_rating || !!c.resolved_at;
         const intentRaw = (c as { intent_type?: string | null }).intent_type;
-        const intent: IntentType | null = (intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null;
+        const intent: IntentType | null = (c.category === 'other')
+          ? 'other'
+          : ((intentRaw === 'complaint' || intentRaw === 'inquiry' || intentRaw === 'request' || intentRaw === 'suggestion') ? intentRaw : null);
         return {
           id: c.id,
           name,
