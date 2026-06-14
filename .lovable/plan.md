@@ -1,40 +1,49 @@
-**Goal**
+## Goal
 
-Clarified flow:
+Restore the storefront widget to a known-good state and reapply the recent fixes carefully, so the regressions you're seeing (thumbs up disappearing, rating screen not auto-closing) go away — without losing the 4.7.31 layout/bottom-bar fix or the "no idle while ticket raised" behavior.
 
-- Normal chat: keep current "هل ما زلت معنا؟" inactivity prompt. If user doesn't respond, transition to rating screen → rating idle timer starts → on timeout, close immediately (same effect as tapping `تخطي وإغلاق`).
-- Ticket raised: completely skip all idle logic. No "are you there?" prompt, no rating screen, no idle timers. The widget just sits there (or follows existing ticket-created flow) — no auto-close from inactivity.
+## Approach
 
-**Behavior matrix**
+Overwrite `public/widget-4.7.31-hostinger.js` with the contents of `public/widget-4.7.30-hostinger.js` as a baseline, then add back only the four changes we actually want, plus the two bug fixes.
 
-| State | "هل ما زلت معنا؟" prompt | Rating screen | Rating idle close |
-|---|---|---|---|
-| Normal chat, no ticket | Yes (existing) | Yes | Yes — collapse + clear, same as skip button |
-| Ticket raised (`ticketCreated === true`) | No | No | N/A |
+## Changes reapplied on top of 4.7.30
 
-**Changes**
+1. **Bottom-bar anchor (desktop sizing)** — same delta as 4.7.31:
+   - `_bottomGap = state.bottomOffset > 0 ? state.bottomOffset : 20` (anchor to bar, no 90px floating gap)
+   - `_h` clamps to `Math.max(240, _avail)` when space is tight, else `Math.min(_desired, _avail)`
+   - Set `minHeight: 0` and `maxHeight: 580px` so the inline `max-height` CSS rule can't clip
+2. **lockBody mobile-only** — keep `if (!isMobile()) return;` early-out so desktop scroll isn't frozen.
+3. **No idle while ticket raised** — keep the existing `state.ticketCreated` gates in the inactivity timers (already present in 4.7.30; verify they survive).
+4. **Rating idle = skip-close** — re-add `settings.ratingInactivitySeconds` (default 900), `state.ratingInactivityTimer`, the `rating_inactivity_seconds` settings parser, the timer set inside `renderRatingScreen` that calls `restCloseConversation('rating_skip')` + `resetConversationForNextOpen()`, and the cleanup `clearTimeout`s in `renderChatScreen`, `resetConversationForNextOpen`, and `fullClose`.
 
-1. `widget/src/app/components/ChatWindow.tsx`
-   - Gate the existing inactivity-prompt `useEffect` (the one that schedules `setShowInactivityPrompt(true)` after `promptSeconds`) with `&& !ticketCreated`. Also clear `showInactivityPrompt` whenever `ticketCreated` flips to true.
-   - Gate the auto-close `useEffect` (the one that fires after `closeSeconds` once the prompt is showing) the same way — bail out if `ticketCreated`.
-   - When the chat-idle auto-close fires, currently it calls `onClose()` directly. Change it to transition to the rating screen instead (`setCurrentScreen('rating')` + `closeConversation(..., 'inactivity')`), so the rating idle timer is what ultimately closes the widget — matching the user's described flow ("prompt → no answer → rating shows → rating idle → close immediately"). Only do this when `!ticketCreated`.
-   - Wire `RatingScreen`'s `onRatingAutoClose` so its effect is identical to the skip button: fire `rating.skipped` + `closeConversation(..., 'rating_skip')` then `onClose()`. Remove the separate `rating.auto_closed` event path so timeout == skip. The widget collapses, messages clear, next bubble click starts a fresh conversation.
+## Bug fixes (the regressions you reported)
 
-2. `widget/src/app/components/RatingScreen.tsx`
-   - No structural change. It already calls `onRatingAutoClose?.()` then `onClose()` on timeout — that is the same code path as `handleSkip`. Keep as-is.
+### Thumbs up disappears after sending another message
 
-3. `widget/src/app/components/InactivityPrompt.tsx`
-   - No change. Still rendered for normal chat.
+Root cause: `buildFeedback(msgId)` stores the chosen value only in a local closure (`feedbackState = { value: null }`). Any time the message list is rebuilt (new message append that triggers a re-render, polling refresh, screen switch back), the closure is recreated and the UI shows the default unselected state.
 
-4. `public/widget-4.7.31-hostinger.js` (storefront embed bundle)
-   - Mirror the same three gates in the bundled script: skip the "are you there?" prompt and its follow-up close when a ticket is raised, and on rating timeout perform the same close path as the skip button.
-   - Bump header comment: "no idle while ticket raised; rating idle = skip-close".
+Fix:
+- Add `state.messageFeedback = {}` keyed by `msgId`.
+- In `buildFeedback(msgId)`, initialize `feedbackState.value = state.messageFeedback[msgId] || null` and call `updateFeedbackUI()` once before returning so the saved choice paints immediately on rebuild.
+- In both onclick handlers, also persist: `state.messageFeedback[msgId] = feedbackState.value;`
+- Clear `state.messageFeedback = {}` inside `resetConversationForNextOpen()` and `fullClose()` so a fresh conversation starts clean.
 
-5. Dashboard setting (`src/app/components/settings/ChatCustomization.tsx`)
-   - No data-model or label change. Existing `inactivityEnabled`, `inactivityPromptSeconds`, `inactivityCloseSeconds`, `ratingInactivitySeconds` continue to drive the normal-chat path. They are simply ignored once a ticket has been raised.
+### Rating screen doesn't auto-close after idle
 
-**Verification on the storefront**
+Two issues to address together:
+- The 4.7.31 default of 900s (15 min) is likely longer than you've been waiting. Lower the built-in default to **120s** so behavior matches the dashboard's typical setting, and the dashboard value still overrides via `rating_inactivity_seconds`.
+- Verify the parser key matches what `chat_settings` actually saves. If the column is named differently (e.g. `rating_inactivity_close_seconds`), add a second fallback in the settings parser so both keys map to `settings.ratingInactivitySeconds`. I'll confirm the exact column name during implementation and wire whichever key(s) are present.
+- Make the timer robust: re-arm it on every entry to `renderRatingScreen` (already does) and ensure no early `clearTimeout` happens from an unrelated `renderChatScreen` call during the rating screen's lifetime — guard the cleanup in `renderChatScreen` so it only clears when actually leaving rating (`if (state.currentScreen !== 'rating')`).
 
-- Send messages, leave idle → prompt appears → ignore → rating screen appears → leave idle → widget collapses immediately (no lingering rating page), reopening starts a brand new conversation.
-- Trigger a ticket, then leave the chat idle for longer than the configured idle time → no "are you there?" prompt, no rating screen, no auto-close. The widget stays as the user left it.
-- Reach rating screen normally and tap `تخطي وإغلاق` → identical close behavior as the idle path above (visual parity check).
+## Out of scope
+
+- No changes to React widget (`widget/src/app/components/*`), dashboard UI, or ChatCustomization settings model.
+- No version bump beyond keeping `4.7.31` — only the file body changes.
+
+## Verification
+
+1. Open storefront, send a message, click 👍 on AI reply, send another message → thumb stays filled.
+2. Send a message, click 👎, reopen widget after `resetConversationForNextOpen` → thumbs are reset (fresh convo).
+3. Reach rating screen, wait the configured idle time → widget slides down (same as تخطي وإغلاق), next open starts fresh conversation.
+4. Raise a ticket → no idle prompt, no rating screen, widget stays open.
+5. Desktop with Hostinger bottom bar → window anchors to bar with no clipping, no 90px gap.
