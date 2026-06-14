@@ -410,7 +410,7 @@ export async function fetchDashboardMetrics(
       .lte('created_at', toIso),
     supabase
       .from('conversations_main')
-      .select('id, status, category, csat_rating')
+      .select('id, status, category, csat_rating, completion_score')
       .eq('tenant_id', tenantId)
       .eq('is_test', false)
       .gte('created_at', fromIso)
