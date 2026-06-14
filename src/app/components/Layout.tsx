@@ -14,6 +14,20 @@ import { supabase } from '../../integrations/supabase/client';
 import { CURRENT_USER_ID, notifKeys, getTs, toMs } from '../utils/notifications';
 import { isAllowed, MemberPermissions, PermissionKey, useCurrentMemberPermissions } from '../utils/permissions';
 
+function formatRelative(iso: string, lang: 'en' | 'ar'): string {
+  if (!iso) return '';
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return '';
+  const diff = Math.max(0, Date.now() - ts);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return lang === 'ar' ? 'الآن' : 'now';
+  if (m < 60) return lang === 'ar' ? `قبل ${m} دقيقة` : `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return lang === 'ar' ? `قبل ${h} ساعة` : `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return lang === 'ar' ? `قبل ${d} يوم` : `${d}d ago`;
+}
+
 export function Layout() {
   const { t, theme, setTheme, language, setLanguage, notifications, markRead, unreadCount, dir, signOut, user, tenantId, isSuperAdmin, showToast } = useApp();
   const { perms: userPerms, loading: permsLoading, disabled: userDisabled } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
