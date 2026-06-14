@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
@@ -18,7 +18,10 @@ export function PlansPage() {
   });
 
   useEffect(() => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      setChartLoaded(true);
+      return;
+    }
     let cancelled = false;
     setChartLoaded(false);
     (async () => {
