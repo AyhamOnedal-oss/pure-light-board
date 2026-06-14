@@ -373,7 +373,7 @@ export async function fetchDashboardMetrics(
         total: m.csat?.total ?? 0,
         avg: Number(m.csat?.avg ?? 0),
       },
-      completionRate: Number(m.completionRate ?? 0),
+      completionRate: avgCompletion != null ? avgCompletion : Number(m.completionRate ?? 0),
       classification: (m.classification ?? {}) as Record<string, number>,
       feedback: {
         positive: m.feedback?.positive ?? 0,
