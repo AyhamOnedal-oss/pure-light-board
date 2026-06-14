@@ -10,9 +10,7 @@ import { useLocation } from 'react-router';
 export function PlansPage() {
   const { t, theme, tenantId } = useApp();
   const location = useLocation();
-  const [chartReady, setChartReady] = React.useState(false);
   const [activeIdx, setActiveIdx] = React.useState<number | undefined>(undefined);
-  const [chartKey, setChartKey] = React.useState(0);
   const [planData, setPlanData] = useState({
     name: 'Free',
     price: '0 SAR/mo',
@@ -45,13 +43,6 @@ export function PlansPage() {
     })();
     return () => { cancelled = true; };
   }, [tenantId]);
-
-  React.useEffect(() => {
-    setChartReady(false);
-    setChartKey(k => k + 1);
-    const timer = setTimeout(() => setChartReady(true), 100);
-    return () => { clearTimeout(timer); setChartReady(false); };
-  }, [location.pathname]);
 
   const currentPlan = planData;
 
@@ -126,8 +117,7 @@ export function PlansPage() {
             <div className="relative" style={{ width: 200, height: 200 }}>
               <div style={{ width: 200, height: 200 }}>
                 <ResponsiveContainer width={200} height={200}>
-                <PieChart key={chartKey} onMouseLeave={() => setActiveIdx(undefined)}>
-                  {chartReady && (
+                <PieChart onMouseLeave={() => setActiveIdx(undefined)}>
                   <Pie
                     data={usageData}
                     cx="50%" cy="50%"
@@ -144,7 +134,6 @@ export function PlansPage() {
                   >
                     {usageData.map((entry, i) => <Cell key={i} fill={entry.color} style={{ cursor: 'pointer', transition: 'opacity 0.2s' }} onMouseEnter={() => setActiveIdx(i)} onMouseLeave={() => setActiveIdx(undefined)} />)}
                   </Pie>
-                  )}
                   <Tooltip content={({ active, payload }: any) => {
                     if (!active || !payload?.length || activeIdx === undefined) return null;
                     const item = payload[0];
