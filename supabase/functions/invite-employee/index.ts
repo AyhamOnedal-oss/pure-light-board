@@ -161,24 +161,28 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!membership) return json({ error: "forbidden" }, 403);
 
-    // Reject duplicate team member for this tenant (unless this is a resend)
+    // Reject duplicate team member for this tenant (unless this is a
+    // resend). Soft-deleted rows (deleted_at IS NOT NULL) are ignored so
+    // a previously-removed member can be re-invited with the same email.
     const { data: dup } = await admin
       .from("team_members")
       .select("id")
       .eq("tenant_id", tenant_id)
       .eq("email", email)
+      .is("deleted_at", null)
       .maybeSingle();
     if (dup && !allow_existing) {
       return json({ error: "email_exists", member_id: dup.id }, 409);
     }
 
-    // Reject duplicate phone for this tenant
+    // Reject duplicate phone for this tenant (ignoring soft-deleted rows)
     if (phone) {
       const { data: dupPhone } = await admin
         .from("team_members")
         .select("id,email")
         .eq("tenant_id", tenant_id)
         .eq("phone", phone)
+        .is("deleted_at", null)
         .maybeSingle();
       if (dupPhone && !allow_existing && dupPhone.email?.toLowerCase() !== email) {
         return json({ error: "phone_exists", member_id: dupPhone.id }, 409);
@@ -226,7 +230,9 @@ Deno.serve(async (req) => {
       await admin.auth.admin.updateUserById(userId, { password });
     }
 
-    // Upsert team_members row keyed on (tenant_id, email)
+    // Upsert team_members row keyed on (tenant_id, email). Match any row
+    // including soft-deleted ones so re-inviting a deleted member revives
+    // the original row instead of failing on a unique constraint.
     const { data: existingMember } = await admin
       .from("team_members")
       .select("id")
@@ -237,7 +243,14 @@ Deno.serve(async (req) => {
     let memberId = existingMember?.id ?? null;
     if (memberId) {
       await admin.from("team_members").update({
-        name, phone, permissions, status: "active",
+        name,
+        phone,
+        permissions,
+        status: "active",
+        deleted_at: null,
+        auth_revoked_at: null,
+        disabled_at: null,
+        dashboard_snapshot: null,
       }).eq("id", memberId);
     } else {
       const { data: ins, error: insErr } = await admin.from("team_members").insert({
