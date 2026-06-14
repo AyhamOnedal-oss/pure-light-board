@@ -130,14 +130,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [roleLoading, setRoleLoading] = useState(true);
 
+  // Tracks whether the most recent sign-out was initiated by the user
+  // (Log Out button) vs. happening involuntarily (e.g. the server-side
+  // auth user was deleted). Without this, `onAuthStateChange` would
+  // treat every normal logout as a "deleted account" event.
+  const explicitSignOutRef = React.useRef(false);
+
   // Auth listener — set up FIRST, then fetch initial session
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      // If the auth user was deleted server-side, Supabase fires
-      // TOKEN_REFRESHED / SIGNED_OUT with no session. Bounce to login
-      // with a reason so the page shows the "account deleted" message.
-      if (!s && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT' || event === 'USER_DELETED')) {
+      // Only treat this as "account deleted" when it was NOT an
+      // explicit user-initiated sign-out. USER_DELETED is unambiguous;
+      // TOKEN_REFRESHED with no session means the refresh failed
+      // (typically because the auth user was removed server-side).
+      // Plain SIGNED_OUT also fires on normal logout, so we ignore it
+      // unless we can prove the account is actually gone.
+      const wasExplicit = explicitSignOutRef.current;
+      if (event === 'SIGNED_OUT') explicitSignOutRef.current = false;
+      if (!s && !wasExplicit && (event === 'USER_DELETED' || event === 'TOKEN_REFRESHED')) {
         if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
           window.location.replace('/login?reason=deleted');
         }
@@ -245,6 +256,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    explicitSignOutRef.current = true;
     await supabase.auth.signOut();
     setSession(null);
     setTenantId(null);
