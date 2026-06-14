@@ -617,6 +617,7 @@
   function lockBody() {
     savedScrollY = window.scrollY;
     savedBodyCSS = document.body.style.cssText;
+    if (!isMobile()) return;
     document.body.style.overflow = 'hidden';
     document.body.style.touchAction = 'none';
     document.body.style.position = 'fixed';
