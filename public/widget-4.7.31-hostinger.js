@@ -2489,6 +2489,8 @@
     if (state.inactivityPromptTimer) { clearTimeout(state.inactivityPromptTimer); state.inactivityPromptTimer = null; }
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    state.messageFeedback = {};
     if (dom.textarea) { dom.textarea.disabled = false; dom.textarea.placeholder = 'اكتب رسالتك...'; }
     if (dom.attachBtn) dom.attachBtn.disabled = false;
     try { renderChatScreen(); } catch (e) {}
@@ -2516,6 +2518,8 @@
     if (state.inactivityPromptTimer) { clearTimeout(state.inactivityPromptTimer); state.inactivityPromptTimer = null; }
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    state.messageFeedback = {};
     // v4.7.21 — immediately rebuild the chat screen so the next open is guaranteed fresh
     try { renderChatScreen(); } catch(e) {}
     dom.window.classList.add('fq-window-exit');
