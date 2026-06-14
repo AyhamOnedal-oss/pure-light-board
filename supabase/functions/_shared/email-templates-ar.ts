@@ -124,6 +124,76 @@ ${simpleFooter}
 </td></tr></tbody></table></body></html>`;
 }
 
+export function lowBalanceWarningHtml(v: {
+  store_name: string;
+  used_percent: string;
+  used_words: string;
+  total_words: string;
+  remaining_words: string;
+  renewal_link: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">⚡</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">رصيدك على وشك النفاد</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#fef3c7;border:1px solid #f59e0b;border-radius:10px"><tbody><tr><td align="center" style="padding:16px;text-align:center">
+    <p style="margin:0 0 8px;color:#92400e;font-size:28px;font-weight:700">${esc(v.used_percent)}%</p>
+    <p style="margin:0;color:#92400e;font-size:14px">من رصيد الكلمات الشهري تم استهلاكه</p>
+  </td></tr></tbody></table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#f0f7ff;border-radius:10px"><tbody><tr><td style="padding:16px">
+    <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody>
+      <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb"><p style="margin:0">📝 <span style="color:#6b7280">المستهلك:</span> ${esc(v.used_words)} كلمة</p></td></tr>
+      <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb"><p style="margin:0">📦 <span style="color:#6b7280">إجمالي الباقة:</span> ${esc(v.total_words)} كلمة</p></td></tr>
+      <tr><td style="padding:6px 0"><p style="margin:0">💡 <span style="color:#6b7280">المتبقي:</span> ${esc(v.remaining_words)} كلمة</p></td></tr>
+    </tbody></table>
+  </td></tr></tbody></table>
+  <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">لتجنّب توقف الخدمة عند نفاد الرصيد بالكامل، ننصح بالترقية أو شحن الرصيد الآن.</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="${esc(v.renewal_link)}" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 ترقية أو شحن الرصيد</a>
+  </td></tr></tbody></table>
+</td></tr>
+${simpleFooter}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
+
+export function renewalConfirmationHtml(v: {
+  store_name: string;
+  plan_name: string;
+  new_end_date: string;
+  monthly_quota: string;
+}): string {
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
+<body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
+<table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 auto;max-width:480px"><tbody>
+<tr><td align="center" style="padding:24px;background:linear-gradient(135deg,#10b981 0%,#059669 100%);border-radius:16px 16px 0 0;text-align:center">
+  <div style="font-size:36px;margin-bottom:8px">✅</div>
+  <h1 style="margin:0;color:#fff;font-size:20px;font-weight:600">تم تجديد اشتراكك بنجاح</h1>
+</td></tr>
+<tr><td style="padding:24px;background:#ffffff">
+  <p style="margin:0 0 16px;color:#1e3a5f;font-size:15px;line-height:1.6">مرحبًا ${esc(v.store_name)}،</p>
+  <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.7">شكرًا لتجديد اشتراكك في فقاعة AI. اشتراكك فعّال وكامل الميزات.</p>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;background:#ecfdf5;border:1px solid #10b981;border-radius:10px"><tbody><tr><td style="padding:16px">
+    <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody>
+      <tr><td style="padding:6px 0;border-bottom:1px solid #d1fae5"><p style="margin:0">📦 <span style="color:#065f46">الباقة:</span> <strong>${esc(v.plan_name)}</strong></p></td></tr>
+      <tr><td style="padding:6px 0;border-bottom:1px solid #d1fae5"><p style="margin:0">📅 <span style="color:#065f46">تاريخ الانتهاء الجديد:</span> <strong>${esc(v.new_end_date)}</strong></p></td></tr>
+      <tr><td style="padding:6px 0"><p style="margin:0">📝 <span style="color:#065f46">الحصة الشهرية:</span> ${esc(v.monthly_quota)} كلمة</p></td></tr>
+    </tbody></table>
+  </td></tr></tbody></table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation"><tbody><tr><td align="center" style="padding:8px 0;text-align:center">
+    <a href="https://fuqah.ai" style="color:#fff;text-decoration:none;background:linear-gradient(135deg,#1e3a5f 0%,#2d5a87 100%);border-radius:8px;display:inline-block;font-size:14px;font-weight:600;padding:14px 32px" target="_blank">🔗 لوحة التحكم</a>
+  </td></tr></tbody></table>
+</td></tr>
+${simpleFooter}
+</tbody></table>
+</td></tr></tbody></table></body></html>`;
+}
+
 export function servicePausedHtml(v: { store_name: string; renewal_link: string }): string {
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
 <body style="margin:0;padding:0;font-family:-apple-system,Segoe UI,Tahoma,Arial,sans-serif"><table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center"><tbody><tr><td>
