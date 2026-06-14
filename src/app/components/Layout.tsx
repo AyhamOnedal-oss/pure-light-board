@@ -397,6 +397,11 @@ export function Layout() {
                       )}
                     </div>
                     <div className="max-h-80 overflow-y-auto">
+                      {notifications.length === 0 && (
+                        <div className="p-6 text-center text-[13px] text-muted-foreground">
+                          {t('No notifications', 'لا توجد إشعارات')}
+                        </div>
+                      )}
                       {notifications.map(n => (
                         <button
                           key={n.id}
@@ -408,7 +413,7 @@ export function Layout() {
                             <div className={!n.read ? '' : 'ps-5'}>
                               <p className="text-[14px]" style={{ fontWeight: 500 }}>{language === 'ar' ? n.titleAr : n.title}</p>
                               <p className="text-[13px] text-muted-foreground mt-0.5">{language === 'ar' ? n.messageAr : n.message}</p>
-                              <p className="text-[11px] text-muted-foreground/60 mt-1.5">{n.time}</p>
+                              <p className="text-[11px] text-muted-foreground/60 mt-1.5">{formatRelative(n.time, language)}</p>
                             </div>
                           </div>
                         </button>
