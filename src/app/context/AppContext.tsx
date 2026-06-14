@@ -238,7 +238,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .order('created_at', { ascending: false })
         .limit(50);
       if (cancelled) return;
-      setNotifications((data ?? []).map(mapRow));
+      const rows = (data ?? []).map(mapRow);
+      // TEMP: mock bell entries for design/QA. Remove when real events flow in.
+      const now = Date.now();
+      const mocks: Notification[] = [
+        {
+          id: 'mock-word-warning',
+          title: 'Approaching word limit',
+          titleAr: 'اقتراب من حد الكلمات',
+          message: 'You have used 80% of your monthly word quota.',
+          messageAr: 'لقد استخدمت 80% من حصة الكلمات الشهرية.',
+          time: new Date(now - 5 * 60_000).toISOString(),
+          read: false,
+          kind: 'word_limit_warning',
+        },
+        {
+          id: 'mock-renewed',
+          title: 'Subscription renewed',
+          titleAr: 'تم تجديد الاشتراك',
+          message: 'Your subscription has been renewed successfully.',
+          messageAr: 'تم تجديد اشتراكك بنجاح.',
+          time: new Date(now - 2 * 60 * 60_000).toISOString(),
+          read: false,
+          kind: 'subscription_renewed',
+        },
+        {
+          id: 'mock-admin-msg',
+          title: 'Scheduled maintenance',
+          titleAr: 'صيانة مجدولة',
+          message: 'The service will undergo maintenance tonight at 2 AM.',
+          messageAr: 'سيخضع النظام لصيانة الليلة في الساعة الثانية صباحاً.',
+          time: new Date(now - 24 * 60 * 60_000).toISOString(),
+          read: true,
+          kind: 'admin_message',
+        },
+      ];
+      setNotifications([...rows, ...mocks]);
     };
     load();
 
