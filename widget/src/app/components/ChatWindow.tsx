@@ -574,8 +574,12 @@ export function ChatWindow({
     if (!showInactivityPrompt) return;
     const closeTimer = setTimeout(() => {
       setShowInactivityPrompt(false);
+      trackEvent('inactivity.auto_closed', evCtx(), { reason: 'inactivity' });
       closeConversation(evCtx(), 'inactivity');
-      setCurrentScreen('rating');
+      // Idle auto-close: skip the rating screen entirely and collapse the
+      // widget — same effect as tapping "تخطي وإغلاق" so the user can't
+      // reopen the rating back-arrow and resume writing after timeout.
+      onClose();
     }, closeSeconds * 1000);
     return () => clearTimeout(closeTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
