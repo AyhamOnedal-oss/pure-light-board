@@ -1,49 +1,64 @@
-## Goal
+## Issues found
 
-Restore the storefront widget to a known-good state and reapply the recent fixes carefully, so the regressions you're seeing (thumbs up disappearing, rating screen not auto-closing) go away — without losing the 4.7.31 layout/bottom-bar fix or the "no idle while ticket raised" behavior.
+### 1. Re-inviting a previously-deleted user fails ("فشل إضافة العضو") — root cause of the screenshot
 
-## Approach
+`supabase/functions/invite-employee/index.ts` runs two duplicate checks against `team_members` **without filtering out soft-deleted rows**:
 
-Overwrite `public/widget-4.7.31-hostinger.js` with the contents of `public/widget-4.7.30-hostinger.js` as a baseline, then add back only the four changes we actually want, plus the two bug fixes.
+- Lines 165–173: `select id from team_members where tenant_id=? and email=?` → returns the old soft-deleted row → returns `409 email_exists` → UI toasts "فشل إضافة العضو".
+- Lines 176–186: same problem for `phone`.
 
-## Changes reapplied on top of 4.7.30
+Because `delete-employee` soft-deletes (`deleted_at=now()`) instead of hard-deleting, that old row blocks every re-invite of the same email/phone in the same tenant.
 
-1. **Bottom-bar anchor (desktop sizing)** — same delta as 4.7.31:
-   - `_bottomGap = state.bottomOffset > 0 ? state.bottomOffset : 20` (anchor to bar, no 90px floating gap)
-   - `_h` clamps to `Math.max(240, _avail)` when space is tight, else `Math.min(_desired, _avail)`
-   - Set `minHeight: 0` and `maxHeight: 580px` so the inline `max-height` CSS rule can't clip
-2. **lockBody mobile-only** — keep `if (!isMobile()) return;` early-out so desktop scroll isn't frozen.
-3. **No idle while ticket raised** — keep the existing `state.ticketCreated` gates in the inactivity timers (already present in 4.7.30; verify they survive).
-4. **Rating idle = skip-close** — re-add `settings.ratingInactivitySeconds` (default 900), `state.ratingInactivityTimer`, the `rating_inactivity_seconds` settings parser, the timer set inside `renderRatingScreen` that calls `restCloseConversation('rating_skip')` + `resetConversationForNextOpen()`, and the cleanup `clearTimeout`s in `renderChatScreen`, `resetConversationForNextOpen`, and `fullClose`.
+A secondary bug in the same function: the upsert branch at lines 230–251 finds the soft-deleted row and updates it but **doesn't clear `deleted_at` / `auth_revoked_at`**, so even if the duplicate check were bypassed, the row stays hidden in the UI (which filters `deleted_at IS NULL`).
 
-## Bug fixes (the regressions you reported)
+### 2. "Deactivate" doesn't actually freeze the user
 
-### Thumbs up disappears after sending another message
+The DB has `disabled_at`, `dashboard_snapshot`, `status='inactive'`, and an `AccountDisabledScreen` component exists — but nothing in `AppContext` / `RequireAuth` / `LoginPage` ever checks them. A disabled employee can still log in and use every page normally. The captured `dashboard_snapshot` is also never read.
 
-Root cause: `buildFeedback(msgId)` stores the chosen value only in a local closure (`feedbackState = { value: null }`). Any time the message list is rebuilt (new message append that triggers a re-render, polling refresh, screen switch back), the closure is recreated and the UI shows the default unselected state.
+### 3. "Delete" already revokes login correctly
 
-Fix:
-- Add `state.messageFeedback = {}` keyed by `msgId`.
-- In `buildFeedback(msgId)`, initialize `feedbackState.value = state.messageFeedback[msgId] || null` and call `updateFeedbackUI()` once before returning so the saved choice paints immediately on rebuild.
-- In both onclick handlers, also persist: `state.messageFeedback[msgId] = feedbackState.value;`
-- Clear `state.messageFeedback = {}` inside `resetConversationForNextOpen()` and `fullClose()` so a fresh conversation starts clean.
+`delete-employee` soft-deletes the row, removes `auth_tenant_members`, and calls `auth.admin.deleteUser` when the user has no other memberships. That part is fine — it just needs the re-invite path (issue 1) to actually work afterwards.
 
-### Rating screen doesn't auto-close after idle
+---
 
-Two issues to address together:
-- The 4.7.31 default of 900s (15 min) is likely longer than you've been waiting. Lower the built-in default to **120s** so behavior matches the dashboard's typical setting, and the dashboard value still overrides via `rating_inactivity_seconds`.
-- Verify the parser key matches what `chat_settings` actually saves. If the column is named differently (e.g. `rating_inactivity_close_seconds`), add a second fallback in the settings parser so both keys map to `settings.ratingInactivitySeconds`. I'll confirm the exact column name during implementation and wire whichever key(s) are present.
-- Make the timer robust: re-arm it on every entry to `renderRatingScreen` (already does) and ensure no early `clearTimeout` happens from an unrelated `renderChatScreen` call during the rating screen's lifetime — guard the cleanup in `renderChatScreen` so it only clears when actually leaving rating (`if (state.currentScreen !== 'rating')`).
+## Plan
 
-## Out of scope
+### A. Fix re-invite of deleted users (`invite-employee` edge function)
 
-- No changes to React widget (`widget/src/app/components/*`), dashboard UI, or ChatCustomization settings model.
-- No version bump beyond keeping `4.7.31` — only the file body changes.
+1. In both duplicate-check queries, add `.is('deleted_at', null)` so soft-deleted rows are ignored. A deleted member's email/phone is treated as free.
+2. In the "find existing row to update" lookup (line 230), keep matching any row (deleted or not), but on update **always set `deleted_at: null`, `auth_revoked_at: null`, `disabled_at: null`, `dashboard_snapshot: null`, `status: 'active'`** alongside the new name/phone/permissions. This revives a previously-deleted member instead of inserting a duplicate (avoids violating any unique key on `tenant_id,email`).
+3. If the previous auth user was hard-deleted by `delete-employee`, the existing "find or create auth user" block already handles that — it falls through to `createUser` and links the new `user_id`. No extra change needed.
 
-## Verification
+### B. Enforce "Deactivated user is frozen at last dashboard" (no other access)
 
-1. Open storefront, send a message, click 👍 on AI reply, send another message → thumb stays filled.
-2. Send a message, click 👎, reopen widget after `resetConversationForNextOpen` → thumbs are reset (fresh convo).
-3. Reach rating screen, wait the configured idle time → widget slides down (same as تخطي وإغلاق), next open starts fresh conversation.
-4. Raise a ticket → no idle prompt, no rating screen, widget stays open.
-5. Desktop with Hostinger bottom bar → window anchors to bar with no clipping, no 90px gap.
+1. Extend `AppContext` to load the current user's `team_members` row for the active tenant (`status`, `disabled_at`, `dashboard_snapshot`, `deleted_at`) and expose `memberStatus`, `isDisabled`, `isDeleted`, `frozenSnapshot`.
+2. `LoginPage`: after successful login, if the matching `team_members` row has `deleted_at IS NOT NULL`, sign the user out immediately and show "تم حذف حسابك من هذا المتجر".
+3. `RequireAuth`: if `isDisabled`, redirect every route except `/dashboard` to `/dashboard`. The dashboard becomes the only reachable page.
+4. `DashboardPage`: when `isDisabled && frozenSnapshot` exists, render the snapshot in read-only mode (no date-range picker, no refresh, no live queries) with an Arabic banner: "تم تعطيل حسابك — هذه آخر لقطة من لوحة التحكم". Owners/admins are unaffected (they have no `team_members` row tied to themselves, or their row isn't disabled).
+5. Tenant-owner / super-admin paths skip the check entirely.
+
+### C. Cleanup / safety
+
+- Add a small DB index `team_members(tenant_id, email) where deleted_at is null` for the new duplicate lookup (optional, only if migration is desired).
+- No schema changes are strictly required; all needed columns already exist.
+
+---
+
+## Technical details
+
+**Files to change**
+- `supabase/functions/invite-employee/index.ts` — duplicate-check filters + revive logic on update.
+- `src/app/context/AppContext.tsx` — load `team_members` self-row, expose `isDisabled` / `isDeleted` / `frozenSnapshot`.
+- `src/app/components/RequireAuth.tsx` — redirect disabled users to `/dashboard` only; sign out deleted users.
+- `src/app/components/LoginPage.tsx` — block sign-in for `deleted_at IS NOT NULL` rows.
+- `src/app/components/DashboardPage.tsx` — render frozen snapshot when disabled.
+- (Optional) one migration adding the partial unique index above.
+
+**Out of scope**
+No changes to `delete-employee` (already correct). No changes to permissions model. No changes to widget files.
+
+## What this delivers
+
+- Admin can re-invite a previously deleted user with the same email/phone — invitation email goes out and the row reappears as active.
+- "Deactivate" really freezes the user: they can log in, but every page is locked except a read-only dashboard frozen at the moment of deactivation.
+- "Delete" already kicks them out immediately and removes login privileges while keeping the historical row in the DB for archiving.
