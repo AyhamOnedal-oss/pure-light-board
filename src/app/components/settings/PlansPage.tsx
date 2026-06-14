@@ -124,13 +124,7 @@ export function PlansPage() {
 
           <div className="flex-1 flex flex-col items-center justify-center py-2">
             <div className="relative" style={{ width: 200, height: 200 }}>
-              <motion.div
-                key={chartKey}
-                initial={{ opacity: 0.78, scale: 0.94 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                style={{ width: 200, height: 200, transformOrigin: '50% 50%' }}
-              >
+              <div style={{ width: 200, height: 200 }}>
                 <ResponsiveContainer width={200} height={200}>
                 <PieChart key={chartKey} onMouseLeave={() => setActiveIdx(undefined)}>
                   {chartReady && (
@@ -139,7 +133,8 @@ export function PlansPage() {
                     cx="50%" cy="50%"
                     innerRadius={60} outerRadius={85}
                     dataKey="value" paddingAngle={4} strokeWidth={0}
-                    isAnimationActive={true} animationBegin={400} animationDuration={1400} animationEasing="ease-out"
+                    startAngle={90} endAngle={450}
+                    isAnimationActive={true} animationBegin={500} animationDuration={1200} animationEasing="ease-out"
                     activeIndex={activeIdx}
                     onMouseLeave={() => setActiveIdx(undefined)}
                     activeShape={({ cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill }: any) => (
@@ -182,7 +177,7 @@ export function PlansPage() {
                   }} />
                 </PieChart>
                 </ResponsiveContainer>
-              </motion.div>
+              </div>
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <p className="text-[22px] text-foreground" style={{ fontWeight: 800 }}>{animatedPercent}%</p>
               </div>
