@@ -302,12 +302,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const t = (en: string, ar: string) => language === 'ar' ? ar : en;
   const dir = language === 'ar' ? 'rtl' as const : 'ltr' as const;
-  const markRead = (id: string) => setNotifications(n => n.map(x => x.id === id ? { ...x, read: true } : x));
-  const markTicketNotificationRead = useCallback((ticketId: string) => {
-    setNotifications(n => n.map(x =>
-      x.kind === 'ticket_new' && x.ticketId === ticketId ? { ...x, read: true } : x
-    ));
-  }, []);
+  const markRead = useCallback(async (id: string) => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    setNotifications(n => n.map(x => x.id === id ? { ...x, read: true } : x));
+    // Append uid to read_by jsonb (idempotent).
+    const { data: row } = await supabase
+      .from('app_notifications')
+      .select('read_by')
+      .eq('id', id)
+      .maybeSingle();
+    const existing: string[] = Array.isArray((row as any)?.read_by) ? (row as any).read_by : [];
+    if (existing.includes(uid)) return;
+    const next = [...existing, uid];
+    await supabase.from('app_notifications').update({ read_by: next }).eq('id', id);
+  }, [session?.user?.id]);
+  // Kept for backward compatibility — ticket notifications were removed.
+  const markTicketNotificationRead = useCallback((_ticketId: string) => {}, []);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const showToast = useCallback((message: string) => {
