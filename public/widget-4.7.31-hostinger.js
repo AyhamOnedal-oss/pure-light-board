@@ -908,6 +908,11 @@
 
   function renderChatScreen() {
     clearInner();
+    // Leaving the rating screen must cancel its idle timer.
+    if (state.currentScreen === 'rating' && state.ratingInactivityTimer) {
+      clearTimeout(state.ratingInactivityTimer);
+      state.ratingInactivityTimer = null;
+    }
     state.currentScreen = 'chat';
     var c = mc();
 
