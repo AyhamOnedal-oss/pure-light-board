@@ -16,6 +16,7 @@ const cors = {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const to = "w8jkkchmfb@zam-partner.email";
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   const low = await sendResendEmail({
     to,
