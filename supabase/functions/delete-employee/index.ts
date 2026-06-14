@@ -43,32 +43,47 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-    // Authorize caller — must be a tenant member with admin+ role
-    const { data: caller } = await admin
-      .from("auth_tenant_members")
-      .select("role")
-      .eq("tenant_id", tenant_id)
-      .eq("user_id", callerId)
-      .maybeSingle();
-    if (!caller || (caller.role !== "owner" && caller.role !== "admin")) {
-      return json({ error: "forbidden" }, 403);
+    // Authorize caller — must be a tenant owner/admin OR a super admin.
+    const [{ data: caller }, { data: superRole }] = await Promise.all([
+      admin
+        .from("auth_tenant_members")
+        .select("role")
+        .eq("tenant_id", tenant_id)
+        .eq("user_id", callerId)
+        .maybeSingle(),
+      admin
+        .from("auth_user_roles")
+        .select("role")
+        .eq("user_id", callerId)
+        .eq("role", "super_admin")
+        .maybeSingle(),
+    ]);
+    const isTenantAdmin = !!caller && (caller.role === "owner" || caller.role === "admin");
+    const isSuperAdmin = !!superRole;
+    if (!isTenantAdmin && !isSuperAdmin) {
+      console.error("delete-employee forbidden", { callerId, tenant_id, callerRole: caller?.role ?? null });
+      return json({ error: "forbidden", detail: "caller is not tenant owner/admin or super_admin" }, 403);
     }
 
     // Fetch the team_members row to get user_id
-    const { data: member } = await admin
+    const { data: member, error: memberErr } = await admin
       .from("team_members")
       .select("id, user_id, email")
       .eq("id", member_id)
       .eq("tenant_id", tenant_id)
       .maybeSingle();
-    if (!member) return json({ error: "not_found" }, 404);
+    if (memberErr) {
+      console.error("delete-employee member lookup failed", memberErr);
+      return json({ error: "member_lookup_failed", detail: memberErr.message }, 500);
+    }
+    if (!member) return json({ error: "not_found", detail: "team_members row not found for tenant" }, 404);
 
     const targetUserId: string | null = member.user_id ?? null;
     const nowIso = new Date().toISOString();
 
     // Soft-delete: keep the team_members row (and all FK history) but
     // mark it deleted so the UI hides it and the login page can detect it.
-    await admin
+    const { error: softDelErr } = await admin
       .from("team_members")
       .update({
         deleted_at: nowIso,
@@ -76,6 +91,10 @@ Deno.serve(async (req) => {
         status: "inactive",
       })
       .eq("id", member_id);
+    if (softDelErr) {
+      console.error("delete-employee soft-delete failed", softDelErr);
+      return json({ error: "soft_delete_failed", detail: softDelErr.message }, 500);
+    }
 
     // Revoke tenant access immediately.
     if (targetUserId) {
