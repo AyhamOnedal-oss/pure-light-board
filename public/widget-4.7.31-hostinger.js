@@ -1184,7 +1184,7 @@
   function buildFeedback(msgId) {
     var c = mc();
     var wrap = el('div', 'fq-feedback');
-    var feedbackState = { value: null };
+    var feedbackState = { value: (state.messageFeedback && state.messageFeedback[msgId]) || null };
 
     var downBtn = el('button', 'fq-feedback-btn');
     downBtn.setAttribute('aria-label', 'تقييم سلبي');
@@ -1194,6 +1194,7 @@
     downBtn.onmouseout = function () { this.style.background = 'transparent'; };
     downBtn.onclick = function () {
       feedbackState.value = feedbackState.value === 'down' ? null : 'down';
+      state.messageFeedback[msgId] = feedbackState.value;
       updateFeedbackUI();
       sendMessageFeedback(msgId, feedbackState.value);
     };
@@ -1206,6 +1207,7 @@
     upBtn.onmouseout = function () { this.style.background = 'transparent'; };
     upBtn.onclick = function () {
       feedbackState.value = feedbackState.value === 'up' ? null : 'up';
+      state.messageFeedback[msgId] = feedbackState.value;
       updateFeedbackUI();
       sendMessageFeedback(msgId, feedbackState.value);
     };
@@ -1221,6 +1223,8 @@
 
     wrap.appendChild(downBtn);
     wrap.appendChild(upBtn);
+    // Paint persisted choice so re-renders keep the selected thumb.
+    try { updateFeedbackUI(); } catch (e) {}
     return wrap;
   }
 
