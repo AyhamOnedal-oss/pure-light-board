@@ -126,12 +126,8 @@ export function Layout() {
     };
   }, [tenantId, location.pathname, badgeVersion]);
 
-  // Sidebar Tickets badge — derived from unread "new ticket" bell
-  // notifications. Decrements only when the user reads the notification
-  // in the bell dropdown, NOT when opening a ticket or conversation.
-  const ticketsBadge = notifications.filter(
-    (n) => (n as { kind?: string }).kind === 'ticket_new' && !n.read,
-  ).length;
+  // Tickets sidebar badge is not derived from bell notifications anymore.
+  const ticketsBadge = 0;
 
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
