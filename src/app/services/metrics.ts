@@ -256,7 +256,7 @@ export async function fetchDashboardMetrics(
   });
   if (!rpc.error && rpc.data) {
     const m = rpc.data as any;
-    const [{ data: trendRows }, { data: msgTimingRows }] = await Promise.all([
+    const [{ data: trendRows }, { data: msgTimingRows }, completionRes] = await Promise.all([
       supabase
         .from('dashboard_usage_daily')
         .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
@@ -271,7 +271,27 @@ export async function fetchDashboardMetrics(
         .lte('created_at', toIso)
         .order('created_at', { ascending: true })
         .limit(5000),
+      supabase
+        .from('conversations_main')
+        .select('completion_score')
+        .eq('tenant_id', tenantId)
+        .eq('is_test', false)
+        .not('completion_score', 'is', null)
+        .gte('created_at', fromIso)
+        .lte('created_at', toIso)
+        .limit(2000),
     ]);
+    // Average per-conversation completion_score (0..100) → 0..1 for UI.
+    let avgCompletion: number | null = null;
+    if (!completionRes.error && completionRes.data && completionRes.data.length > 0) {
+      const arr = completionRes.data as Array<{ completion_score: number | null }>;
+      let s = 0, n = 0;
+      for (const r of arr) {
+        const v = Number(r.completion_score);
+        if (Number.isFinite(v)) { s += v; n++; }
+      }
+      if (n > 0) avgCompletion = (s / n) / 100;
+    }
     // Compute real avg response time from message timing (customer -> ai/agent gap)
     const computeAvgResp = (rows: any[], fromMs: number) => {
       const byConv: Record<string, Array<{ s: string; t: number }>> = {};
