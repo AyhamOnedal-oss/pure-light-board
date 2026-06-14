@@ -1726,6 +1726,7 @@ export type Database = {
           customer_phone: string | null
           description: string | null
           display_code: string | null
+          email_sent_at: string | null
           id: string
           number: number
           priority: Database["public"]["Enums"]["ticket_priority"]
@@ -1748,6 +1749,7 @@ export type Database = {
           customer_phone?: string | null
           description?: string | null
           display_code?: string | null
+          email_sent_at?: string | null
           id?: string
           number?: number
           priority?: Database["public"]["Enums"]["ticket_priority"]
@@ -1770,6 +1772,7 @@ export type Database = {
           customer_phone?: string | null
           description?: string | null
           display_code?: string | null
+          email_sent_at?: string | null
           id?: string
           number?: number
           priority?: Database["public"]["Enums"]["ticket_priority"]
@@ -2016,6 +2019,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      tickets_fill_pending_email_fallback: { Args: never; Returns: undefined }
     }
     Enums: {
       activity_channel:

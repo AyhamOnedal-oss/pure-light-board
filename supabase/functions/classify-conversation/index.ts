@@ -266,7 +266,9 @@ Deno.serve(async (req) => {
     `  "completion_score": number,  // 0-100, how completely the customer was helped`,
     `  "goal_met": boolean,          // did the customer get what they came for?`,
     `  "priority": "low" | "medium" | "high",  // urgency, see guide below`,
-    `  "unanswered_question": string  // A SHORT, CLEAR REPHRASING (<=140 chars, in the conversation's language) of a SPECIFIC informational question the AI failed to answer because it lacked data (e.g. store location, return window, shipping to a specific city, product availability). Empty string "" if the AI answered everything OR the customer only sent a greeting / thanks / single word / chit-chat / vague message. NEVER use greetings ("السلام عليكم", "مرحبا", "هلا"), thanks ("شكرا"), or single words. Must be a real, actionable knowledge gap the shop owner can fix by adding info to the AI. Can be set for ANY category, not only "other".`,
+    `  "unanswered_question": string,  // A SHORT, CLEAR REPHRASING (<=140 chars, in the conversation's language) of a SPECIFIC informational question the AI failed to answer because it lacked data (e.g. store location, return window, shipping to a specific city, product availability). Empty string "" if the AI answered everything OR the customer only sent a greeting / thanks / single word / chit-chat / vague message. NEVER use greetings ("السلام عليكم", "مرحبا", "هلا"), thanks ("شكرا"), or single words. Must be a real, actionable knowledge gap the shop owner can fix by adding info to the AI. Can be set for ANY category, not only "other".`,
+    `  "ticket_title": string,        // Arabic, <= 60 chars. Short label for the ticket email title. Examples: "طلب رفع تذكرة", "شكوى في تأخر الشحن", "استفسار عن سياسة الإرجاع", "طلب استرجاع منتج". Pick based on the dominant intent/category.`,
+    `  "ticket_description": string   // Arabic, <= 180 chars, ONE sentence describing what happened: the customer's situation + what they want. Example: "العميل يشتكي من عدم وصول طلبه بعد ١٠ أيام ويطلب التحدث مع موظف بشري."`,
     "}",
     "Scoring guide for completion_score:",
     " 90-100 = fully resolved, customer satisfied.",
@@ -330,6 +332,8 @@ Deno.serve(async (req) => {
     goal_met?: boolean;
     priority?: string;
     unanswered_question?: string;
+    ticket_title?: string;
+    ticket_description?: string;
   };
   try {
     parsed = JSON.parse(raw);
@@ -345,6 +349,8 @@ Deno.serve(async (req) => {
     ? (parsed.intent_type as Intent)
     : (category !== "other" ? (category as Intent) : "inquiry");
   const subject = (parsed.subject ?? "").toString().slice(0, 200) || null;
+  const ticket_title = (parsed.ticket_title ?? "").toString().trim().slice(0, 120) || null;
+  const ticket_description = (parsed.ticket_description ?? "").toString().trim().slice(0, 400) || null;
   const unanswered_question = sanitizeUnansweredQuestion(parsed.unanswered_question);
   let completion_score: number | null = null;
   if (typeof parsed.completion_score === "number" && Number.isFinite(parsed.completion_score)) {
@@ -386,12 +392,20 @@ Deno.serve(async (req) => {
   // Propagate priority (+ category) to any tickets linked to this conversation.
   const { error: tkErr } = await supabase
     .from("tickets_main")
-    .update({ priority, category: category === "other" ? null : category })
+    .update({
+      priority,
+      category: category === "other" ? null : category,
+      // Fill ticket title + 1-line scenario description used by the
+      // ticket-received email. The DB trigger fires the email as soon as
+      // both subject and description are populated.
+      subject: ticket_title ?? subject ?? "طلب رفع تذكرة من المحادثة",
+      description: ticket_description ?? "تم استلام طلب جديد من محادثة الويدجت.",
+    })
     .eq("conversation_id", conversation_id)
     .eq("tenant_id", tenant_id);
   if (tkErr) {
     console.error("classify-conversation: ticket priority update failed", tkErr);
   }
 
-  return json({ ok: true, category, intent_type, subject, completion_score, goal_met, priority });
+  return json({ ok: true, category, intent_type, subject, ticket_title, ticket_description, completion_score, goal_met, priority });
 });

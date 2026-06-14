@@ -120,8 +120,11 @@ Deno.serve(async (req) => {
 
     // ── Ticket created from widget (inline form or modal)
     if (event === "ticket.created") {
-      const subject = String(payload?.subject ?? payload?.message ?? "تذكرة جديدة من المحادثة").slice(0, 200);
-      const description = payload?.message ? String(payload.message) : null;
+      // Subject + description are intentionally left NULL here. The AI
+      // classifier (`classify-conversation`) fills them in after the
+      // conversation closes, and a DB trigger then sends the ticket email
+      // with the real AI-generated title and one-line scenario description.
+      // A pg_cron fallback fills generic placeholders if classify never runs.
       const customer_phone = payload?.phone ? String(payload.phone) : null;
 
       // Resolve customer info from conversation if available
@@ -150,8 +153,8 @@ Deno.serve(async (req) => {
         .insert({
           tenant_id,
           conversation_id: conversation_id ?? null,
-          subject,
-          description,
+          subject: null,
+          description: null,
           status: "open",
           priority: "medium",
           customer_phone,

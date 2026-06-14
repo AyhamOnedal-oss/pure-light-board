@@ -62,7 +62,6 @@ Deno.serve(async (req) => {
       ticket_category: CATEGORY_AR[String(ticket.category ?? "")] ?? String(ticket.category ?? "—"),
       ticket_priority: PRIORITY_AR[String(ticket.priority ?? "")] ?? String(ticket.priority ?? "—"),
       ticket_status: STATUS_AR[String(ticket.status ?? "")] ?? String(ticket.status ?? "—"),
-      customer_name: ticket.customer_name ?? "العميل",
       customer_phone: ticket.customer_phone ?? "—",
     });
 
