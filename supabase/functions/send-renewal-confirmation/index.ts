@@ -10,10 +10,17 @@ const cors = {
 
 function planLabel(plan: string | null | undefined): string {
   switch ((plan ?? "").toLowerCase()) {
-    case "starter": return "Starter";
-    case "growth": return "Growth";
-    case "professional": return "Professional";
-    case "free": return "Free";
+    case "economy":
+    case "economic":
+    case "starter":
+    case "free": return "الاقتصادية";
+    case "basic":
+    case "essential": return "الأساسية";
+    case "growth":
+    case "professional":
+    case "pro": return "الاحترافية";
+    case "business":
+    case "enterprise": return "الأعمال";
     default: return plan ? plan : "الحالية";
   }
 }
