@@ -292,6 +292,31 @@ Deno.serve(async (req) => {
     " low    = simple inquiry, suggestion, casual question, greeting only.",
   ].join("\n");
 
+  // Fallback writer: ensure تصنيف is always set and any linked ticket gets
+  // enough subject/description for the email trigger to fire, even when
+  // OpenAI is unreachable / fails / returns garbage.
+  async function writeFallback(reason: string) {
+    await supabase
+      .from("conversations_main")
+      .update({
+        category: "other",
+        intent_type: "inquiry",
+        subject: "محادثة من الويدجت",
+        analysis_done: true,
+      })
+      .eq("id", conversation_id)
+      .eq("tenant_id", tenant_id);
+    await supabase
+      .from("tickets_main")
+      .update({
+        subject: "طلب رفع تذكرة من المحادثة",
+        description: "تم استلام طلب جديد من محادثة الويدجت.",
+      })
+      .eq("conversation_id", conversation_id)
+      .eq("tenant_id", tenant_id);
+    console.error("classify-conversation: fallback applied:", reason);
+  }
+
   let openaiRes: Response;
   try {
     openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -312,12 +337,14 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("classify-conversation: openai fetch failed", err);
+    await writeFallback("openai_unreachable");
     return json({ error: "openai_unreachable" }, 502);
   }
 
   if (!openaiRes.ok) {
     const text = await openaiRes.text().catch(() => "");
     console.error("classify-conversation: openai non-ok", openaiRes.status, text);
+    await writeFallback(`openai_failed_${openaiRes.status}`);
     return json({ error: "openai_failed", status: openaiRes.status }, 502);
   }
 
@@ -339,6 +366,7 @@ Deno.serve(async (req) => {
     parsed = JSON.parse(raw);
   } catch {
     console.error("classify-conversation: invalid JSON from openai", raw);
+    await writeFallback("invalid_model_json");
     return json({ error: "invalid_model_json" }, 502);
   }
 
