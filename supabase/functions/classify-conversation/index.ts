@@ -172,6 +172,75 @@ Deno.serve(async (req) => {
     .map((m) => `${(m.sender ?? "user").toUpperCase()}: ${(m.body ?? "").trim()}`)
     .join("\n");
 
+  // Customer-only view of the transcript. Intent MUST come from these lines
+  // only — never from assistant/agent/bot replies.
+  const customerSenders = new Set(["user", "customer", "visitor", "client", "guest"]);
+  const customerMessages = messages
+    .filter((m) => customerSenders.has((m.sender ?? "user").toString().toLowerCase()))
+    .map((m) => (m.body ?? "").trim())
+    .filter((s) => s.length > 0);
+  const customerOnlyBlock = customerMessages.length > 0
+    ? customerMessages.map((b) => `CUSTOMER: ${b}`).join("\n")
+    : "(no customer messages)";
+
+  // Deterministic gibberish / no-intent guard. If every customer message is
+ // empty, a pure greeting/thanks, emoji-only, or random keystrokes with no
+ // real word, short-circuit to `other` and skip the model entirely.
+  function isMeaningfulCustomerText(raw: string): boolean {
+    const s = (raw ?? "").toString().trim();
+    if (!s) return false;
+    // Strip emojis, punctuation, digits -> what's left should be letters.
+    const lettersOnly = s
+      .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, " ")
+      .replace(/[^\p{L}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (lettersOnly.length < 3) return false;
+    const tokens = lettersOnly.split(" ").filter((t) => t.length >= 2);
+    if (tokens.length === 0) return false;
+    const ARABIC = /[\u0600-\u06FF]/;
+    const VOWEL = /[aeiouAEIOUيواىآأإؤئ]/;
+    const hasRealWord = tokens.some((t) => {
+      if (ARABIC.test(t)) {
+        // Arabic token must be ≥3 chars AND contain at least one common
+        // Arabic vowel/long-vowel letter, otherwise it's likely keystrokes
+        // like "ىؤتيراهاالر" (which DOES contain ي/ا — so also require it
+        // not be in the trivial greeting list, handled below).
+        return t.length >= 3 && VOWEL.test(t);
+      }
+      // Latin token: ≥3 chars and must contain a vowel (filters "dslv", "ce", "fe", "rv").
+      return /^[A-Za-z]{3,}$/.test(t) && VOWEL.test(t);
+    });
+    if (!hasRealWord) return false;
+    // Trivial greetings/thanks alone don't count as real intent.
+    const norm = lettersOnly.toLowerCase().normalize("NFKD").replace(/[\u064B-\u065F\u0670]/g, "");
+    const TRIVIAL = new Set([
+      "السلام عليكم","وعليكم السلام","مرحبا","مرحبتين","هلا","هلا والله",
+      "اهلا","أهلا","صباح الخير","مساء الخير","شكرا","شكرا لك","مشكور",
+      "تسلم","يعطيك العافيه","يعطيك العافية","تمام","اوكي","اوك",
+      "ok","okay","hi","hello","hey","thanks","thank you","bye",
+      "مع السلامه","مع السلامة",
+    ]);
+    if (TRIVIAL.has(norm)) return false;
+    return true;
+  }
+  const anyMeaningful = customerMessages.some(isMeaningfulCustomerText);
+  if (!anyMeaningful) {
+    await supabase
+      .from("conversations_main")
+      .update({
+        category: "other",
+        intent_type: "inquiry",
+        subject: "محادثة بدون محتوى",
+        completion_score: 0,
+        goal_met: false,
+        analysis_done: true,
+      })
+      .eq("id", conversation_id)
+      .eq("tenant_id", tenant_id);
+    return json({ ok: true, category: "other", short_circuit: "no_meaningful_customer_text" });
+  }
+
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) {
     console.error("classify-conversation: OPENAI_API_KEY not set");
@@ -180,6 +249,20 @@ Deno.serve(async (req) => {
 
   const systemPrompt = [
     "You analyze customer-support chat transcripts.",
+    "ONLY the customer's own words determine the category. The assistant's",
+    "replies are context for `subject` / `close_reason` only and MUST NEVER",
+    "drive `category` or `intent_type`.",
+    "",
+    "User-only intent rule (CRITICAL):",
+    " - Intent is determined EXCLUSIVELY from lines prefixed `USER:` or",
+    "   `CUSTOMER:` in the transcript, and from the separate",
+    "   `CUSTOMER_MESSAGES_ONLY:` block at the end of the user message.",
+    " - NEVER infer intent from `ASSISTANT:`, `AI:`, `AGENT:`, or `BOT:`",
+    "   lines. Those are replies to the customer, not customer intent.",
+    " - If you mentally remove every non-user line and nothing meaningful",
+    "   remains (gibberish, pure greeting, emojis only, empty), the category",
+    "   is `other`.",
+    "",
     "The transcripts are usually in Arabic. Read carefully and classify the",
     "customer's PRIMARY intent based on what the customer actually wrote, not",
     "the agent replies.",
@@ -309,6 +392,14 @@ Deno.serve(async (req) => {
     "(Dominant intent is shipping inquiry. The suggestion is a side note;",
     " 'raise a ticket' is a system action — both ignored.)",
     "",
+    "Example 19:",
+    "CUSTOMER: dslv,ed,ve",
+    "CUSTOMER: ce,fe,v,,r,v",
+    "ASSISTANT: هلا حياك الله 👋 أنا مساعد متجر … هل تبحث عن **منتج** ولا **تي تعرف حالة طلب**؟",
+    "→ category: other, intent_type: inquiry",
+    "(Random keystrokes only from the customer. IGNORE the assistant's",
+    " helpful reply — it does not make this an inquiry.)",
+    "",
     "Reply ONLY in JSON with this exact shape:",
     `{ "category": "complaint" | "inquiry" | "request" | "suggestion" | "other",`,
     `  "intent_type": "complaint" | "inquiry" | "request" | "suggestion",`,
@@ -382,7 +473,13 @@ Deno.serve(async (req) => {
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: transcript.slice(0, 12000) },
+          {
+            role: "user",
+            content:
+              transcript.slice(0, 10000) +
+              "\n\nCUSTOMER_MESSAGES_ONLY:\n" +
+              customerOnlyBlock.slice(0, 2000),
+          },
         ],
       }),
     });
