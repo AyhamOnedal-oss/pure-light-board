@@ -1,37 +1,32 @@
-# Plan — widget v4.7.29 hardened fixes
+# Plan — widget v4.7.30: don't let the chat window get clipped by the host page
 
-The 4.7.28 file already attempted these fixes, but they're still visible. Either the file on Hostinger is stale, or the edge case isn't covered (AI returns the prompt as plain prose without `intent === 'offer_ticket'`). v4.7.29 will close every gap so the issues cannot reappear regardless of what the backend returns.
+## What's wrong now
+On desktop, `updatePositions()` sets `dom.window.style.bottom = (90 + state.bottomOffset) + 'px'`. The CSS height is locked at `580px`. When the host page has a tall sticky bottom bar (~80–90 px like in the screenshots), the window's top edge climbs above the viewport, so the chat header (and the `×` button, hello bubble, etc.) get cut off. The user calls this "floating up and distorted."
 
-## 1. Duplicate ticket-prompt bubble (image 1)
-Keep only the green/circled prompt (`يرجى إدخال رقم هاتفك ليتم إنشاء تذكرة دعم لك:` from `appendInlineTicketForm`). Erase the AI prose version (`تمام، يرجى إدخال رقم هاتفك ليتم فتح تذكرة دعم لك:`).
+## Fix (v4.7.30)
+Cap the window's height to the available vertical room above the bottom bar so the chat always fits between the top of the viewport and the bottom bar — never above the viewport.
 
-Edit in `doSend`'s backend callback (~line 1681–1700):
-- If `intent === 'offer_ticket'` OR the returned `aiText` matches a ticket-offer regex (`/(ادخل|أدخل|إدخال).{0,30}(رقم.{0,5}هاتف|جوّال|جوال)/` together with `/تذكرة/`), suppress `pushAiMessage(aiText)` entirely and only call `appendInlineTicketForm('backend')`.
-- Delete the now-dead second `if (false && intent === 'offer_ticket'…)` block.
+### Code change (desktop branch of `updatePositions`, ~line 875)
+- After setting `dom.window.style.bottom`, compute:
+  ```js
+  var desired = 580; // default desktop height
+  var topGap = 16;   // breathing room from very top of viewport
+  var bottomGap = 90 + state.bottomOffset; // already used for bottom
+  var available = window.innerHeight - bottomGap - topGap;
+  var h = Math.max(360, Math.min(desired, available));
+  dom.window.style.height = h + 'px';
+  ```
+- Recompute on `window` resize and whenever `scanBottomBar()` fires (already calls `updateBubblePosition`; add a parallel `updatePositions()` call when the window is open).
 
-## 2. Duplicate ticket-confirmation bubble (image 2)
-Keep the green inline `تم إرسال طلبك بنجاح` success badge. Erase the blue store-message `تم استلام رقمك ✅ سيتواصل معك أحد موظفي خدمة العملاء…`.
+### Guardrails
+- Keep mobile branch untouched (it's already fullscreen via CSS `top/bottom: 8px`).
+- Minimum height 360 px so the chat never collapses into a sliver.
+- Don't change the bottom offset logic — the user explicitly said "follow the شريط below" — only adjust height.
 
-Edits:
-- Lines 1800–1804: remove the `state.messages.push({ … text: 'تم استلام رقمك ✅ …' })` block.
-- Lines 2231–2235: remove the identical push inside the ticket-form submit handler.
+### CSS housekeeping
+- Revert the experimental `.fq-chat-window.fq-desktop { bottom: 20px; }` I added in v4.7.28 back to omitting `bottom` (JS owns it). Keeps a single source of truth.
 
-## 3. Back arrow on ticket-created screen (image 3)
-`renderTicketCreatedScreen` already omits `backBtn`, but to make it impossible by construction:
-- Add a CSS rule scoped via a body class: when `state.currentScreen === 'ticket-created'`, set `dom.window.classList.add('fq-ticket-locked')` and add `.fq-ticket-locked .fq-screen-back { display:none !important; }` to `FQ_INLINE_CSS`.
-- Remove the class on any other `render*Screen` call.
-
-This guarantees that even if a cached/old code path tries to render a back button on the ticket-created screen, it cannot appear.
-
-## 4. Version bump + delivery
-- Bump header comment to `Version: 4.7.29 (Hostinger embed: harden ticket prompt/confirm dedupe + lock back arrow after ticket)`.
-- Save to `/mnt/documents/widget-4.7.29-hostinger.js` and `public/widget-4.7.29-hostinger.js`.
-
-## Verification before handoff
-- File starts with `/** Fuqah AI Chat Widget — Embeddable Script`.
-- Size ~170 KB, not the 450 KB minified bundle.
-- `grep` confirms:
-  - no remaining `'تم استلام رقمك ✅ سيتواصل معك'` push,
-  - no `backBtn` inside `renderTicketCreatedScreen`,
-  - new `.fq-ticket-locked .fq-screen-back { display:none }` rule present,
-  - regex fallback for offer-ticket prose present.
+## Deliverable
+- `/mnt/documents/widget-4.7.30-hostinger.js`
+- Header bumped to `Version: 4.7.30 (Hostinger embed: cap chat window height above bottom bar — no clipping)`
+- Verify: file ~170 KB, starts with the proper `/** Fuqah AI Chat Widget` comment, `grep` shows the new height-cap block in `updatePositions`.
