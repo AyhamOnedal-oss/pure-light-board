@@ -1,7 +1,8 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.31 (Hostinger embed: anchor chat to bottom bar without floating;
- *                  no idle while ticket raised; rating idle = skip-close)
+ * Version: 4.7.31 (Hostinger embed: anchor to bottom bar without floating;
+ *                  thumbs-feedback persists across re-renders;
+ *                  rating idle timer = same effect as تخطي وإغلاق)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
@@ -354,7 +355,7 @@
     inactivityEnabled: true,
     inactivityPromptSeconds: 90,
     inactivityCloseSeconds: 60,
-    ratingInactivitySeconds: 900,
+    ratingInactivitySeconds: 120,
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -441,6 +442,7 @@
     inactivityPromptTimer: null,
     inactivityCloseTimer: null,
     ratingInactivityTimer: null,
+    messageFeedback: {},
     welcomeBubbleDismissed: false,
     pendingTicketTimer: null,
   };
@@ -906,9 +908,12 @@
 
   function renderChatScreen() {
     clearInner();
+    // Leaving the rating screen must cancel its idle timer.
+    if (state.currentScreen === 'rating' && state.ratingInactivityTimer) {
+      clearTimeout(state.ratingInactivityTimer);
+      state.ratingInactivityTimer = null;
+    }
     state.currentScreen = 'chat';
-    // Leaving the rating screen (Back button etc.) must cancel its idle timer.
-    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     var c = mc();
 
     dom.window.style.background = c.chatBg;
@@ -1179,7 +1184,7 @@
   function buildFeedback(msgId) {
     var c = mc();
     var wrap = el('div', 'fq-feedback');
-    var feedbackState = { value: null };
+    var feedbackState = { value: (state.messageFeedback && state.messageFeedback[msgId]) || null };
 
     var downBtn = el('button', 'fq-feedback-btn');
     downBtn.setAttribute('aria-label', 'تقييم سلبي');
@@ -1189,6 +1194,7 @@
     downBtn.onmouseout = function () { this.style.background = 'transparent'; };
     downBtn.onclick = function () {
       feedbackState.value = feedbackState.value === 'down' ? null : 'down';
+      state.messageFeedback[msgId] = feedbackState.value;
       updateFeedbackUI();
       sendMessageFeedback(msgId, feedbackState.value);
     };
@@ -1201,6 +1207,7 @@
     upBtn.onmouseout = function () { this.style.background = 'transparent'; };
     upBtn.onclick = function () {
       feedbackState.value = feedbackState.value === 'up' ? null : 'up';
+      state.messageFeedback[msgId] = feedbackState.value;
       updateFeedbackUI();
       sendMessageFeedback(msgId, feedbackState.value);
     };
@@ -1216,6 +1223,8 @@
 
     wrap.appendChild(downBtn);
     wrap.appendChild(upBtn);
+    // Paint persisted choice so re-renders keep the selected thumb.
+    try { updateFeedbackUI(); } catch (e) {}
     return wrap;
   }
 
@@ -1926,14 +1935,14 @@
     state.currentScreen = 'rating';
     state.rating = 0;
     state.feedback = '';
-    // Rating-screen idle timer: on expiry, perform the exact same action as
+    // Rating-screen idle timer: on expiry perform the exact same action as
     // the "تخطي وإغلاق" button — close immediately and reset for next open.
     if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
-    var ratingIdleMs = Math.max(30, settings.ratingInactivitySeconds || 900) * 1000;
+    var ratingIdleMs = Math.max(30, settings.ratingInactivitySeconds || 120) * 1000;
     state.ratingInactivityTimer = setTimeout(function () {
       state.ratingInactivityTimer = null;
       try { restCloseConversation('rating_skip'); } catch (e) {}
-      resetConversationForNextOpen();
+      try { resetConversationForNextOpen(); } catch (e) {}
     }, ratingIdleMs);
     var c = mc();
     var accentColor = settings.mainColor;
@@ -2481,6 +2490,7 @@
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
     if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    state.messageFeedback = {};
     if (dom.textarea) { dom.textarea.disabled = false; dom.textarea.placeholder = 'اكتب رسالتك...'; }
     if (dom.attachBtn) dom.attachBtn.disabled = false;
     try { renderChatScreen(); } catch (e) {}
@@ -2509,6 +2519,7 @@
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
     if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    state.messageFeedback = {};
     // v4.7.21 — immediately rebuild the chat screen so the next open is guaranteed fresh
     try { renderChatScreen(); } catch(e) {}
     dom.window.classList.add('fq-window-exit');
