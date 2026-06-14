@@ -126,9 +126,9 @@ export function PlansPage() {
             <div className="relative" style={{ width: 200, height: 200 }}>
               <motion.div
                 key={chartKey}
-                initial={{ opacity: 0.78, rotate: -360, scale: 0.94 }}
-                animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                transition={{ duration: 1.65, ease: [0.22, 1, 0.36, 1] }}
+                initial={{ opacity: 0.78, scale: 0.94 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 style={{ width: 200, height: 200, transformOrigin: '50% 50%' }}
               >
                 <ResponsiveContainer width={200} height={200}>

@@ -256,7 +256,7 @@ export async function fetchDashboardMetrics(
   });
   if (!rpc.error && rpc.data) {
     const m = rpc.data as any;
-    const [{ data: trendRows }, { data: msgTimingRows }] = await Promise.all([
+    const [{ data: trendRows }, { data: msgTimingRows }, completionRes] = await Promise.all([
       supabase
         .from('dashboard_usage_daily')
         .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
@@ -271,7 +271,27 @@ export async function fetchDashboardMetrics(
         .lte('created_at', toIso)
         .order('created_at', { ascending: true })
         .limit(5000),
+      supabase
+        .from('conversations_main')
+        .select('completion_score')
+        .eq('tenant_id', tenantId)
+        .eq('is_test', false)
+        .not('completion_score', 'is', null)
+        .gte('created_at', fromIso)
+        .lte('created_at', toIso)
+        .limit(2000),
     ]);
+    // Average per-conversation completion_score (0..100) → 0..1 for UI.
+    let avgCompletion: number | null = null;
+    if (!completionRes.error && completionRes.data && completionRes.data.length > 0) {
+      const arr = completionRes.data as Array<{ completion_score: number | null }>;
+      let s = 0, n = 0;
+      for (const r of arr) {
+        const v = Number(r.completion_score);
+        if (Number.isFinite(v)) { s += v; n++; }
+      }
+      if (n > 0) avgCompletion = (s / n) / 100;
+    }
     // Compute real avg response time from message timing (customer -> ai/agent gap)
     const computeAvgResp = (rows: any[], fromMs: number) => {
       const byConv: Record<string, Array<{ s: string; t: number }>> = {};
@@ -353,7 +373,7 @@ export async function fetchDashboardMetrics(
         total: m.csat?.total ?? 0,
         avg: Number(m.csat?.avg ?? 0),
       },
-      completionRate: Number(m.completionRate ?? 0),
+      completionRate: avgCompletion != null ? avgCompletion : Number(m.completionRate ?? 0),
       classification: (m.classification ?? {}) as Record<string, number>,
       feedback: {
         positive: m.feedback?.positive ?? 0,
@@ -410,7 +430,7 @@ export async function fetchDashboardMetrics(
       .lte('created_at', toIso),
     supabase
       .from('conversations_main')
-      .select('id, status, category, csat_rating')
+      .select('id, status, category, csat_rating, completion_score')
       .eq('tenant_id', tenantId)
       .eq('is_test', false)
       .gte('created_at', fromIso)
@@ -473,13 +493,21 @@ export async function fetchDashboardMetrics(
   // Completion + classification from conversations_main
   let resolved = 0;
   const classification: Record<string, number> = {};
+  let completionSum = 0;
+  let completionCount = 0;
   for (const c of convRows.data ?? []) {
     if (c.status === 'resolved' || c.status === 'closed') resolved++;
     const cat = (c as any).category ?? null;
     if (cat) classification[cat] = (classification[cat] ?? 0) + 1;
+    const cs = (c as any).completion_score;
+    if (cs != null && Number.isFinite(Number(cs))) {
+      completionSum += Number(cs);
+      completionCount++;
+    }
   }
   const totalConv = (convRows.data ?? []).length;
-  const completionRate = totalConv > 0 ? resolved / totalConv : 0;
+  // Average per-conversation completion_score (0..100). Stored as 0..1 for the UI.
+  const completionRate = completionCount > 0 ? (completionSum / completionCount) / 100 : 0;
 
   // Avg response time: per conversation, average gap between a customer
   // message and the next ai/agent message.
