@@ -457,7 +457,16 @@ export function TeamPage() {
     const { data, error } = await supabase.functions.invoke('delete-employee', {
       body: { tenant_id: tenantId, member_id: deleteConfirm },
     });
-    if (error || !data?.ok) { showToast(t('Failed to delete', 'فشل الحذف')); return; }
+    if (error || !data?.ok) {
+      const reason = (data as any)?.detail || (data as any)?.error || error?.message || '';
+      console.error('delete-employee failed', { error, data });
+      showToast(
+        reason
+          ? t(`Failed to delete: ${reason}`, `فشل الحذف: ${reason}`)
+          : t('Failed to delete', 'فشل الحذف')
+      );
+      return;
+    }
     setMembers(m => m.filter(x => x.id !== deleteConfirm));
     setDeleteConfirm(null);
     showToast(t('Member deleted', 'تم حذف العضو'));
