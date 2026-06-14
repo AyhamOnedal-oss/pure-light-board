@@ -1,0 +1,1 @@
+ALTER TABLE public.tickets_main ALTER COLUMN subject DROP NOT NULL;

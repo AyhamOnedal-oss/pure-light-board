@@ -1734,7 +1734,7 @@ export type Database = {
           resolved_at: string | null
           sla_due_at: string | null
           status: Database["public"]["Enums"]["ticket_status"]
-          subject: string
+          subject: string | null
           tenant_id: string
           updated_at: string
         }
@@ -1757,7 +1757,7 @@ export type Database = {
           resolved_at?: string | null
           sla_due_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
-          subject: string
+          subject?: string | null
           tenant_id: string
           updated_at?: string
         }
@@ -1780,7 +1780,7 @@ export type Database = {
           resolved_at?: string | null
           sla_due_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
-          subject?: string
+          subject?: string | null
           tenant_id?: string
           updated_at?: string
         }
