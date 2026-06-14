@@ -761,7 +761,11 @@ export function ChatWindow({
                   messages.map(message => (
                     <ChatMessage
                       key={message.id}
-                      message={message}
+                      message={
+                        feedbackById[message.id] !== undefined
+                          ? { ...message, feedback: feedbackById[message.id] }
+                          : message
+                      }
                       storeIcon={storeIcon}
                       theme={theme}
                       onTicketFormSubmit={handleInlineTicketSubmit}
@@ -770,6 +774,7 @@ export function ChatWindow({
                       modeColors={modeColors}
                       onQuickReplyPick={handleQuickReplyPick}
                       onFeedbackChange={(id, fb) => {
+                        setFeedbackById(prev => ({ ...prev, [id]: fb }));
                         setMessages(prev => prev.map(m => (m.id === id ? { ...m, feedback: fb } : m)));
                         postFeedback(evCtx(), id, fb);
                         trackEvent('message.feedback', evCtx(), { messageId: id, feedback: fb });
