@@ -55,3 +55,9 @@ verify_jwt = false
 
 [functions.ensure-ticket-notes-bucket]
 verify_jwt = false
+
+[functions.send-low-balance-warning]
+verify_jwt = false
+
+[functions.send-renewal-confirmation]
+verify_jwt = false

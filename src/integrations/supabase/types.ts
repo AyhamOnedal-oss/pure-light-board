@@ -1476,6 +1476,8 @@ export type Database = {
           expired_emailed_at: string | null
           expiry_warned_for_date: string | null
           id: string
+          last_renewal_emailed_for_end: string | null
+          low_balance_emailed_period: string | null
           monthly_word_quota: number
           monthly_words_used: number
           period_start: string
@@ -1492,6 +1494,8 @@ export type Database = {
           expired_emailed_at?: string | null
           expiry_warned_for_date?: string | null
           id?: string
+          last_renewal_emailed_for_end?: string | null
+          low_balance_emailed_period?: string | null
           monthly_word_quota?: number
           monthly_words_used?: number
           period_start?: string
@@ -1508,6 +1512,8 @@ export type Database = {
           expired_emailed_at?: string | null
           expiry_warned_for_date?: string | null
           id?: string
+          last_renewal_emailed_for_end?: string | null
+          low_balance_emailed_period?: string | null
           monthly_word_quota?: number
           monthly_words_used?: number
           period_start?: string
