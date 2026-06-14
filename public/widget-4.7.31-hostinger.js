@@ -1,6 +1,7 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.31 (Hostinger embed: anchor chat to bottom bar without floating)
+ * Version: 4.7.31 (Hostinger embed: anchor chat to bottom bar without floating;
+ *                  no idle while ticket raised; rating idle = skip-close)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
@@ -353,6 +354,7 @@
     inactivityEnabled: true,
     inactivityPromptSeconds: 90,
     inactivityCloseSeconds: 60,
+    ratingInactivitySeconds: 900,
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -438,6 +440,7 @@
     inactivityActivityBump: 0,
     inactivityPromptTimer: null,
     inactivityCloseTimer: null,
+    ratingInactivityTimer: null,
     welcomeBubbleDismissed: false,
     pendingTicketTimer: null,
   };
@@ -904,6 +907,8 @@
   function renderChatScreen() {
     clearInner();
     state.currentScreen = 'chat';
+    // Leaving the rating screen (Back button etc.) must cancel its idle timer.
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     var c = mc();
 
     dom.window.style.background = c.chatBg;
@@ -1921,6 +1926,15 @@
     state.currentScreen = 'rating';
     state.rating = 0;
     state.feedback = '';
+    // Rating-screen idle timer: on expiry, perform the exact same action as
+    // the "تخطي وإغلاق" button — close immediately and reset for next open.
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
+    var ratingIdleMs = Math.max(30, settings.ratingInactivitySeconds || 900) * 1000;
+    state.ratingInactivityTimer = setTimeout(function () {
+      state.ratingInactivityTimer = null;
+      try { restCloseConversation('rating_skip'); } catch (e) {}
+      resetConversationForNextOpen();
+    }, ratingIdleMs);
     var c = mc();
     var accentColor = settings.mainColor;
     var pageBg = isDark() ? '#1e293b' : '#FFFFFF';
@@ -2466,6 +2480,7 @@
     if (state.inactivityPromptTimer) { clearTimeout(state.inactivityPromptTimer); state.inactivityPromptTimer = null; }
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     if (dom.textarea) { dom.textarea.disabled = false; dom.textarea.placeholder = 'اكتب رسالتك...'; }
     if (dom.attachBtn) dom.attachBtn.disabled = false;
     try { renderChatScreen(); } catch (e) {}
@@ -2493,6 +2508,7 @@
     if (state.inactivityPromptTimer) { clearTimeout(state.inactivityPromptTimer); state.inactivityPromptTimer = null; }
     if (state.inactivityCloseTimer) { clearTimeout(state.inactivityCloseTimer); state.inactivityCloseTimer = null; }
     if (state.pendingTicketTimer) { clearTimeout(state.pendingTicketTimer); state.pendingTicketTimer = null; }
+    if (state.ratingInactivityTimer) { clearTimeout(state.ratingInactivityTimer); state.ratingInactivityTimer = null; }
     // v4.7.21 — immediately rebuild the chat screen so the next open is guaranteed fresh
     try { renderChatScreen(); } catch(e) {}
     dom.window.classList.add('fq-window-exit');
@@ -2726,6 +2742,7 @@
           if (typeof s.inactivity_enabled === 'boolean') settings.inactivityEnabled = s.inactivity_enabled;
           if (typeof s.inactivity_prompt_seconds === 'number') settings.inactivityPromptSeconds = s.inactivity_prompt_seconds;
           if (typeof s.inactivity_close_seconds === 'number') settings.inactivityCloseSeconds = s.inactivity_close_seconds;
+          if (typeof s.rating_inactivity_seconds === 'number') settings.ratingInactivitySeconds = s.rating_inactivity_seconds;
           if (s.workspace_name) settings.storeName = s.workspace_name;
           if (s.logo_url) settings.storeLogo = s.logo_url;
           if (s.icon_url) settings.storeIcon = s.icon_url;

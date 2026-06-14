@@ -567,6 +567,9 @@ export function ChatWindow({
 
   useEffect(() => {
     if (!inactivityEnabled) { setShowInactivityPrompt(false); return; }
+    // Once a ticket is raised, the conversation is considered handled —
+    // no idle prompt, no rating, no auto-close.
+    if (ticketCreated) { setShowInactivityPrompt(false); return; }
     if (currentScreen !== 'chat' || messages.length === 0 || isTyping) return;
 
     const startBump = activityBumpRef.current;
@@ -577,22 +580,23 @@ export function ChatWindow({
       }
     }, promptSeconds * 1000);
     return () => clearTimeout(showTimer);
-  }, [inactivityEnabled, currentScreen, messages.length, isTyping, promptSeconds]);
+  }, [inactivityEnabled, currentScreen, messages.length, isTyping, promptSeconds, ticketCreated]);
 
   useEffect(() => {
     if (!showInactivityPrompt) return;
+    if (ticketCreated) { setShowInactivityPrompt(false); return; }
     const closeTimer = setTimeout(() => {
       setShowInactivityPrompt(false);
       trackEvent('inactivity.auto_closed', evCtx(), { reason: 'inactivity' });
       closeConversation(evCtx(), 'inactivity');
-      // Idle auto-close: skip the rating screen entirely and collapse the
-      // widget — same effect as tapping "تخطي وإغلاق" so the user can't
-      // reopen the rating back-arrow and resume writing after timeout.
-      onClose();
+      // After the chat-idle prompt times out, send the user to the rating
+      // screen. The rating screen's own idle timer will then close the
+      // widget immediately (same effect as tapping "تخطي وإغلاق").
+      setCurrentScreen('rating');
     }, closeSeconds * 1000);
     return () => clearTimeout(closeTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showInactivityPrompt, closeSeconds]);
+  }, [showInactivityPrompt, closeSeconds, ticketCreated]);
 
   const handleInactivityContinue = () => {
     trackEvent('inactivity.continued', evCtx());
@@ -690,8 +694,11 @@ export function ChatWindow({
                 closeConversation(evCtx(), 'rating_skip');
               }}
               onRatingAutoClose={() => {
-                trackEvent('rating.auto_closed', evCtx(), { reason: 'inactivity' });
-                closeConversation(evCtx(), 'inactivity');
+                // Idle auto-close on the rating screen behaves exactly like
+                // tapping "تخطي وإغلاق": same event, same close reason,
+                // immediate collapse + clear so reopening starts fresh.
+                trackEvent('rating.skipped', evCtx());
+                closeConversation(evCtx(), 'rating_skip');
               }}
             />
           )}
