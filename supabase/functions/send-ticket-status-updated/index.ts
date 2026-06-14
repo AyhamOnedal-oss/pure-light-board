@@ -11,7 +11,19 @@ const cors = {
 
 const PRIORITY_AR: Record<string, string> = { low: "منخفضة", medium: "متوسطة", high: "عالية", urgent: "عاجلة" };
 const STATUS_AR: Record<string, string> = { open: "مفتوحة", in_progress: "قيد المعالجة", pending: "معلّقة", resolved: "تم الحل", closed: "مغلقة" };
-const CATEGORY_AR: Record<string, string> = { product: "منتج", payment: "دفع", shipping: "شحن", account: "حساب", other: "أخرى", complaint: "شكوى", question: "سؤال", refund: "استرجاع" };
+const CATEGORY_AR: Record<string, string> = {
+  product: "منتج",
+  payment: "دفع",
+  shipping: "شحن",
+  account: "حساب",
+  other: "أخرى",
+  complaint: "شكوى",
+  question: "سؤال",
+  refund: "استرجاع",
+  request: "طلب",
+  inquiry: "استفسار",
+  suggestion: "اقتراح",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
