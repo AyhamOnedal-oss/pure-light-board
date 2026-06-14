@@ -441,6 +441,8 @@
     inactivityActivityBump: 0,
     inactivityPromptTimer: null,
     inactivityCloseTimer: null,
+    ratingInactivityTimer: null,
+    messageFeedback: {},
     welcomeBubbleDismissed: false,
     pendingTicketTimer: null,
   };
