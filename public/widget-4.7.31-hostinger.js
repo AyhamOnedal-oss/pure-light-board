@@ -355,6 +355,7 @@
     inactivityEnabled: true,
     inactivityPromptSeconds: 90,
     inactivityCloseSeconds: 60,
+    ratingInactivitySeconds: 120,
   };
 
   // ═══════════════════════════════════════════════════════════════════
