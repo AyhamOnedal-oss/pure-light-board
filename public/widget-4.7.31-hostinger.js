@@ -2753,6 +2753,7 @@
           if (typeof s.inactivity_enabled === 'boolean') settings.inactivityEnabled = s.inactivity_enabled;
           if (typeof s.inactivity_prompt_seconds === 'number') settings.inactivityPromptSeconds = s.inactivity_prompt_seconds;
           if (typeof s.inactivity_close_seconds === 'number') settings.inactivityCloseSeconds = s.inactivity_close_seconds;
+          if (typeof s.rating_inactivity_seconds === 'number') settings.ratingInactivitySeconds = s.rating_inactivity_seconds;
           if (s.workspace_name) settings.storeName = s.workspace_name;
           if (s.logo_url) settings.storeLogo = s.logo_url;
           if (s.icon_url) settings.storeIcon = s.icon_url;
