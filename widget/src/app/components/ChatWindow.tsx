@@ -117,6 +117,15 @@ export function ChatWindow({
   const [currentScreen, setCurrentScreen]     = useState<ScreenView>('chat');
   const [ticketId, setTicketId]               = useState(generateTicketId);
 
+  /**
+   * Thumbs feedback per message, kept in a separate map so it survives any
+   * re-creation of the `messages` array (e.g. when a parent reseats the state
+   * or a stale closure rebuilds a message object without the feedback field).
+   * The map is the source of truth for the UI; `message.feedback` is only a
+   * fallback for first paint.
+   */
+  const [feedbackById, setFeedbackById] = useState<Record<string, 'up' | 'down' | null>>({});
+
   // ── Theme colors based on mode ──────────────────────────────────────────────
   const isDarkMode = themeSettings?.mode === 'dark';
   const modeColors = isDarkMode ? DARK_MODE_COLORS : LIGHT_MODE_COLORS;
@@ -752,7 +761,11 @@ export function ChatWindow({
                   messages.map(message => (
                     <ChatMessage
                       key={message.id}
-                      message={message}
+                      message={
+                        feedbackById[message.id] !== undefined
+                          ? { ...message, feedback: feedbackById[message.id] }
+                          : message
+                      }
                       storeIcon={storeIcon}
                       theme={theme}
                       onTicketFormSubmit={handleInlineTicketSubmit}
@@ -761,6 +774,7 @@ export function ChatWindow({
                       modeColors={modeColors}
                       onQuickReplyPick={handleQuickReplyPick}
                       onFeedbackChange={(id, fb) => {
+                        setFeedbackById(prev => ({ ...prev, [id]: fb }));
                         setMessages(prev => prev.map(m => (m.id === id ? { ...m, feedback: fb } : m)));
                         postFeedback(evCtx(), id, fb);
                         trackEvent('message.feedback', evCtx(), { messageId: id, feedback: fb });
