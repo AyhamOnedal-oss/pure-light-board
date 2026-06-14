@@ -1,6 +1,8 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.30 (Hostinger embed: cap chat window height above bottom bar — no clipping)
+ * Version: 4.7.31 (Hostinger embed: anchor to bottom bar without floating;
+ *                  thumbs-feedback persists across re-renders;
+ *                  rating idle timer = same effect as تخطي وإغلاق)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
