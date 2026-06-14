@@ -1,51 +1,30 @@
-## Root cause (confirmed)
+# Auto-close widget on idle (rating screen)
 
-Edge-function logs prove the rating arrives with `has_comment: false, comment_len: 0`. The Hostinger widget bundle hardcodes an empty string when it submits:
+## Problem
 
-```js
-// widget-4.7.25-hostinger.js, line 2010
-submitBtn.onclick = function () {
-  if (state.rating === 0) return;
-  restSubmitRating(state.rating, '');   // ← always blank, ignores the textarea
-  ...
-};
-```
+When the rating screen stays open and the customer goes idle, the backend's `auto-close-stale-conversations` marks the conversation as `closed` in the dashboard, but the widget UI keeps showing the rating screen indefinitely. The user expects the widget to behave exactly as if "تخطي وإغلاق" was tapped: close + clear messages + open a fresh new chat next time.
 
-The textarea `oninput` does write `state.feedback = this.value` (line 1992), but the submit handler never reads it. So the comment never leaves the customer's browser. The dashboard, backend, RLS, and realtime are all already correct — the bar has nothing to render because the column is `NULL`.
+Root cause: in `widget/src/app/components/ChatWindow.tsx` (line 670), `inactivitySeconds={0}` is hardcoded on `<RatingScreen>`, which disables the rating-screen auto-close entirely. The comment notes it was disabled because a previous countdown was too aggressive.
 
-## Fix (single file: `widget-4.7.25-hostinger.js`)
+## Fix
 
-1. **Send the comment.** Replace line 2010 with:
-   ```js
-   var commentText = (state.feedback || ta.value || '').trim();
-   restSubmitRating(state.rating, commentText.length ? commentText : null);
-   ```
-   This reads from both `state.feedback` (kept by `oninput`) and the live `ta.value` as a fallback, trims whitespace, and sends `null` for blanks (matching what the backend already normalises to `NULL`).
+In `widget/src/app/components/ChatWindow.tsx`, on the `<RatingScreen>` instance:
 
-2. **Bump the version banner** at the top of the file from `4.7.22` to `4.7.26` so cache busting is obvious on the next upload and we can confirm in browser DevTools that the new bundle is live.
+1. Replace `inactivitySeconds={0}` with the real setting from `themeSettings.ratingInactivitySeconds` (already plumbed via `useFetchChatSettings`, default 900s = 15 min). This matches the server-side idle cutoff so dashboard + widget stay consistent.
+2. Implement `onRatingAutoClose` instead of leaving it a no-op:
+   - `trackEvent('rating.auto_closed', evCtx())`
+   - `closeConversation(evCtx(), 'inactivity')` so the close reason persists as "الخمول"
+   - `RatingScreen` already calls `onClose()` right after `onRatingAutoClose()`, and `onClose` (passed from `WidgetChatPage`) clears messages and generates a new `conversationId` — same behavior as Skip.
 
-3. **(Optional belt-and-braces)** Inside `restSubmitRating`, guard against the legacy `''` case so any other call site stays safe:
-   ```js
-   var safeComment = typeof comment === 'string' && comment.trim().length
-     ? comment.trim().slice(0, 1000)
-     : null;
-   // then send safeComment in payload.comment
-   ```
-
-That's the entire code change. No backend, dashboard, or schema edits are needed — `widget-events` already writes `rating_comment`, and `ConversationsPage` already renders the yellow-star bar reactively whenever `selected.ratingComment` is non-empty.
+No backend, dashboard, or schema changes. No edits to `RatingScreen.tsx` (the auto-close timer + handler wiring already exist there).
 
 ## Verification
 
-1. Upload the patched `widget-4.7.25-hostinger.js` (renamed `widget-4.7.26-hostinger.js`) to `widget.fuqah.net/widget.js`, hard-refresh the storefront.
-2. Open the chat, end conversation, rate (e.g.) 5 stars, type "تجربة فُقاهة"، press إرسال التقييم.
-3. Check edge-function logs for `widget-events rating` — expect `has_comment: true, comment_len > 0, updated: 1`.
-4. Open the dashboard's Conversations page → the yellow ★ + quoted comment bar appears above the conversation header without needing a refresh.
-5. Repeat the test submitting the rating with an empty textarea — the bar must stay hidden.
+- Open widget → trigger rating screen (e.g. AI close or manual close) → wait `ratingInactivitySeconds` → widget collapses, messages cleared, reopening starts a brand-new conversation.
+- Dashboard conversation row shows `status=closed`, `close_reason=inactivity`.
+- Submitting or tapping "تخطي وإغلاق" still works unchanged.
 
-## Out of scope / no change required
+## Out of scope
 
-- React widget under `widget/src/*` already sends the comment correctly — no edits.
-- `supabase/functions/widget-events/index.ts` — already trims, slices to 1000 chars, and persists `rating_comment`.
-- `src/app/components/ConversationsPage.tsx` — already trims and gates the bar render on non-empty content, and re-syncs on realtime UPDATEs.
-
-Approve this and send the next batch of edits you want stacked onto the same bundle and I'll apply them together.
+- The standalone `widget-*.js` Hostinger bundle (separate file the user maintains; they upload patched versions manually).
+- Server-side auto-close logic (already correct).
