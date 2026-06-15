@@ -140,8 +140,51 @@ export function Layout() {
     };
   }, [tenantId, location.pathname, badgeVersion]);
 
-  // Tickets sidebar badge is not derived from bell notifications anymore.
-  const ticketsBadge = 0;
+  // Tickets sidebar badge — count unread NOTE activities across all tickets
+  // for the current tenant. A note is "unread" when its created_at is newer
+  // than the last time the user opened that ticket's notes panel
+  // (tracked via localStorage notifKeys.ticketNotesSeen).
+  const [ticketsBadge, setTicketsBadge] = useState(0);
+  useEffect(() => {
+    if (!tenantId) { setTicketsBadge(0); return; }
+    let cancelled = false;
+    const load = async () => {
+      const { data: noteRows } = await supabase
+        .from('tickets_activities')
+        .select('ticket_id, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('type', 'note')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (cancelled) return;
+      const count = (noteRows || []).reduce((n, r) => {
+        const tid = (r as { ticket_id?: string | null }).ticket_id;
+        const createdAt = (r as { created_at?: string | null }).created_at;
+        if (!tid || !createdAt) return n;
+        const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
+        return toMs(createdAt) > seen ? n + 1 : n;
+      }, 0);
+      setTicketsBadge(count);
+    };
+    load();
+
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => { if (!cancelled) load(); }, 400);
+    };
+    const channel = supabase
+      .channel(`sidebar-ticket-notes-${tenantId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets_activities', filter: `tenant_id=eq.${tenantId}` },
+        scheduleLoad)
+      .subscribe();
+    return () => {
+      cancelled = true;
+      if (debounce) clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
+  }, [tenantId, location.pathname, badgeVersion]);
 
   // While permissions are loading, treat everything as locked so the
   // sidebar never flashes unrestricted for an invited employee.
