@@ -57,8 +57,10 @@ export function DashboardPage() {
   const { loading: permissionsLoading, disabled: isFrozen, snapshot, frozenAt } = useCurrentMemberPermissions(user?.id, tenantId, isSuperAdmin);
   const [rangePreset, setRangePreset] = useState<RangePreset>('last30');
   const [range, setRange] = useState<DateRange>(() => computeRange('last30'));
-  const freezeDashboard = permissionsLoading || isFrozen;
-  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, freezeDashboard, snapshot, frozenAt);
+  // Only freeze the dashboard for actually-disabled members. Previously this
+  // also froze during permission loading, which reset live metrics to zeros
+  // for 1–2s on every reload (causing the cached "2K → 0 → 2K" flash).
+  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen, snapshot, frozenAt);
   const feedback = metrics.feedback;
   const feedbackAnimationKey = 'feedback-live';
   const feedbackPieData = useMemo(

@@ -69,7 +69,7 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
       }
       if (tenantId && frozenAt) {
         let cancelled = false;
-        setLoading(true);
+        if (!initialCached) setLoading(true);
         const to = new Date(frozenAt);
         const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
         const frozenRange = { from, to };
@@ -86,9 +86,8 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
         });
         return () => { cancelled = true; };
       }
-      setMetrics(EMPTY_METRICS);
-      setTopSubjects({ complaint: [], inquiry: [], request: [], suggestion: [], other: [] });
-      setRecentFeedback([]);
+      // Frozen but no snapshot/frozenAt yet — keep whatever we already have
+      // visible (cached or live) instead of nuking the dashboard to zeros.
       setLoading(false);
       return;
     }
