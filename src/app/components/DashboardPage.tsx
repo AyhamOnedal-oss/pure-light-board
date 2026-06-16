@@ -290,7 +290,7 @@ export function DashboardPage() {
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive={animateOnce} animationBegin={0} animationDuration={900} animationEasing="ease-out"
+                isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
               >
                 {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
               </Pie>
@@ -325,9 +325,9 @@ export function DashboardPage() {
                   <span className="text-[13px]" style={{ fontWeight: 700, color: tickColor }}>{d.value}</span>
                   <div className="w-full flex justify-center" style={{ height: `${pct}%` }}>
                     <motion.div
-                      initial={animateOnce ? { scaleY: 0 } : false}
+                      initial={{ scaleY: 0 }}
                       animate={{ scaleY: 1 }}
-                      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                      transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
                       className="w-full rounded-t-lg origin-bottom"
                       style={{ backgroundColor: d.fill, maxWidth: 64, height: '100%' }}
                     />
@@ -366,9 +366,9 @@ export function DashboardPage() {
                   return (
                     <motion.div
                       key={s}
-                      initial={animateOnce ? { opacity: 0, scale: 0 } : false}
+                      initial={{ opacity: 0, scale: 0 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.25, delay: animateOnce ? s * 0.05 : 0 }}
+                      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
                     >
                       <Star className={`w-7 h-7 ${s <= rounded ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
                     </motion.div>
@@ -415,7 +415,7 @@ export function DashboardPage() {
                   cx="50%" cy="50%"
                   innerRadius={50} outerRadius={78}
                   dataKey="value" paddingAngle={4} strokeWidth={0}
-                  isAnimationActive={animateOnce} animationBegin={0} animationDuration={900} animationEasing="ease-out"
+                  isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
                 >
                   <Cell key="fb-positive" fill="#10b981" />
                   <Cell key="fb-negative" fill="#ff4466" />
