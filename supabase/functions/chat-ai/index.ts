@@ -331,15 +331,24 @@ Deno.serve(async (req) => {
     if (!message && !hasAttachments) {
       return jsonResponse({ error: "missing_message" }, 400);
     }
-    // If image only and no caption, give the agent a default user instruction
+    // Track whether the customer actually typed text (before we default it).
+    const customerSentText = !!message && message.trim().length > 0;
     if (!message && hasAttachments) {
       message = "صِف الصورة المرفقة أو أجب عن سؤال العميل عنها.";
     }
     let userText: string = message;
 
-    // === Vision pre-processing ===
-    // n8n agent is text-only, so describe attached images with gpt-4o-mini
-    // vision here and inject the description into the message sent to n8n.
+    // Short-circuit reply: set when the image is clearly not a real product
+    // photo AND the customer didn't type any text. We send this back directly
+    // after tenant resolution, skipping the n8n agent so it can't hallucinate
+    // "yes we have this product" from an icon/emoji/clipart.
+    let nonProductShortCircuit: string | null = null;
+
+    // === Vision pre-processing (image-first analysis) ===
+    // Analyze the image BEFORE the n8n text agent runs. We classify the image
+    // kind (real product photo vs icon/emoji/clipart/etc.) and only allow
+    // catalog matching when it's actually a product photo. Output is strict
+    // JSON so we can branch on it deterministically.
     if (hasAttachments && OPENAI_API_KEY) {
       try {
         const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -351,23 +360,37 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model: "gpt-4o-mini",
             temperature: 0,
-            max_tokens: 250,
+            max_tokens: 400,
+            response_format: { type: "json_object" },
             messages: [
               {
                 role: "system",
                 content:
-                  "You describe customer-attached images for a shopping support agent. " +
-                  "In 1-3 short sentences, describe what is visible: product type, brand/logo or readable text, color, distinguishing features. " +
-                  "If it looks like a product, say so and guess the category. If it contains text, transcribe the key text. " +
-                  "Reply in the same language as the user caption (Arabic if Arabic, else English). No preamble.",
+                  "You analyze customer-attached images for a shopping support agent. " +
+                  "ANALYZE THE IMAGE FIRST AND OBJECTIVELY — do NOT assume it is a product. " +
+                  "Icons, emoji, stickers, clipart, cartoons, logos, screenshots, and drawings are NOT real products even if they depict a product-like object. " +
+                  "Example: a small cartoon gift box with a ribbon on a flat background = icon_or_clipart, NOT product_photo. " +
+                  "A real product photo is a photograph of an actual physical item (realistic lighting, texture, background, packaging or studio shot). " +
+                  "Return ONLY a JSON object with this exact schema: " +
+                  "{ " +
+                  "\"image_kind\": one of [\"product_photo\",\"screenshot\",\"icon_or_clipart\",\"emoji\",\"logo\",\"receipt_or_document\",\"drawing_or_sketch\",\"person_or_selfie\",\"unclear\"], " +
+                  "\"is_real_product_photo\": boolean, " +
+                  "\"description\": string (1-2 short objective sentences in Arabic if customer wrote Arabic, else English; describe what you SEE, do not call it a product unless image_kind=product_photo), " +
+                  "\"readable_text\": string (literal transcription of any text visible in the image, or empty string), " +
+                  "\"suggested_action\": one of [\"match_to_catalog\",\"ask_for_real_photo\",\"answer_text_only\",\"ask_clarification\"] " +
+                  "}. " +
+                  "Rules: suggested_action=match_to_catalog ONLY when is_real_product_photo=true. " +
+                  "If image_kind is icon_or_clipart/emoji/drawing_or_sketch/logo → is_real_product_photo=false and suggested_action=ask_for_real_photo. " +
+                  "If image_kind=unclear → suggested_action=ask_clarification. " +
+                  "If image_kind=screenshot/receipt_or_document → suggested_action=answer_text_only.",
               },
               {
                 role: "user",
                 content: [
-                  { type: "text", text: message || "Describe this image." },
+                  { type: "text", text: customerSentText ? `Customer caption: ${message}` : "No caption from the customer." },
                   ...attachmentsIn.map((a: any) => ({
                     type: "image_url",
-                    image_url: { url: a.url, detail: "low" },
+                    image_url: { url: a.url, detail: "high" },
                   })),
                 ],
               },
@@ -376,7 +399,7 @@ Deno.serve(async (req) => {
         });
         if (visionRes.ok) {
           const vdata = await visionRes.json();
-          const desc: string = vdata?.choices?.[0]?.message?.content?.trim() ?? "";
+          const raw: string = vdata?.choices?.[0]?.message?.content?.trim() ?? "";
           const usage = vdata?.usage ?? {};
           console.log("vision_usage", {
             attachments: attachmentsIn.length,
@@ -385,10 +408,67 @@ Deno.serve(async (req) => {
             total_tokens: usage.total_tokens,
             cost_usd: estimateCost("gpt-4o-mini", usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
           });
-          if (desc) {
-            userText = message
-              ? `${message}\n\n[وصف الصورة المرفقة: ${desc}]`
-              : `[وصف الصورة المرفقة: ${desc}]`;
+          let parsed: any = null;
+          try { parsed = JSON.parse(raw); } catch { /* leave null */ }
+          if (parsed && typeof parsed === "object") {
+            const kind: string = String(parsed.image_kind ?? "unclear");
+            const isProduct: boolean = parsed.is_real_product_photo === true && kind === "product_photo";
+            const desc: string = String(parsed.description ?? "").trim();
+            const readable: string = String(parsed.readable_text ?? "").trim();
+            const action: string = String(parsed.suggested_action ?? "");
+            console.log("vision_verdict", { kind, isProduct, action, has_readable: !!readable });
+
+            const kindAr: Record<string, string> = {
+              product_photo: "صورة منتج",
+              screenshot: "لقطة شاشة",
+              icon_or_clipart: "أيقونة/رسمة",
+              emoji: "إيموجي",
+              logo: "شعار",
+              receipt_or_document: "إيصال/مستند",
+              drawing_or_sketch: "رسم يدوي",
+              person_or_selfie: "صورة شخصية",
+              unclear: "غير واضحة",
+            };
+
+            let block: string;
+            if (isProduct) {
+              block =
+                `[تحليل الصورة المرفقة]\n` +
+                `النوع: صورة منتج\n` +
+                `الوصف: ${desc || "(بدون وصف)"}\n` +
+                `نص ظاهر داخل الصورة: ${readable || "لا يوجد"}\n` +
+                `التعليمة: حاول مطابقة هذا المنتج مع كتالوج المتجر، ولا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً.`;
+            } else if (kind === "unclear") {
+              block =
+                `[تحليل الصورة المرفقة]\n` +
+                `النوع: غير واضحة\n` +
+                `الوصف: ${desc || "(لا يمكن تحديد محتوى الصورة بدقة)"}\n` +
+                `التعليمة الحرجة: لا تخمّن. اطلب من العميل توضيح ما يقصده أو إرسال صورة أوضح.`;
+            } else {
+              block =
+                `[تحليل الصورة المرفقة]\n` +
+                `النوع: ${kindAr[kind] ?? kind} — ليست صورة منتج حقيقية\n` +
+                `الوصف: ${desc || "(بدون وصف)"}\n` +
+                (readable ? `نص ظاهر داخل الصورة: ${readable}\n` : "") +
+                `التعليمة الحرجة: لا تؤكد توفر أي منتج بناءً على هذه الصورة، ولا تتعامل معها كأنها صورة منتج فعلية. اطلب من العميل إرسال صورة المنتج الفعلي أو اسمه أو رابطه.`;
+
+              // If the customer sent no text at all, short-circuit and reply
+              // directly without invoking n8n — the agent has no real query.
+              if (!customerSentText) {
+                const kindWordAr = kindAr[kind] ?? "صورة غير منتج";
+                nonProductShortCircuit =
+                  `وصلتني صورتك، لكنها تبدو ${kindWordAr} وليست صورة منتج فعلية. ` +
+                  `هل تقصد منتجاً معيناً؟ ابعث لي اسمه أو رابطه أو صورته الفعلية وأخدمك 🌷`;
+              }
+            }
+
+            userText = customerSentText ? `${message}\n\n${block}` : block;
+          } else if (raw) {
+            // Model returned non-JSON despite response_format — fall back to
+            // injecting the raw text as a plain description.
+            userText = customerSentText
+              ? `${message}\n\n[وصف الصورة المرفقة: ${raw}]`
+              : `[وصف الصورة المرفقة: ${raw}]`;
           }
         } else {
           const errTxt = await visionRes.text().catch(() => "");
@@ -662,6 +742,24 @@ Deno.serve(async (req) => {
 
     if (!N8N_WEBHOOK_URL) {
       return jsonResponse({ error: "n8n_not_configured" }, 503);
+    }
+
+    // Short-circuit: image was clearly not a real product photo and the
+    // customer didn't type a question. Reply directly and skip n8n so the
+    // agent can't claim "yes we have this product" from an icon/emoji.
+    if (nonProductShortCircuit) {
+      const reply = nonProductShortCircuit;
+      const action = { type: "none" as ActionType, reason: "non_product_image" };
+      const persisted = await persistMessages(userText, reply);
+      return jsonResponse({
+        reply,
+        attachments: [],
+        action,
+        intent: "continue",
+        tenant_id,
+        conversation_id,
+        ai_message_id: persisted.ai_message_id,
+      });
     }
 
     console.log("n8n webhook kind:", N8N_WEBHOOK_URL.includes("/webhook-test/") ? "TEST" : N8N_WEBHOOK_URL.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
