@@ -454,6 +454,15 @@ Deno.serve(async (req) => {
             const usefulSignal: boolean =
               parsed.has_useful_signal === true ||
               !!(desc || readable || depicted || brand || productGuess || searchQueries.length);
+            // Strong identity gate: only allow catalog search when the image
+            // gives us a specific, high-confidence product identity. With weak
+            // signals (just a brand logo, just a color, generic category) the
+            // agent must NOT search the catalog — it should ask the customer
+            // to type the product name instead, to avoid dumping unrelated
+            // products.
+            const hasStrongIdentity: boolean =
+              (!!productGuess && productGuessConf >= 0.7) ||
+              (!!brand && !!category && !!readable && readable.length >= 3);
             console.log("vision_verdict", {
               kind, isProduct, has_readable: !!readable,
               has_depicted: !!depicted, has_brand: !!brand,
@@ -461,6 +470,7 @@ Deno.serve(async (req) => {
               product_guess_confidence: productGuessConf,
               query_count: searchQueries.length,
               useful: usefulSignal,
+              strong_identity: hasStrongIdentity,
             });
 
             const kindAr: Record<string, string> = {
@@ -489,12 +499,21 @@ Deno.serve(async (req) => {
               `التعليمة:\n` +
               `  - ابحث في كتالوج المتجر باستخدام كل استعلام بالترتيب حتى تجد تطابقاً فعلياً.\n` +
               `  - إذا وجدت تطابقاً، أكّد للعميل اسم المنتج كما هو في الكتالوج واسأله إن كان هذا ما يقصد.\n` +
-              `  - إذا لم تجد بعد كل المحاولات، قل ذلك بأدب واذكر التخمين البصري إن وُجد (مثال: "يبدو لي أنه ${productGuess || "هذا المنتج"}") واطلب من العميل تأكيد الاسم أو رابط المنتج.\n` +
+              `  - إذا لم تجد تطابقاً واضحاً بعد تجربة كل الاستعلامات، لا تعرض منتجات قريبة أو بديلة من الكتالوج. قل بأدب أنك لم تجد المنتج، اذكر التخمين البصري إن وُجد (مثال: "يبدو لي أنه ${productGuess || "هذا المنتج"}") واطلب من العميل تأكيد الاسم أو إرسال الرابط.\n` +
               `  - لا تقترح على العميل قائمة موديلات قديمة عشوائية إذا الصورة تشير لموديل محدد.\n` +
               `  - لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً في الكتالوج.`;
 
+            // Used when the image has SOME signal but no specific product
+            // identity. Tells n8n: do NOT search catalog, ask the customer.
+            const askForNameInstruction =
+              `التعليمة الصارمة:\n` +
+              `  - الصورة لا تحدد منتجاً بعينه بثقة كافية.\n` +
+              `  - ممنوع البحث في الكتالوج أو اقتراح أو عرض أي منتج بناءً على هذه الصورة وحدها.\n` +
+              `  - اطلب من العميل بأدب اسم المنتج كما هو مكتوب، أو وصفاً أوضح (الموديل، الحجم، اللون)، أو رابطاً للمنتج.\n` +
+              `  - يمكنك الإشارة باختصار لما رأيته في الصورة (مثلاً: "أرى علامة ${brand || "—"}${color ? ` باللون ${color}` : ""}") لكن بدون عرض أي منتج من الكتالوج.`;
+
             let block: string;
-            if (isProduct) {
+            if (isProduct && hasStrongIdentity) {
               block =
                 `[تحليل الصورة المرفقة]\n` +
                 `النوع: صورة منتج\n` +
@@ -509,7 +528,8 @@ Deno.serve(async (req) => {
                 colorsLine +
                 queriesBlock +
                 searchInstruction;
-            } else if (usefulSignal) {
+            } else if (hasStrongIdentity) {
+              // Non-product_photo kind (e.g. screenshot, logo) but identity is strong → still allow catalog search.
               block =
                 `[تحليل الصورة المرفقة]\n` +
                 `النوع: ${kindAr[kind] ?? kind} (ليست صورة منتج فوتوغرافية، لكنها تحمل معلومات مفيدة)\n` +
@@ -524,6 +544,20 @@ Deno.serve(async (req) => {
                 colorsLine +
                 queriesBlock +
                 searchInstruction;
+            } else if (usefulSignal) {
+              // Weak signal: brand/color/category only. NEVER search the catalog;
+              // ask the customer for the product name instead.
+              block =
+                `[تحليل الصورة المرفقة]\n` +
+                `النوع: ${kindAr[kind] ?? kind}\n` +
+                fmtLine("الفئة", category || "غير محددة") +
+                fmtLine("العلامة", brand) +
+                fmtLine("اللون", color) +
+                fmtLine("الوصف", desc) +
+                fmtLine("الشيء الذي تمثله الصورة", depicted) +
+                fmtLine("نص ظاهر داخل الصورة", readable) +
+                colorsLine +
+                askForNameInstruction;
             } else if (kind === "unclear" || !usefulSignal) {
               // No useful signal extracted at all.
               if (customerSentText) {
