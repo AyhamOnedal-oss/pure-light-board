@@ -276,9 +276,9 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-5">
         {/* Classification Pie */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
+          transition={{ duration: 0.3 }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Conversation Classification', 'تصنيف المحادثات')}</h3>
@@ -290,7 +290,7 @@ export function DashboardPage() {
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive animationBegin={500} animationDuration={1200} animationEasing="ease-out"
+                isAnimationActive={animateOnce} animationBegin={0} animationDuration={900} animationEasing="ease-out"
               >
                 {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
               </Pie>
@@ -309,9 +309,9 @@ export function DashboardPage() {
 
         {/* Ticket Status Bar — subtle hover, white text in dark */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.5 }}
+          transition={{ duration: 0.3 }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Ticket Status', 'حالة التذاكر')}</h3>
@@ -325,9 +325,9 @@ export function DashboardPage() {
                   <span className="text-[13px]" style={{ fontWeight: 700, color: tickColor }}>{d.value}</span>
                   <div className="w-full flex justify-center" style={{ height: `${pct}%` }}>
                     <motion.div
-                      initial={{ scaleY: 0 }}
+                      initial={animateOnce ? { scaleY: 0 } : false}
                       animate={{ scaleY: 1 }}
-                      transition={{ duration: 1.6, delay: 0.5 + idx * 0.12, ease: [0.16, 1, 0.3, 1] }}
+                      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                       className="w-full rounded-t-lg origin-bottom"
                       style={{ backgroundColor: d.fill, maxWidth: 64, height: '100%' }}
                     />
@@ -341,9 +341,9 @@ export function DashboardPage() {
 
         {/* Rating */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.6 }}
+          transition={{ duration: 0.3 }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm flex flex-col"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Customer Rating', 'تقييم العملاء')}</h3>
@@ -366,16 +366,16 @@ export function DashboardPage() {
                   return (
                     <motion.div
                       key={s}
-                      initial={{ opacity: 0, scale: 0 }}
+                      initial={animateOnce ? { opacity: 0, scale: 0 } : false}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3, delay: 0.6 + s * 0.1 }}
+                      transition={{ duration: 0.25, delay: animateOnce ? s * 0.05 : 0 }}
                     >
                       <Star className={`w-7 h-7 ${s <= rounded ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
                     </motion.div>
                   );
                 })}
               </div>
-              <AnimatedValue value={metrics.csat.avg.toFixed(1)} duration={2000} delay={800} className="text-[38px] block text-foreground" style={{ fontWeight: 800 }} />
+              <AnimatedValue value={metrics.csat.avg.toFixed(1)} duration={2000} delay={0} className="text-[38px] block text-foreground" style={{ fontWeight: 800 }} />
               <p className="text-muted-foreground text-[13px]" style={{ fontWeight: 500 }}>{t('out of 5.0', 'من 5.0')}</p>
               <p className="text-muted-foreground/60 text-[11px] mt-1.5">
                 {language === 'ar'
@@ -388,9 +388,9 @@ export function DashboardPage() {
 
         {/* AI Feedback Chart — positive vs negative donut */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.7 }}
+          transition={{ duration: 0.3 }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('AI Feedback', 'تقييم الذكاء الاصطناعي')}</h3>
@@ -415,7 +415,7 @@ export function DashboardPage() {
                   cx="50%" cy="50%"
                   innerRadius={50} outerRadius={78}
                   dataKey="value" paddingAngle={4} strokeWidth={0}
-                  isAnimationActive animationBegin={500} animationDuration={1200} animationEasing="ease-out"
+                  isAnimationActive={animateOnce} animationBegin={0} animationDuration={900} animationEasing="ease-out"
                 >
                   <Cell key="fb-positive" fill="#10b981" />
                   <Cell key="fb-negative" fill="#ff4466" />
