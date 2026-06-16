@@ -1,31 +1,47 @@
-## Goal
-Make the dashboard render smoothly without each card animating in separately or charts restarting whenever data refreshes.
+## Why deleting a member takes ~6 seconds
 
-## Root causes
-1. **KPI counters always start at 0** — `AnimatedValue` re-animates from zero on every render, so cached values still count up.
-2. **Recharts re-animates on every data refresh** — every realtime event creates a new `data` array reference for the Pie/Bar charts, restarting their entry animation (this is the "حالة التذكرة chart starts, then restarts" effect).
-3. **KPI cards use a staggered framer-motion `delay: idx * 0.07`** — produces a visible sequential fade-in on every mount.
-4. **Chart data arrays are recreated on every render**, breaking Recharts' memoization and forcing re-animation.
+I traced the flow end-to-end: `TeamPage.confirmDelete` → `supabase.functions.invoke('delete-employee')` → the edge function in `supabase/functions/delete-employee/index.ts`.
 
-## Plan
-1. **Stop counters from restarting**
-   - Make `AnimatedValue` skip the count-up when the value hasn't actually changed (and on first paint when the dashboard hydrates from localStorage cache).
+The UI today **awaits the full network round-trip** before removing the row and closing the confirmation modal. That round-trip is the sum of every step inside the function, done sequentially:
 
-2. **Stop charts from re-animating on refresh**
-   - Set `isAnimationActive` only on initial mount for `PieChart`, `BarChart`, etc. Subsequent data updates apply without restarting the animation.
-   - Memoize chart data arrays (`classificationData`, `ticketStatusData`, `feedbackPieData`) with `useMemo` so the same reference is reused when values don't change.
+1. **Edge function cold boot** — first invocation after idle adds ~200–800 ms (visible in the Boot logs for sibling functions).
+2. **`userClient.auth.getUser()`** — a network call to Supabase Auth to validate the JWT (~150–400 ms).
+3. **Authorization lookup** (parallel pair of selects) — ~100 ms.
+4. **`team_members` lookup by id** — ~80 ms.
+5. **`team_members` soft-delete UPDATE** — ~80 ms. This also fires any row-level triggers/policies on that table.
+6. **`auth_tenant_members` DELETE** — ~80 ms.
+7. **Two COUNT queries** (parallel) to decide whether to nuke the auth user — ~100 ms.
+8. **`admin.auth.admin.deleteUser(targetUserId)`** — this is the single biggest contributor. The Auth admin API typically takes **1.5–4 seconds** because it cascades through `auth.users` (identities, sessions, refresh tokens, MFA factors, audit log) and any `ON DELETE CASCADE` foreign keys pointing at `auth.users` from your schema.
 
-3. **Render all cards together**
-   - Remove the staggered `delay: idx * 0.07` on KPI cards (and any insight cards using the same pattern). Use a single short fade-in for the whole grid instead, so the whole dashboard appears at once.
+Add it up: boot + ~5 sequential DB round-trips + the slow `deleteUser` call ≈ **4–6 seconds**, exactly what you're seeing. None of step 1–7 alone is the problem; it's that the **UI waits for step 8** before reacting.
 
-4. **Avoid the 0 → value flash on first load**
-   - When `useDashboardMetrics` returns cached data, render immediately with cached values.
-   - When there's no cache, render a skeleton placeholder once and replace it with the populated dashboard in one swap (no per-card stagger and no count-up from zero).
+The "disable member" action feels instant because it's a single UPDATE with optimistic UI (`setMembers` is called before any awaits).
 
-## Technical details
-Files to update:
-- `src/app/components/DashboardPage.tsx` — remove stagger, memoize chart data, set `isAnimationActive` only on first mount, render skeleton when there's no cache.
-- `src/app/components/AnimatedNumber.tsx` — skip animation when value is unchanged or when starting from cached state.
-- `src/app/hooks/useDashboardMetrics.ts` — expose a `hasCache` / `isInitial` flag so the page can decide whether to animate or render statically.
+## Plan to fix
 
-No backend or schema changes.
+Two changes, no schema/migrations:
+
+### 1. `supabase/functions/delete-employee/index.ts` — return as soon as access is revoked
+
+Critical path (what the user actually cares about) = the member can no longer log in and disappears from the list. That only needs steps 1–6. The auth-account cleanup (step 8) is housekeeping.
+
+- After the soft-delete + `auth_tenant_members` delete succeed, **return `{ ok: true }` immediately**.
+- Move the "count remaining memberships → `admin.auth.admin.deleteUser`" block into `EdgeRuntime.waitUntil(...)` so it runs in the background after the response is sent. Wrap it in try/catch and log failures; nothing in the UI depends on `auth_deleted` today.
+- Drop `auth_deleted` from the response (or always return `false`); it's unused on the client.
+
+Expected response time after this change: ~400–800 ms (boot + 4 quick DB calls), down from 4–6 s.
+
+### 2. `src/app/components/TeamPage.tsx` — optimistic delete
+
+Mirror the pattern already used by `toggleMemberStatus`:
+
+- In `confirmDelete`, snapshot the member, call `setMembers(m => m.filter(...))` and `setDeleteConfirm(null)` and show the success toast **before** awaiting `supabase.functions.invoke`.
+- If the invoke returns an error, restore the member into the list and show a failure toast.
+
+With both changes the modal closes and the row disappears instantly; the network call resolves in the background and only surfaces if something actually failed.
+
+### Out of scope
+
+- No database migration.
+- No change to which rows are deleted or to permissions.
+- `delete-employee` keeps doing the same work; only the response timing and ordering change.

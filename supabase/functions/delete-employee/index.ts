@@ -108,28 +108,36 @@ Deno.serve(async (req) => {
     // If the user has no other tenant memberships and no other
     // non-deleted team_members rows, destroy the auth account so they
     // can never sign in again.
-    let authDeleted = false;
+    // Run the (slow) auth-account cleanup in the background so the client
+    // gets an instant response. The user's tenant access is already revoked
+    // above; this step just nukes the underlying auth.users row when they
+    // have no remaining memberships anywhere.
     if (targetUserId) {
-      const [{ count: tenantsLeft }, { count: teamsLeft }] = await Promise.all([
-        admin
-          .from("auth_tenant_members")
-          .select("user_id", { head: true, count: "exact" })
-          .eq("user_id", targetUserId),
-        admin
-          .from("team_members")
-          .select("id", { head: true, count: "exact" })
-          .eq("user_id", targetUserId)
-          .is("deleted_at", null),
-      ]);
-      if ((tenantsLeft ?? 0) === 0 && (teamsLeft ?? 0) === 0) {
+      const cleanup = (async () => {
         try {
-          await admin.auth.admin.deleteUser(targetUserId);
-          authDeleted = true;
-        } catch (_) { /* best-effort */ }
-      }
+          const [{ count: tenantsLeft }, { count: teamsLeft }] = await Promise.all([
+            admin
+              .from("auth_tenant_members")
+              .select("user_id", { head: true, count: "exact" })
+              .eq("user_id", targetUserId),
+            admin
+              .from("team_members")
+              .select("id", { head: true, count: "exact" })
+              .eq("user_id", targetUserId)
+              .is("deleted_at", null),
+          ]);
+          if ((tenantsLeft ?? 0) === 0 && (teamsLeft ?? 0) === 0) {
+            await admin.auth.admin.deleteUser(targetUserId);
+          }
+        } catch (e) {
+          console.error("delete-employee background auth cleanup failed", e);
+        }
+      })();
+      // @ts-ignore - EdgeRuntime is provided by Supabase Edge Functions runtime
+      try { EdgeRuntime.waitUntil(cleanup); } catch { /* ignore in non-edge envs */ }
     }
 
-    return json({ ok: true, auth_deleted: authDeleted });
+    return json({ ok: true });
   } catch (e) {
     return json({ error: "internal", detail: String(e) }, 500);
   }
