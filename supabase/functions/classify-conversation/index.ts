@@ -73,9 +73,22 @@ function sanitizeUnansweredQuestion(raw: unknown): string | null {
   if (!s) return null;
   // Strip trailing punctuation for matching
   const stripped = s.replace(/[?؟.!،,;:"'«»()\[\]]+$/g, "").trim();
-  if (stripped.length < 8) return null;
-  // Must contain at least 2 words
-  if (stripped.split(" ").length < 2) return null;
+  if (stripped.length < 12) return null;
+  // Must contain at least 3 words — real topics need substance
+  if (stripped.split(" ").length < 3) return null;
+  // Reject echoes of the AI asking the customer to clarify a vague message.
+  // These are not customer questions; they are the bot's clarification prompt.
+  const CLARIFY_PATTERNS = [
+    /ما\s*المقصود/, /يرجى\s*التوضيح/, /يرجى\s*توضيح/, /هل\s*يمكنك\s*توضيح/,
+    /لم\s*أفهم\s*ما\s*تقصد/, /وضّ?ح\s*أكثر/, /وضح\s*اكثر/, /ايش\s*تقصد/,
+    /وش\s*تقصد/, /please\s+clarify/i, /what\s+do\s+you\s+mean/i,
+    /could\s+you\s+clarify/i, /can\s+you\s+clarify/i,
+  ];
+  if (CLARIFY_PATTERNS.some((re) => re.test(s))) return null;
+  // Reject when the text quotes a tiny gibberish token like 'dd', "xx", «؟؟».
+  // Heuristic: any quoted substring ≤3 chars => the rephrasing is just
+  // echoing the customer's unintelligible token.
+  if (/['"«“”‘’`](.{1,3})['"«“”‘’`]/.test(s)) return null;
   const lower = stripped.toLowerCase()
     .normalize("NFKD")
     .replace(/[\u064B-\u065F\u0670]/g, ""); // strip Arabic diacritics
@@ -89,6 +102,17 @@ function sanitizeUnansweredQuestion(raw: unknown): string | null {
   for (const t of TRIVIAL) {
     if (lower === t || lower.startsWith(t + " ") && stripped.length - t.length < 6) return null;
   }
+  // Require at least one meaningful word (Arabic ≥3 chars with a vowel,
+  // or Latin ≥4 chars with a vowel) so single-token / keystroke garbage
+  // ("dslv ce fe", "asdf qwer") never reaches the card.
+  const ARABIC = /[\u0600-\u06FF]/;
+  const VOWEL = /[aeiouAEIOUيواىآأإؤئ]/;
+  const tokens = stripped.split(" ").filter((t) => t.length >= 2);
+  const hasRealWord = tokens.some((t) => {
+    if (ARABIC.test(t)) return t.length >= 3 && VOWEL.test(t);
+    return /^[A-Za-z]{4,}$/.test(t) && VOWEL.test(t);
+  });
+  if (!hasRealWord) return null;
   return s.slice(0, 200);
 }
 type Category = typeof ALLOWED_CATEGORIES[number];
@@ -403,6 +427,37 @@ Deno.serve(async (req) => {
     "(Random keystrokes only from the customer. IGNORE the assistant's",
     " helpful reply — it does not make this an inquiry.)",
     "",
+    "Negative examples for unanswered_question (MUST be \"\"):",
+    "",
+    "Example N1:",
+    "CUSTOMER: dd",
+    "ASSISTANT: ما المقصود بـ 'dd'؟ يرجى توضيح طلبك.",
+    "→ unanswered_question: \"\"  (customer's message is unintelligible; AI",
+    " correctly asked to clarify — NOT a training gap.)",
+    "",
+    "Example N2:",
+    "CUSTOMER: xx",
+    "CUSTOMER: ؟؟",
+    "ASSISTANT: لم أفهم، هل يمكنك التوضيح؟",
+    "→ unanswered_question: \"\"  (no real question from the customer.)",
+    "",
+    "Example N3:",
+    "CUSTOMER: السلام عليكم",
+    "ASSISTANT: وعليكم السلام، كيف أساعدك؟",
+    "→ unanswered_question: \"\"  (greeting only — no need to record.)",
+    "",
+    "Example N4 (POSITIVE — IS a gap):",
+    "CUSTOMER: هل تدعمون الشحن المبرد للأدوية؟",
+    "ASSISTANT: لا أملك معلومات عن هذا الموضوع، سأحوّلك لموظف.",
+    "→ unanswered_question: \"هل تدعمون الشحن المبرد للأدوية؟\"  (clear",
+    " informational need the AI couldn't answer — record it.)",
+    "",
+    "Example N5 (POSITIVE — IS a gap):",
+    "CUSTOMER: الموقع يعلّق كل ما أضيف منتج للسلة، ما أقدر أكمّل الطلب",
+    "ASSISTANT: لم أفهم مشكلتك، يرجى التوضيح.",
+    "→ unanswered_question: \"العميل يشتكي أن الموقع يعلّق عند إضافة منتج للسلة\"",
+    " (customer message is clear; AI failed to understand — record it.)",
+    "",
     "Reply ONLY in JSON with this exact shape:",
     `{ "category": "complaint" | "inquiry" | "request" | "suggestion" | "other",`,
     `  "intent_type": "complaint" | "inquiry" | "request" | "suggestion",`,
@@ -411,7 +466,7 @@ Deno.serve(async (req) => {
     `  "completion_score": number,  // 0-100, how completely the customer was helped`,
     `  "goal_met": boolean,          // did the customer get what they came for?`,
     `  "priority": "low" | "medium" | "high",  // urgency, see guide below`,
-    `  "unanswered_question": string,  // A SHORT, CLEAR REPHRASING (<=140 chars, in the conversation's language) of the customer's message that the AI FAILED to handle properly. Set this for ANY of these failure modes: (a) the AI explicitly said it doesn't know / doesn't have the info / can't help / "سأحوّلك لموظف" / "لا أملك معلومات"; (b) the AI gave an irrelevant or off-topic reply; (c) the AI didn't understand the question; (d) the customer clearly was not helped (low CSAT, complaint about the bot, repeated rephrasing). This applies to ALL categories — inquiries, requests, complaints, AND suggestions. Examples: "هل تدعمون الشحن المبرد؟", "العميل اشتكى من أن الموقع يعلّق ولم يتم التفاهم معه", "طلب تعديل خاص قبل الشحن". Empty string "" ONLY if the AI clearly answered everything correctly, OR the customer only sent a greeting / thanks / single word / gibberish. NEVER use greetings ("السلام عليكم", "مرحبا"), thanks ("شكرا"), or single words. Must be a real, actionable training gap.`,
+    `  "unanswered_question": string,  // A SHORT, CLEAR REPHRASING (<=140 chars, in the conversation's language) of the REAL informational need the AI failed to satisfy. Set this ONLY when the customer expressed a clear, understandable need (question / complaint / request / suggestion) AND the AI failed to handle it because: (a) it said it doesn't know / lacks info / "سأحوّلك لموظف" / "لا أملك معلومات"; (b) it gave an irrelevant or off-topic reply; (c) it didn't understand a clearly-written question; (d) the customer was clearly not helped (low CSAT, complaint about the bot, repeated rephrasing). Good examples: "هل تدعمون الشحن المبرد؟", "العميل اشتكى أن الموقع يعلّق ولم يتفاهم معه الذكاء", "طلب تعديل خاص على المنتج قبل الشحن". MUST be "" (empty string) in ALL of these cases: the customer message was itself unintelligible / random letters / a single token / a meaningless abbreviation (e.g. "dd", "xx", "asdf", "؟؟"); the AI's reply was itself a clarification request ("ما المقصود؟", "يرجى التوضيح") to a vague customer message; greeting-only ("السلام عليكم", "مرحبا"); thanks-only ("شكرا"); emoji-only; or the AI clearly answered correctly. The rephrasing must describe a real topic a shop owner could add to the knowledge base — never copy the customer's gibberish, never echo the AI's clarification prompt, never use a quoted ≤3-char token. Must be ≥3 words and contain a real noun/verb.`,
     `  "ticket_title": string,        // Arabic, <= 60 chars. Short label for the ticket email title. Examples: "طلب رفع تذكرة", "شكوى في تأخر الشحن", "استفسار عن سياسة الإرجاع", "طلب استرجاع منتج". Pick based on the dominant intent/category.`,
     `  "ticket_description": string   // Arabic, <= 180 chars, ONE sentence describing what happened: the customer's situation + what they want. Example: "العميل يشتكي من عدم وصول طلبه بعد ١٠ أيام ويطلب التحدث مع موظف بشري."`,
     "}",
