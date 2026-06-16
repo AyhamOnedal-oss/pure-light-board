@@ -744,6 +744,24 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "n8n_not_configured" }, 503);
     }
 
+    // Short-circuit: image was clearly not a real product photo and the
+    // customer didn't type a question. Reply directly and skip n8n so the
+    // agent can't claim "yes we have this product" from an icon/emoji.
+    if (nonProductShortCircuit) {
+      const reply = nonProductShortCircuit;
+      const action = { type: "none" as ActionType, reason: "non_product_image" };
+      const persisted = await persistMessages(userText, reply);
+      return jsonResponse({
+        reply,
+        attachments: [],
+        action,
+        intent: "continue",
+        tenant_id,
+        conversation_id,
+        ai_message_id: persisted.ai_message_id,
+      });
+    }
+
     console.log("n8n webhook kind:", N8N_WEBHOOK_URL.includes("/webhook-test/") ? "TEST" : N8N_WEBHOOK_URL.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
 
     const n8nRes = await fetch(N8N_WEBHOOK_URL, {
