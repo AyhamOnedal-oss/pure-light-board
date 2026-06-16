@@ -73,9 +73,22 @@ function sanitizeUnansweredQuestion(raw: unknown): string | null {
   if (!s) return null;
   // Strip trailing punctuation for matching
   const stripped = s.replace(/[?؟.!،,;:"'«»()\[\]]+$/g, "").trim();
-  if (stripped.length < 8) return null;
-  // Must contain at least 2 words
-  if (stripped.split(" ").length < 2) return null;
+  if (stripped.length < 12) return null;
+  // Must contain at least 3 words — real topics need substance
+  if (stripped.split(" ").length < 3) return null;
+  // Reject echoes of the AI asking the customer to clarify a vague message.
+  // These are not customer questions; they are the bot's clarification prompt.
+  const CLARIFY_PATTERNS = [
+    /ما\s*المقصود/, /يرجى\s*التوضيح/, /يرجى\s*توضيح/, /هل\s*يمكنك\s*توضيح/,
+    /لم\s*أفهم\s*ما\s*تقصد/, /وضّ?ح\s*أكثر/, /وضح\s*اكثر/, /ايش\s*تقصد/,
+    /وش\s*تقصد/, /please\s+clarify/i, /what\s+do\s+you\s+mean/i,
+    /could\s+you\s+clarify/i, /can\s+you\s+clarify/i,
+  ];
+  if (CLARIFY_PATTERNS.some((re) => re.test(s))) return null;
+  // Reject when the text quotes a tiny gibberish token like 'dd', "xx", «؟؟».
+  // Heuristic: any quoted substring ≤3 chars => the rephrasing is just
+  // echoing the customer's unintelligible token.
+  if (/['"«“”‘’`](.{1,3})['"«“”‘’`]/.test(s)) return null;
   const lower = stripped.toLowerCase()
     .normalize("NFKD")
     .replace(/[\u064B-\u065F\u0670]/g, ""); // strip Arabic diacritics
@@ -89,6 +102,17 @@ function sanitizeUnansweredQuestion(raw: unknown): string | null {
   for (const t of TRIVIAL) {
     if (lower === t || lower.startsWith(t + " ") && stripped.length - t.length < 6) return null;
   }
+  // Require at least one meaningful word (Arabic ≥3 chars with a vowel,
+  // or Latin ≥4 chars with a vowel) so single-token / keystroke garbage
+  // ("dslv ce fe", "asdf qwer") never reaches the card.
+  const ARABIC = /[\u0600-\u06FF]/;
+  const VOWEL = /[aeiouAEIOUيواىآأإؤئ]/;
+  const tokens = stripped.split(" ").filter((t) => t.length >= 2);
+  const hasRealWord = tokens.some((t) => {
+    if (ARABIC.test(t)) return t.length >= 3 && VOWEL.test(t);
+    return /^[A-Za-z]{4,}$/.test(t) && VOWEL.test(t);
+  });
+  if (!hasRealWord) return null;
   return s.slice(0, 200);
 }
 type Category = typeof ALLOWED_CATEGORIES[number];
