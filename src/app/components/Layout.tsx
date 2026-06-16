@@ -149,19 +149,34 @@ export function Layout() {
     if (!tenantId) { setTicketsBadge(0); return; }
     let cancelled = false;
     const load = async () => {
-      const { data: noteRows } = await supabase
-        .from('tickets_activities')
-        .select('ticket_id, created_at')
-        .eq('tenant_id', tenantId)
-        .eq('type', 'note')
-        .order('created_at', { ascending: false })
-        .limit(2000);
+      const [{ data: ticketRows }, { data: noteRows }] = await Promise.all([
+        supabase
+          .from('tickets_main')
+          .select('id, created_at')
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false })
+          .limit(2000),
+        supabase
+          .from('tickets_activities')
+          .select('ticket_id, created_at')
+          .eq('tenant_id', tenantId)
+          .eq('type', 'note')
+          .order('created_at', { ascending: false })
+          .limit(2000),
+      ]);
       if (cancelled) return;
-      // Total unread NOTE count across all tickets (matches per-ticket badge sum).
-      // Opening a ticket's notes panel marks every note in that ticket as seen,
-      // so the sidebar badge drops by that ticket's unread count and stays
-      // dropped across refresh (persisted in localStorage).
+      // Sidebar badge = (unopened tickets) + (unread notes across all tickets).
+      // Opening a ticket clears its "1" from the unopened count; opening the
+      // notes panel clears its unread-note contribution. Both are persisted
+      // in localStorage so the dropped count survives refresh.
       let unread = 0;
+      for (const r of ticketRows || []) {
+        const tid = (r as { id?: string | null }).id;
+        const createdAt = (r as { created_at?: string | null }).created_at;
+        if (!tid || !createdAt) continue;
+        const opened = getTs(notifKeys.ticketOpened(CURRENT_USER_ID, tid));
+        if (opened === 0 || toMs(createdAt) > opened) unread += 1;
+      }
       const seenCache = new Map<string, number>();
       for (const r of noteRows || []) {
         const tid = (r as { ticket_id?: string | null }).ticket_id;
@@ -187,6 +202,9 @@ export function Layout() {
       .channel(`sidebar-ticket-notes-${tenantId}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tickets_activities', filter: `tenant_id=eq.${tenantId}` },
+        scheduleLoad)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets_main', filter: `tenant_id=eq.${tenantId}` },
         scheduleLoad)
       .subscribe();
     return () => {
