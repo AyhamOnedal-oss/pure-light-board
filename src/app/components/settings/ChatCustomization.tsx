@@ -268,12 +268,14 @@ export function ChatCustomization() {
       saveChatCustom(newSaved);
       showToast(t('Settings saved successfully', 'تم حفظ الإعدادات بنجاح'));
     } catch (err) {
-      console.log('Error saving chat settings:', err);
-      // Still save locally as fallback
+      console.error('Error saving chat settings:', err);
+      const msg = (err as any)?.message || String(err);
+      // Keep local cache so the UI does not flicker back, but surface the
+      // real server error instead of pretending the save succeeded.
       setSaved(newSaved);
       Object.assign(persistedSaved, newSaved);
       saveChatCustom(newSaved);
-      showToast(t('Saved locally (server error)', 'تم الحفظ محلياً (خطأ في الخادم)'));
+      showToast(t(`Failed to save: ${msg}`, `فشل الحفظ: ${msg}`));
     } finally {
       setSaving(false);
     }
