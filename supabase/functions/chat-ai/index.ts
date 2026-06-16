@@ -361,7 +361,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model: "gpt-4o-mini",
             temperature: 0,
-            max_tokens: 500,
+            max_tokens: 700,
             response_format: { type: "json_object" },
             messages: [
               {
@@ -370,9 +370,14 @@ Deno.serve(async (req) => {
                   "You analyze customer-attached images for a shopping support agent. " +
                   "ANALYZE THE IMAGE FIRST. Your job is to EXTRACT every searchable detail so the agent can find the matching product in the merchant catalog. " +
                   "Do NOT refuse just because the image is not a photograph: a logo, icon, sticker, drawing, or cartoon that depicts an object is still useful — describe what it depicts. " +
-                  "Example 1: a small cartoon gift box with a ribbon and the wordmark \"Fuqah\" → image_kind=\"logo\", depicted_object=\"gift box\", brand_or_logo=\"Fuqah\", readable_text=\"Fuqah\", search_query=\"علبة هدية فقاهة\", has_useful_signal=true. " +
-                  "Example 2: a photo of a real perfume bottle → image_kind=\"product_photo\", depicted_object=\"perfume bottle\", search_query=\"عطر\", has_useful_signal=true. " +
-                  "Example 3: a single 🤔 emoji or random scribble with no recognizable object → has_useful_signal=false. " +
+                  "LOOK FOR DISTINCTIVE PRODUCT CUES to name the SPECIFIC model/variant: phone camera layout & count, MagSafe ring / Dynamic Island / Camera Control button, body material/finish, sneaker silhouette/logo, perfume cap shape, watch dial. Combine these cues with any visible text/logo/retailer badge to pin down the exact model. " +
+                  "If you are at least ~70% confident of the specific model/variant, set product_guess to the full model name in English (e.g. 'iPhone 17 Pro Max', 'Nike Air Force 1 Low White', 'Dior Sauvage EDP'). If unsure, leave product_guess empty and rely on category + brand + color. " +
+                  "Never invent specifications you cannot see (storage size, RAM, release year). Only name what visual cues support. " +
+                  "ALWAYS produce search_queries in BOTH English AND Arabic when the product has a recognizable international name. For Arabic queries containing numbers, include BOTH ASCII digits (1,2,3) AND Eastern-Arabic digits (١,٢,٣) as SEPARATE variants — Saudi catalogs use both. Order queries from MOST specific to least specific. " +
+                  "Example 1: iPhone 17 Pro Max in orange on a SmartBuy listing → image_kind='product_photo', category='smartphone', brand_or_logo='Apple', product_guess='iPhone 17 Pro Max', product_guess_confidence=0.85, color='orange', retailer_or_source_text='SmartBuy', search_queries=['iPhone 17 Pro Max Orange','Apple iPhone 17 Pro Max','ايفون 17 برو ماكس برتقالي','آيفون ١٧ برو ماكس','iphone pro max orange'], has_useful_signal=true. " +
+                  "Example 2: cartoon gift box with wordmark 'Fuqah' → image_kind='logo', depicted_object='gift box', brand_or_logo='Fuqah', readable_text='Fuqah', product_guess='', category='gift', color='', search_queries=['علبة هدية فقاهة','Fuqah gift box','هدية فقاهة'], has_useful_signal=true. " +
+                  "Example 3: real perfume bottle, no readable brand → image_kind='product_photo', category='perfume', depicted_object='perfume bottle', search_queries=['عطر','perfume bottle'], has_useful_signal=true. " +
+                  "Example 4: a single 🤔 emoji or random scribble with no recognizable object → has_useful_signal=false, search_queries=[]. " +
                   "Return ONLY a JSON object with this exact schema: " +
                   "{ " +
                   "\"image_kind\": one of [\"product_photo\",\"screenshot\",\"icon_or_clipart\",\"emoji\",\"logo\",\"receipt_or_document\",\"drawing_or_sketch\",\"person_or_selfie\",\"unclear\"], " +
@@ -380,8 +385,13 @@ Deno.serve(async (req) => {
                   "\"readable_text\": string (literal transcription of any text inside the image including brand/logo wordmarks, or \"\"), " +
                   "\"depicted_object\": string (the main object/subject the image represents, even for icons/logos/drawings, e.g. \"gift box\", \"sneaker\", \"perfume bottle\"; \"\" only if truly nothing identifiable), " +
                   "\"brand_or_logo\": string (any brand/logo name visible, or \"\"), " +
+                  "\"product_guess\": string (specific model/variant name in English when ≥~70% confident from visual cues, e.g. \"iPhone 17 Pro Max\"; otherwise \"\"), " +
+                  "\"product_guess_confidence\": number between 0 and 1 (0 when product_guess is \"\"), " +
+                  "\"category\": string (short product category, e.g. \"smartphone\", \"sneaker\", \"perfume\", \"watch\"; \"\" if unknown), " +
+                  "\"color\": string (primary color in English, single word, e.g. \"orange\", \"black\"; \"\" if not applicable), " +
+                  "\"retailer_or_source_text\": string (any retailer/store badge, price, or source text visible like \"SmartBuy\", \"299 SAR\"; \"\"), " +
                   "\"dominant_colors\": array of 1-3 short color names in the user's language (e.g. [\"ذهبي\",\"أخضر داكن\"], or []), " +
-                  "\"search_query\": string (the best short Arabic search phrase a shopper would type to find this in a store catalog — combine depicted_object + brand + colors; \"\" only when nothing identifiable), " +
+                  "\"search_queries\": array of 3-6 query variants ordered most-specific first, covering full product name in English, full product name in Arabic (BOTH digit systems if it contains a number), brand+category+color, and generic category+color fallbacks. Empty array [] only when has_useful_signal=false. " +
                   "\"has_useful_signal\": boolean (true when ANY of description, readable_text, depicted_object, brand_or_logo, or search_query is non-empty and meaningful) " +
                   "}. " +
                   "Never refuse. Always fill what you can.",
@@ -422,14 +432,35 @@ Deno.serve(async (req) => {
             const colors: string[] = Array.isArray(parsed.dominant_colors)
               ? parsed.dominant_colors.map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 3)
               : [];
-            const searchQuery: string = String(parsed.search_query ?? "").trim();
+            const productGuess: string = String(parsed.product_guess ?? "").trim();
+            const productGuessConf: number = (() => {
+              const n = Number(parsed.product_guess_confidence);
+              return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+            })();
+            const category: string = String(parsed.category ?? "").trim();
+            const color: string = String(parsed.color ?? "").trim();
+            const retailerText: string = String(parsed.retailer_or_source_text ?? "").trim();
+            const searchQueriesRaw: string[] = Array.isArray(parsed.search_queries)
+              ? parsed.search_queries.map((q: unknown) => String(q).trim()).filter(Boolean)
+              : (parsed.search_query ? [String(parsed.search_query).trim()] : []);
+            // De-dupe (case-insensitive) and cap at 6.
+            const seen = new Set<string>();
+            const searchQueries: string[] = [];
+            for (const q of searchQueriesRaw) {
+              const k = q.toLowerCase();
+              if (!seen.has(k)) { seen.add(k); searchQueries.push(q); }
+              if (searchQueries.length >= 6) break;
+            }
             const usefulSignal: boolean =
               parsed.has_useful_signal === true ||
-              !!(desc || readable || depicted || brand || searchQuery);
+              !!(desc || readable || depicted || brand || productGuess || searchQueries.length);
             console.log("vision_verdict", {
               kind, isProduct, has_readable: !!readable,
               has_depicted: !!depicted, has_brand: !!brand,
-              has_query: !!searchQuery, useful: usefulSignal,
+              product_guess: productGuess || null,
+              product_guess_confidence: productGuessConf,
+              query_count: searchQueries.length,
+              useful: usefulSignal,
             });
 
             const kindAr: Record<string, string> = {
@@ -447,34 +478,52 @@ Deno.serve(async (req) => {
             const fmtLine = (label: string, value: string) =>
               value ? `${label}: ${value}\n` : "";
             const colorsLine = colors.length ? `الألوان البارزة: ${colors.join("، ")}\n` : "";
+            const guessLine = productGuess
+              ? `المنتج (تخمين بصري): ${productGuess}  (ثقة ${productGuessConf.toFixed(2)})\n`
+              : "";
+            const queriesBlock = searchQueries.length
+              ? `استعلامات بحث مقترحة (جرّبها بالترتيب حتى تجد تطابقاً):\n` +
+                searchQueries.map((q, i) => `  ${i + 1}) ${q}`).join("\n") + "\n"
+              : "";
+            const searchInstruction =
+              `التعليمة:\n` +
+              `  - ابحث في كتالوج المتجر باستخدام كل استعلام بالترتيب حتى تجد تطابقاً فعلياً.\n` +
+              `  - إذا وجدت تطابقاً، أكّد للعميل اسم المنتج كما هو في الكتالوج واسأله إن كان هذا ما يقصد.\n` +
+              `  - إذا لم تجد بعد كل المحاولات، قل ذلك بأدب واذكر التخمين البصري إن وُجد (مثال: "يبدو لي أنه ${productGuess || "هذا المنتج"}") واطلب من العميل تأكيد الاسم أو رابط المنتج.\n` +
+              `  - لا تقترح على العميل قائمة موديلات قديمة عشوائية إذا الصورة تشير لموديل محدد.\n` +
+              `  - لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً في الكتالوج.`;
 
             let block: string;
             if (isProduct) {
-              // Real product photograph — try a catalog match, but require
-              // an actual match before confirming availability.
               block =
                 `[تحليل الصورة المرفقة]\n` +
                 `النوع: صورة منتج\n` +
+                fmtLine("الفئة", category) +
+                fmtLine("العلامة", brand) +
+                guessLine +
+                fmtLine("اللون", color) +
                 fmtLine("الوصف", desc) +
                 fmtLine("الشيء الظاهر", depicted) +
-                fmtLine("العلامة/الشعار", brand) +
                 fmtLine("نص ظاهر داخل الصورة", readable) +
+                fmtLine("نص بائع/مصدر", retailerText) +
                 colorsLine +
-                fmtLine("اقتراح بحث في الكتالوج", searchQuery) +
-                `التعليمة: ابحث عن هذا المنتج في كتالوج المتجر باستخدام الوصف/العلامة/الكلمات المقترحة. لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً في الكتالوج. إذا لم تجد، قل ذلك بأدب واسأل العميل عن اسم المنتج بالضبط.`;
+                queriesBlock +
+                searchInstruction;
             } else if (usefulSignal) {
-              // Logo / icon / drawing / receipt / etc. that still carries
-              // useful signal — USE it to search the catalog. Do not dismiss.
               block =
                 `[تحليل الصورة المرفقة]\n` +
                 `النوع: ${kindAr[kind] ?? kind} (ليست صورة منتج فوتوغرافية، لكنها تحمل معلومات مفيدة)\n` +
+                fmtLine("الفئة", category) +
+                fmtLine("العلامة", brand) +
+                guessLine +
+                fmtLine("اللون", color) +
                 fmtLine("الوصف", desc) +
                 fmtLine("الشيء الذي تمثله الصورة", depicted) +
-                fmtLine("العلامة/الشعار", brand) +
                 fmtLine("نص ظاهر داخل الصورة", readable) +
+                fmtLine("نص بائع/مصدر", retailerText) +
                 colorsLine +
-                fmtLine("اقتراح بحث في الكتالوج", searchQuery) +
-                `التعليمة: استخدم هذه المعلومات للبحث في كتالوج المتجر بالوصف/العلامة/الكلمات. إذا وجدت منتجاً يطابق بشكل معقول، اقترحه على العميل واطلب منه التأكيد. إذا لم تجد أي تطابق، قل ذلك بأدب واطلب اسم المنتج أو رابطه. لا تتجاهل الصورة، ولا تطلب صورة أخرى ما دامت هذه تحمل معلومات.`;
+                queriesBlock +
+                searchInstruction;
             } else if (kind === "unclear" || !usefulSignal) {
               // No useful signal extracted at all.
               if (customerSentText) {

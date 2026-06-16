@@ -1,76 +1,90 @@
-## The new problem (from the screenshot)
+## Problem
 
-The customer asked a real, clear question (`هل عندك هذا المنتج؟`) with an image attached. The image is the **Fuqah brand gift logo** — it contains a logo mark and readable text. My previous fix classified it as `icon_or_clipart`/`logo` and replied dismissively: «أعطني اسم المنتج… مو مجرد رسمة». That's wrong. The AI behaves like the image doesn't exist and refuses to even try.
+In the screenshot, the customer sent a clear photo of an **iPhone 17 Pro Max in orange** (with the distinctive MagSafe ring, camera plateau, and Apple logo, on a SmartBuy listing card). The agent identified the brand only as "Apple" and replied: "couldn't find a real match for an orange iPhone, what model — 11/12/13/14?". The model list it offered (11–14) shows the search signal we passed to n8n was too generic ("orange iPhone") and outdated, so the catalog lookup failed.
 
-Root cause of the regression: the previous fix collapsed all non-`product_photo` images into a single "refuse and ask for a real photo" branch, ignoring two things:
-
-1. The image often contains **readable text / a brand name / a logo** — that IS searchable info.
-2. The customer **did type a real question**, so we have intent + visual context. We should USE both, not refuse.
+Root causes:
+1. **Vision extraction is too shallow.** The current prompt asks for `depicted_object` ("iPhone") and one `search_query`. It does not push the model to read on-device cues (camera layout, MagSafe ring, body shape, finish), retailer overlays (SmartBuy badge, price, SKU text), or visible labels — all of which pin down the exact model/variant. It also returns only ONE query, in Arabic only.
+2. **n8n only gets one query string**, so if the merchant's catalog indexes the product as "iPhone 17 Pro Max" (English) or "ايفون ١٧ برو ماكس" (Arabic numerals) and we pass "آيفون برتقالي" it won't hit.
+3. **No model-knowledge anchoring.** We don't tell the vision model it's allowed to name a likely specific model (e.g. "iPhone 17 Pro Max, Orange") when the visual cues are strong, with a confidence score.
 
 ## Goal
 
-When an image is attached, **the AI must actually use what it sees** — describe it, extract any text/brand/logo, and search the merchant's catalog by that description. It should only refuse when the image truly carries zero searchable signal AND the customer typed nothing.
+When an image contains a recognizable product, the agent should pass n8n a **rich, multi-variant search payload** (specific model name in Arabic + English + transliteration + brand + color + category + retailer text), and n8n should try each variant against the catalog before giving up.
 
-Concretely:
-- Gift logo with "Fuqah" text + customer asks "do you have this?" → AI says: "This looks like our store's gift box / logo with the text Fuqah — did you mean [matched product]? Or did you mean a specific item?" — NOT "send a real photo".
-- Random emoji + no text → still short-circuit (existing behavior is correct here).
-- Real product photo → catalog match (already works).
+Example desired behavior for the screenshot:
+- Vision returns `product_guess="iPhone 17 Pro Max"`, `confidence=0.85`, `color="orange"`, `brand="Apple"`, `retailer_text="SmartBuy"`, `search_queries=["iPhone 17 Pro Max Orange","Apple iPhone 17 Pro Max","ايفون ١٧ برو ماكس برتقالي","آيفون 17 برو ماكس","iphone 17 pro max"]`.
+- Agent reply (in Arabic): "تمام، هذا يبدو آيفون 17 برو ماكس باللون البرتقالي من Apple — خلّيني أتحقق من الكتالوج… [match | not in stock]".
 
-## Changes
+## Changes (all in `supabase/functions/chat-ai/index.ts`, vision block lines ~353-513)
 
-All edits in `supabase/functions/chat-ai/index.ts` only.
+### 1. Expand the vision JSON schema
 
-### 1. Reframe the vision prompt — extract searchable signal, don't gatekeep
+Add these fields to the JSON the model returns:
 
-Replace the current "is_real_product_photo" gating prompt with a richer extraction prompt that always returns the **useful** parts of the image, regardless of kind:
-
-New JSON schema returned by `gpt-4o-mini` vision:
 ```
-{
-  "image_kind": "product_photo" | "logo" | "icon_or_clipart" | "screenshot" |
-                "emoji" | "receipt_or_document" | "drawing_or_sketch" |
-                "person_or_selfie" | "unclear",
-  "description": "1-2 objective sentences describing what is visible",
-  "readable_text": "literal transcription of any text inside the image, including brand/logo wordmarks",
-  "depicted_object": "the main object/subject the image represents (e.g. 'gift box', 'sneaker', 'perfume bottle'), even for icons/logos/drawings — empty only if truly nothing identifiable",
-  "brand_or_logo": "any brand/logo name visible, or empty",
-  "dominant_colors": ["#hex", ...] (1-3 colors),
-  "search_query": "the best short Arabic search phrase a shopper would type to find this in a store catalog — derived from depicted_object + brand + colors. Empty only when nothing identifiable.",
-  "has_useful_signal": boolean (true when description, readable_text, depicted_object, brand_or_logo, OR search_query is non-empty)
-}
+"product_guess":           string  // best specific product name with model+variant if confident (e.g. "iPhone 17 Pro Max"), else ""
+"product_guess_confidence": number // 0.0–1.0
+"category":                string  // e.g. "smartphone", "sneaker", "perfume"
+"color":                   string  // primary color in English (single word) for cross-lang search
+"retailer_or_source_text": string  // any retailer/store badge or price text visible (e.g. "SmartBuy", "299 SAR")
+"search_queries":          string[] // 3–6 query variants ordered most-specific first, covering: full product name in English, full product name in Arabic (both Arabic & Hindi digits if it contains a number), brand only, brand + category + color, generic category + color. Empty array only if has_useful_signal=false.
 ```
 
-Prompt rules:
-- Keep "do not assume it's a real product photograph" — but DO extract every searchable detail.
-- Explicitly: "A logo, icon, or drawing of a gift box is still meaningful — set `depicted_object='gift box'` and `search_query='علبة هدية'`."
-- Keep `detail: "high"` and `response_format: json_object`.
+Keep existing fields (`image_kind`, `description`, `readable_text`, `depicted_object`, `brand_or_logo`, `dominant_colors`, `has_useful_signal`). Drop the single `search_query` string (replaced by the array).
 
-### 2. New branching logic on the result
+### 2. Strengthen the vision system prompt
 
-Replace the current three-branch block:
+Add explicit instructions:
+- "Look for distinctive product cues to name the specific model/variant: phone camera layout and count, MagSafe/Dynamic Island, body material/finish, sneaker silhouette, perfume cap shape, watch dial. Combine with any visible text/logo/retailer badge."
+- "If you are at least ~70% confident of the specific model, set `product_guess` to the full model name in English (e.g. 'iPhone 17 Pro Max', 'Nike Air Force 1 Low White'). If unsure, leave it empty and rely on category+brand+color."
+- "Always produce queries in BOTH English and Arabic when the product has a recognizable international name. For Arabic queries containing numbers, include BOTH Arabic digits (1,2,3) AND Hindi/Eastern digits (١,٢,٣) as separate variants — Saudi catalogs use both."
+- "Never invent specifications you can't see (storage size, RAM, year). Only name what visual cues support."
 
-| Condition | What we inject for n8n | Short-circuit? |
-|---|---|---|
-| `image_kind === "product_photo"` | "Image: product photo. Description: …. Visible text: …. Instruction: try to match against catalog. Do not confirm availability without a real catalog match." | no |
-| `has_useful_signal === true` (any other kind, including logo / icon / drawing / receipt) | "Image kind: {kindAr}. Description: …. Visible text: …. Depicted object: …. Brand: …. Suggested search query: …. Instruction: USE this signal to search the catalog by description/brand/keywords. If you find a likely match, confirm it tentatively and ask the customer to verify. If nothing matches, politely say so and ask for the product name." | no |
-| `has_useful_signal === false` AND customer typed text | "Image kind: {kindAr}, no useful information extracted. Instruction: ignore the image and answer the customer's text question normally." | no |
-| `has_useful_signal === false` AND no customer text | (skip n8n) reply directly: "وصلتني صورتك لكن ما قدرت أستخرج منها معلومات واضحة. ابعث اسم المنتج أو رابطه وأخدمك 🌷" | yes |
+Bump `max_tokens` to 700 to fit the richer JSON.
 
-This keeps the protection against hallucinated catalog matches (the agent is told to verify, not confirm blindly) **without** dismissing every non-photograph as garbage.
+### 3. Rewrite the block injected for n8n (the `isProduct` and `usefulSignal` branches)
 
-### 3. Tighten the "do not hallucinate" guardrail in the product-photo branch too
+Replace the single `اقتراح بحث في الكتالوج: <one query>` line with:
 
-Keep the existing wording «لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً» so the original gift-icon → "yes we have it" bug stays fixed.
+```
+[تحليل الصورة المرفقة]
+النوع: صورة منتج
+الفئة: smartphone
+العلامة: Apple
+المنتج (تخمين بصري): iPhone 17 Pro Max  (ثقة 0.85)
+اللون: orange / برتقالي
+نص ظاهر داخل الصورة: <readable>
+نص بائع/مصدر: SmartBuy
+استعلامات بحث مقترحة (جرّبها بالترتيب حتى تجد تطابقاً):
+  1) iPhone 17 Pro Max Orange
+  2) Apple iPhone 17 Pro Max
+  3) ايفون 17 برو ماكس برتقالي
+  4) آيفون ١٧ برو ماكس
+  5) iphone pro max orange
+التعليمة:
+  - ابحث في كتالوج المتجر باستخدام كل استعلام بالترتيب حتى تجد تطابقاً.
+  - إذا وجدت تطابقاً، أكّد للعميل اسم المنتج كما هو في الكتالوج واسأله إن كان هذا ما يقصد.
+  - إذا لم تجد بعد كل المحاولات، قل ذلك بأدب واذكر تخمينك البصري ("يبدو لي أنه iPhone 17 Pro Max برتقالي") واطلب من العميل تأكيد الاسم أو رابط المنتج.
+  - لا تقترح على العميل قائمة موديلات قديمة عشوائية إذا الصورة تشير لموديل محدد.
+```
 
-### 4. Out of scope
+The last bullet directly fixes the "وش اسم موديل الآيفون بالضبط (مثلاً 11/12/13/14)" regression.
 
-- TestChat.tsx — no change.
-- classify-conversation function — no change.
-- n8n workflow — no change (we only change the `message` payload string sent to it).
-- No migrations, no UI work, no other pipeline changes.
+### 4. Keep the existing guardrails
+
+- The `nonProductShortCircuit` path (no useful signal AND no customer text) stays as-is.
+- "Do not confirm availability without a real catalog match" stays in the `isProduct` branch.
+- TestChat.tsx, classifier, persistence, n8n workflow, billing: unchanged.
+
+### 5. Out of scope
+
+- No DB/schema changes.
+- No changes to the n8n workflow file (we only change the `message` payload string).
+- No UI changes.
+- No change to vision model — still `gpt-4o-mini` with `detail: "high"` (sufficient to read camera layout / MagSafe ring; upgrading to `gpt-4o` is a separate cost decision).
 
 ## Outcome
 
-- Customer sends Fuqah gift logo + "هل عندك هذا المنتج؟" → AI sees: kind=logo, brand="Fuqah", depicted_object="gift box", search_query="علبة هدية فقاهة" → AI replies: "تقصد علبة هدية فقاهة؟ عندنا [match] / للأسف ما لقيت تطابق، ممكن اسم المنتج بالضبط؟" — using the image, not ignoring it.
-- Customer sends raw emoji alone → still short-circuits with the polite ask.
-- Customer sends real product photo → catalog match, but the agent must verify before confirming (so the original gift-icon-as-product hallucination stays prevented).
+- iPhone 17 Pro Max photo → vision returns specific model + 5 query variants in two languages → n8n tries each → either finds it or explicitly says "I can see it's an iPhone 17 Pro Max in orange but I don't have it listed — can you confirm the exact name or send a link?" instead of asking the customer to pick from 11/12/13/14.
+- Fuqah gift logo (previous case) → still works: `product_guess=""`, but `depicted_object`, `brand`, and multi-variant `search_queries` are passed.
+- Random emoji alone → still short-circuits.
