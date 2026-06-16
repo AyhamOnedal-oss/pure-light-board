@@ -318,7 +318,10 @@ export function TicketsPage() {
 
   const unreadCount = (tk: TicketItem): number => {
     const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
-    return tk.activities.reduce((n, a) => (new Date(a.timestamp).getTime() > seen ? n + 1 : n), 0);
+    return tk.activities.reduce(
+      (n, a) => (a.type === 'note' && new Date(a.timestamp).getTime() > seen ? n + 1 : n),
+      0,
+    );
   };
   const isNewTicket = (tk: TicketItem): boolean => {
     const opened = getTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
