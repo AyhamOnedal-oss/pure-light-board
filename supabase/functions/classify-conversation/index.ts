@@ -241,9 +241,12 @@ Deno.serve(async (req) => {
     return json({ ok: true, category: "other", short_circuit: "no_meaningful_customer_text" });
   }
 
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) {
-    console.error("classify-conversation: OPENAI_API_KEY not set");
+  // Use Lovable AI Gateway with openai/gpt-5-mini for cheap, accurate classification.
+  // Falls back to OPENAI_API_KEY direct call if the gateway key is missing.
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!lovableKey && !openaiKey) {
+    console.error("classify-conversation: neither LOVABLE_API_KEY nor OPENAI_API_KEY set");
     return json({ error: "no_api_key" }, 500);
   }
 
@@ -459,29 +462,39 @@ Deno.serve(async (req) => {
     console.error("classify-conversation: fallback applied:", reason);
   }
 
+  const useGateway = !!lovableKey;
+  const url = useGateway
+    ? "https://ai.gateway.lovable.dev/v1/chat/completions"
+    : "https://api.openai.com/v1/chat/completions";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (useGateway) {
+    headers["Lovable-API-Key"] = lovableKey!;
+  } else {
+    headers["Authorization"] = `Bearer ${openaiKey}`;
+  }
+  const requestBody: Record<string, unknown> = {
+    model: useGateway ? "openai/gpt-5-mini" : "gpt-4.1-mini-2025-04-14",
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content:
+          transcript.slice(0, 10000) +
+          "\n\nCUSTOMER_MESSAGES_ONLY:\n" +
+          customerOnlyBlock.slice(0, 2000),
+      },
+    ],
+  };
+  // gpt-5-mini does not accept a custom temperature; only the legacy model does.
+  if (!useGateway) requestBody.temperature = 0.2;
+
   let openaiRes: Response;
   try {
-    openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    openaiRes = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini-2025-04-14",
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content:
-              transcript.slice(0, 10000) +
-              "\n\nCUSTOMER_MESSAGES_ONLY:\n" +
-              customerOnlyBlock.slice(0, 2000),
-          },
-        ],
-      }),
+      headers,
+      body: JSON.stringify(requestBody),
     });
   } catch (err) {
     console.error("classify-conversation: openai fetch failed", err);
