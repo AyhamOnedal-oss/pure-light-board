@@ -318,10 +318,15 @@ export function TicketsPage() {
 
   const unreadCount = (tk: TicketItem): number => {
     const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
-    return tk.activities.reduce(
+    const noteUnread = tk.activities.reduce(
       (n, a) => (a.type === 'note' && new Date(a.timestamp).getTime() > seen ? n + 1 : n),
       0,
     );
+    // A freshly raised, never-opened ticket counts as 1 unread on its row,
+    // mirroring the conversations behaviour and matching the sidebar total.
+    const opened = getTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
+    const ticketUnread = opened === 0 ? 1 : 0;
+    return noteUnread + ticketUnread;
   };
   const isNewTicket = (tk: TicketItem): boolean => {
     const opened = getTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
