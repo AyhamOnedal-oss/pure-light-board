@@ -237,9 +237,9 @@ export function DashboardPage() {
         {kpis.map((kpi, idx) => (
           <motion.div
             key={kpi.label}
-            initial={{ opacity: 0, y: 20 }}
+            initial={animateOnce ? { opacity: 0, y: 12 } : false}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: idx * 0.07 }}
+            transition={{ duration: 0.3 }}
             className="relative overflow-hidden bg-card rounded-2xl p-4 border border-border shadow-sm hover:border-border/80 transition-colors group"
           >
             <div
@@ -262,7 +262,7 @@ export function DashboardPage() {
                 <AnimatedValue
                   value={kpi.value}
                   duration={2000}
-                  delay={idx * 100}
+                  delay={0}
                   className="text-[22px] text-foreground"
                   style={{ fontWeight: 700 }}
                 />
