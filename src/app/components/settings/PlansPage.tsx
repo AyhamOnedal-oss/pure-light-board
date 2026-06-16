@@ -1,9 +1,38 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CreditCard, Zap } from 'lucide-react';
+
+type UsageDatum = { name: string; value: number; color: string };
+
+const UsagePieChart = memo(function UsagePieChart({ usageData, theme }: { usageData: UsageDatum[]; theme: string }) {
+  const tooltipStyle = {
+    backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff',
+    border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+    borderRadius: '12px',
+    color: theme === 'dark' ? '#ffffff' : '#1a1a2e',
+    fontSize: '13px',
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <PieChart>
+        <Pie
+          data={usageData}
+          cx="50%" cy="50%"
+          innerRadius={50} outerRadius={78}
+          dataKey="value" paddingAngle={4} strokeWidth={0}
+          isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+        >
+          {usageData.map((entry, i) => <Cell key={`usage-${i}`} fill={entry.color} />)}
+        </Pie>
+        <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+});
 
 export function PlansPage() {
   const { t, theme, tenantId, language } = useApp();
@@ -117,22 +146,7 @@ export function PlansPage() {
 
           <div className="flex-1 flex flex-col items-center justify-center py-2">
             <div className="relative h-[200px] w-full">
-              {chartLoaded && (
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={usageData}
-                      cx="50%" cy="50%"
-                      innerRadius={50} outerRadius={78}
-                      dataKey="value" paddingAngle={4} strokeWidth={0}
-                      isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
-                    >
-                      {usageData.map((entry, i) => <Cell key={`usage-${i}`} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff', border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`, borderRadius: '10px', color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }} itemStyle={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }} labelStyle={{ color: theme === 'dark' ? '#ffffff' : '#1a1a2e' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
+              {chartLoaded && <UsagePieChart usageData={usageData} theme={theme} />}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <p className="text-[22px] text-foreground" style={{ fontWeight: 800 }}>{animatedPercent}%</p>
               </div>
