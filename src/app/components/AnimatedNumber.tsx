@@ -1,40 +1,43 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 function easeOutExpo(t: number): number {
   return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
 }
 
 export function useAnimatedNumber(target: number, duration = 1800, delay = 0) {
-  const [value, setValue] = useState(0);
+  // Animate from the previous value to the new one. On first mount, snap
+  // straight to the target so cached dashboards never flash "0 → value".
+  const [value, setValue] = useState(target);
   const rafRef = useRef<number>(0);
-  const startTimeRef = useRef<number>(0);
-  const hasStarted = useRef(false);
+  const fromRef = useRef<number>(target);
+  const lastTargetRef = useRef<number>(target);
+  const hasMountedRef = useRef(false);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      hasStarted.current = true;
-      startTimeRef.current = performance.now();
-
-      const animate = (now: number) => {
-        const elapsed = now - startTimeRef.current;
-        const progress = Math.min(elapsed / duration, 1);
-        const eased = easeOutExpo(progress);
-        setValue(Math.round(eased * target));
-
-        if (progress < 1) {
-          rafRef.current = requestAnimationFrame(animate);
-        } else {
-          setValue(target);
-        }
-      };
-
-      rafRef.current = requestAnimationFrame(animate);
-    }, delay);
-
-    return () => {
-      clearTimeout(timeout);
-      cancelAnimationFrame(rafRef.current);
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      lastTargetRef.current = target;
+      fromRef.current = target;
+      setValue(target);
+      return;
+    }
+    if (target === lastTargetRef.current) return;
+    const from = value;
+    fromRef.current = from;
+    lastTargetRef.current = target;
+    const start = performance.now() + delay;
+    const animate = (now: number) => {
+      if (now < start) { rafRef.current = requestAnimationFrame(animate); return; }
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = easeOutExpo(progress);
+      setValue(Math.round(from + (target - from) * eased));
+      if (progress < 1) rafRef.current = requestAnimationFrame(animate);
+      else setValue(target);
     };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, duration, delay]);
 
   return value;
