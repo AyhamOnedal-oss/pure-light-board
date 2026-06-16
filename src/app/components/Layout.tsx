@@ -174,8 +174,8 @@ export function Layout() {
         const tid = (r as { id?: string | null }).id;
         const createdAt = (r as { created_at?: string | null }).created_at;
         if (!tid || !createdAt) continue;
-        const opened = getTs(notifKeys.ticketOpened(CURRENT_USER_ID, tid));
-        if (opened === 0 || toMs(createdAt) > opened) unread += 1;
+        const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
+        if (seen === 0 || toMs(createdAt) > seen) unread += 1;
       }
       const seenCache = new Map<string, number>();
       for (const r of noteRows || []) {

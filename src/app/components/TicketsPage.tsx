@@ -322,10 +322,10 @@ export function TicketsPage() {
       (n, a) => (a.type === 'note' && new Date(a.timestamp).getTime() > seen ? n + 1 : n),
       0,
     );
-    // A freshly raised, never-opened ticket counts as 1 unread on its row,
-    // mirroring the conversations behaviour and matching the sidebar total.
-    const opened = getTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
-    const ticketUnread = opened === 0 ? 1 : 0;
+    // A freshly raised ticket whose notes panel has never been opened counts
+    // as 1 on the row and on the Notes button. Clicking the ticket itself
+    // does NOT clear it — only opening ملاحظات does.
+    const ticketUnread = seen === 0 ? 1 : 0;
     return noteUnread + ticketUnread;
   };
   const isNewTicket = (tk: TicketItem): boolean => {
