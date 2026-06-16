@@ -125,7 +125,7 @@ export function PlansPage() {
                       cx="50%" cy="50%"
                       innerRadius={50} outerRadius={78}
                       dataKey="value" paddingAngle={4} strokeWidth={0}
-                      isAnimationActive animationBegin={500} animationDuration={1200} animationEasing="ease-out"
+                      isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
                     >
                       {usageData.map((entry, i) => <Cell key={`usage-${i}`} fill={entry.color} />)}
                     </Pie>
