@@ -157,14 +157,16 @@ export function Layout() {
         .order('created_at', { ascending: false })
         .limit(500);
       if (cancelled) return;
-      const count = (noteRows || []).reduce((n, r) => {
+      const unreadTickets = new Set<string>();
+      for (const r of noteRows || []) {
         const tid = (r as { ticket_id?: string | null }).ticket_id;
         const createdAt = (r as { created_at?: string | null }).created_at;
-        if (!tid || !createdAt) return n;
+        if (!tid || !createdAt) continue;
+        if (unreadTickets.has(tid)) continue;
         const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
-        return toMs(createdAt) > seen ? n + 1 : n;
-      }, 0);
-      setTicketsBadge(count);
+        if (toMs(createdAt) > seen) unreadTickets.add(tid);
+      }
+      setTicketsBadge(unreadTickets.size);
     };
     load();
 

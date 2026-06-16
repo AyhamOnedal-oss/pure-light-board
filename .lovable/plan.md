@@ -1,38 +1,24 @@
-## Problem
+## Goal
 
-The red badge next to **التذاكر** in the sidebar disappeared. In `Layout.tsx` line 144 it is currently hardcoded:
+Make the red Tickets sidebar badge match the per-row "unread notes" indicator inside the Tickets page, and make "opening a ticket's notes" permanently clear it (survives refresh — which it already does via `localStorage`, we just need the count to drop correctly).
 
-```ts
-const ticketsBadge = 0;
-```
+## Current behavior (why it shows "1")
 
-It used to be derived from the global bell `notifications` list, but that source was replaced by the database-backed `app_notifications` table (word-limit / renewal / admin broadcasts) — none of which are ticket events. So the sidebar lost its signal.
+- `Layout.tsx` counts **every note row** whose `created_at > ticketNotesSeen[ticketId]`.
+- That means a ticket with 3 unread notes contributes 3 to the badge, and ticket-row indicators on the Tickets page use a different rule, so the two numbers don't line up. Right now only one note in the whole tenant happens to be newer than its ticket's `seen` timestamp, so the sidebar shows `1` while several ticket rows still display a note indicator.
 
-You want the badge to reflect **ticket notes only** — not all bell notifications, not ticket status changes, not new tickets. Just unread notes on tickets the user has open.
+## New behavior
 
-## Fix
+- Badge = **number of tickets that have at least one unread note** (one per ticket, not per note). This matches what the user sees as red dots on ticket rows.
+- Opening a ticket's notes panel writes `ticketNotesSeen[ticketId] = now()` (already implemented in `openNotes`). The sidebar listens to `fuqah:badges-bump` / `badgeVersion`, so the badge drops by 1 immediately and stays dropped after refresh because the timestamp is persisted in `localStorage`.
+- A new customer note arriving later (realtime INSERT on `tickets_activities`) re-increments the badge for that ticket — expected and desired.
 
-Restore the sidebar tickets badge by computing it the same way `TicketsPage` already does for per-row badges, but scoped to **note-type activities** to match your "only for notes" requirement.
+## Files
 
-### Logic (in `Layout.tsx`)
-
-1. Add a `ticketsBadge` state + effect, mirroring the existing `conversationsBadge` effect.
-2. Query `tickets_activities` for the current tenant, filtered to `type = 'note'`, selecting `ticket_id, created_at` (last ~500 rows).
-3. For each note, compare `created_at` to `localStorage[notifKeys.ticketNotesSeen(CURRENT_USER_ID, ticket_id)]`. Count notes where `created_at > seen`.
-4. Subscribe to realtime on `tickets_activities` (filter `tenant_id=eq.${tenantId}`) and re-run the count, debounced 400ms — same pattern as `conversationsBadge`.
-5. Also recompute on `badgeVersion` bumps so that opening a ticket's notes panel (which already calls `setTs(notifKeys.ticketNotesSeen…)` and dispatches `fuqah:badges-bump`) immediately decrements the sidebar count.
-
-### Wiring
-
-Replace line 144 with the new state-driven `ticketsBadge`, leave the `navItems` entry unchanged — it already passes `badge: ticketsBadge`.
+- `src/app/components/Layout.tsx` — change the reducer in the tickets-badge `useEffect` to count **distinct `ticket_id`s** that have any note with `created_at > getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, ticket_id))`, instead of summing all unread notes. No other logic, query, or subscription changes.
 
 ## Out of scope
 
-- No DB/migration changes.
-- No changes to the bell dropdown (`app_notifications` pipeline stays as-is).
-- No changes to `TicketsPage` per-row unread badges — they already work.
-- "New ticket" indicators (`isNewTicket`) are not added to this badge; only unread **notes** count, per your instruction.
-
-## Files touched
-
-- `src/app/components/Layout.tsx` — replace hardcoded `ticketsBadge = 0` with a realtime-driven count of unread ticket notes.
+- No DB or migration changes.
+- No changes to `TicketsPage` per-row indicators, `openNotes`, or the bell dropdown.
+- No reset of existing `localStorage` seen entries.
