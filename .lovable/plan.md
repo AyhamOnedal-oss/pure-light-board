@@ -1,75 +1,55 @@
-## What's happening
+## Why the dashboard flashes zeros for ~2s on reload
 
-The "إعادة التصميم الافتراضي" button on `/dashboard/settings/customize` only mutates **local React state** (`applyDefaults` in `src/app/components/settings/ChatCustomization.tsx`). The actual write to `public.settings_chat_design` happens when the user then clicks "حفظ التغييرات" → `saveToSupabase` → `supabase.from('settings_chat_design').upsert(...)`.
+`src/app/hooks/useDashboardMetrics.ts` initialises its state from a `localStorage` cache keyed by `tenantId`:
 
-That upsert is gated by RLS:
-
+```ts
+const cacheKey = tenantId ? `dashboard-metrics-cache:${tenantId}` : null;
+const cached = cacheKey ? readCache() : null;
+const [metrics, setMetrics] = useState(cached?.metrics ?? EMPTY_METRICS);
 ```
-policy chat_widget_write USING / WITH CHECK
-  member_can(tenant_id, auth.uid(), 'settings_chat_design')
-```
 
-And `member_can(_tenant, _user, _key)` returns true only if:
-- the caller is tenant `admin`/`owner`, OR
-- super_admin, OR
-- `team_members.permissions ->> _key = 'true'` — i.e. the **exact** sub-key `settings_chat_design`.
+On a hard reload `AppContext` resolves the tenant **asynchronously** (auth → membership → `tenantId`). The dashboard mounts before that resolves, so on the very first render `tenantId` is `null` → `cacheKey` is `null` → `cached` is `null` → state is seeded with **`EMPTY_METRICS` (all zeros)**. The state initialiser only runs once; by the time `tenantId` arrives, the hook just kicks off a network fetch and leaves the zero state in place until the response lands ~1–2 s later.
 
-The same shape is mirrored client-side: `isAllowed` requires both `perms.settings` and `perms.settings_chat_design` to be true for any `settings_*` route, and `handleSave` swallows the RLS denial in a `catch` and shows "تم الحفظ محلياً (خطأ في الخادم)" — so to the member the Reset+Save flow looks like nothing happened. The same problem exists on every other settings sub-page (Train AI, Account, Store, Plans) because each of them is gated by its own `settings_<name>` permission key.
+That explains both complaints:
 
-You want a simpler rule: **granting a member the parent `settings` permission should let them do everything inside settings**, and any button visible to them must actually work end-to-end.
+1. **The page literally renders zeros for ~2 s.** It's the EMPTY_METRICS seed, not a skeleton.
+2. **Numbers "decrease to 0 then climb up".** `AnimatedValue` snaps on its first mount (`hasMountedRef`), so the very first painted value is `0`. When the fetch resolves and the real number arrives, it animates `0 → real`. With Recharts pies/bars driven off the same metrics, the bars do the same `scaleY: 0 → 1` again because their `motion.div` initial state replays on every dataset change (they're keyed by `d.name` only, so a value change re-triggers the enter animation).
+
+Realtime + refetch later updates work fine because by then there is a non-empty `metrics` state and the diff animation looks natural — the bug is strictly the cold-start path.
 
 ## Plan
 
-### 1. Loosen `member_can` so the parent `settings` permission covers every `settings_*` sub-key (database migration)
+### 1. Seed initial metrics from cache *before* `tenantId` is known
+`src/app/hooks/useDashboardMetrics.ts`:
+- Maintain a second key, e.g. `dashboard-metrics-last-tenant`, that is written every time we successfully cache metrics. On mount, if `tenantId` is null, look up `last-tenant` → read its cached metrics → use as the lazy `useState` seed.
+- Switch all three state hooks (`metrics`, `topSubjects`, `recentFeedback`) and `loading` to lazy initialisers (`useState(() => ...)`) that perform that lookup once.
+- When `tenantId` later resolves: if it matches `last-tenant`, do nothing (the seed was correct) and just kick off the background refresh; if it differs, replace state from the new tenant's cache (or `EMPTY_METRICS` if none) before fetching.
+- Only set `loading = true` when we have **no** cached data to display.
 
-Update `public.member_can(_tenant uuid, _user uuid, _key text)` so that, when `_key` starts with `settings_`, it also returns true if `permissions ->> 'settings' = 'true'`. Owner/admin and super_admin paths stay unchanged.
+Result: on reload, the first paint shows the previous numbers/charts from cache, not zeros.
 
-Pseudocode of the new body:
+### 2. Real skeletons for the first-ever load (no cache)
+When `loading && metrics === EMPTY_METRICS` (i.e. brand-new account / cleared storage), avoid rendering the zero state. In `src/app/components/DashboardPage.tsx`:
+- Render lightweight skeleton placeholders for the four hero cards (KPI tiles, Classification pie, Ticket Status bars, Customer Rating, AI Feedback pie). Use existing `Skeleton` primitive or a simple `animate-pulse` div with `bg-muted/40`, matching each card's footprint so the layout doesn't jump.
+- Once data arrives, swap skeleton → real content with `animate-fade-in` (300ms). No number animations on this first reveal.
 
-```
-select
-     tenant_role_at_least(_tenant, _user, 'admin')
-  or has_role(_user, 'super_admin')
-  or exists (
-       select 1 from public.team_members
-       where tenant_id = _tenant and user_id = _user
-         and (
-           coalesce((permissions ->> _key)::boolean, false)
-           or (
-             _key like 'settings\_%' escape '\'
-             and coalesce((permissions ->> 'settings')::boolean, false)
-           )
-         )
-     );
-```
+### 3. Don't animate `0 → real` on the initial reveal
+`src/app/components/AnimatedNumber.tsx`:
+- Extend the mount-snap so it also covers the case where the **first non-zero target** arrives after one or more renders with `target === 0`. Track `hasRealValueRef`: until we've seen a non-zero target, snap to the incoming target instead of animating. After that, animate normally for every subsequent change (realtime, range switch, etc.).
+- Keep the existing snap on the very first mount so cached dashboards still don't animate.
 
-This fixes the actual cause of the silent failure for every sub-settings RLS policy (`settings_chat_design`, `settings_train_ai`, `settings_account`, `settings_store`, `settings_plans`, `settings_test_chat`) in one place — no per-table policy changes needed.
+### 4. Make the chart enter-animations play exactly once
+`src/app/components/DashboardPage.tsx`:
+- The Ticket Status bars use `motion.div initial={{ scaleY: 0 }} animate={{ scaleY: 1 }}` keyed only by `d.name`, so any data update replays the wipe-up. Gate the `initial` on the same `animateOnce` flag already used by the surrounding card (`initial={animateOnce ? { scaleY: 0 } : false}`), and drive height from data via `animate={{ height: \`${pct}%\` }}` with a smooth transition so updates tween in place instead of replaying the enter animation.
+- Same fix for the star burst in Customer Rating (`initial={{ opacity: 0, scale: 0 }}`) — gate on `animateOnce` so it doesn't re-pop every time the average changes.
+- Recharts pies already have `isAnimationActive` + memoised data; leave them, the issue there was the same cold-start zero seed which step 1 removes.
 
-### 2. Mirror the rule in the frontend permission helper
-
-In `src/app/utils/permissions.ts`, change `isAllowed` so that for any `settings_*` key, having `perms.settings === true` is sufficient:
-
-```ts
-if (key.startsWith('settings_')) {
-  return !!perms.settings;          // parent perm grants all sub-pages
-}
-```
-
-`firstAllowedPath` keeps working because the existing fallback already routes into the first sub-page when `perms.settings` is true.
-
-This means: as soon as you tick "الإعدادات" for a member, they get every sub-page; the sub-key checkboxes in the team modal become an optional finer-grained override (still respected if `settings` is off and a specific sub-key is on).
-
-### 3. Surface real errors instead of "saved locally"
-
-In `src/app/components/settings/ChatCustomization.tsx#handleSave`, when `saveToSupabase` throws, also log to console with the original error and show the actual server message in the toast (e.g. "خطأ: <message>") rather than the misleading "تم الحفظ محلياً". Same one-line fix in the equivalent save handlers used by `TrainAI.tsx`, `AccountSettings.tsx`, and `StoreInfo.tsx` so any future RLS denial is visible instead of silent.
-
-### 4. Verify
-
-- After the migration + frontend changes, sign in as a member that has only `settings: true` and confirm: open `/dashboard/settings/customize`, click "إعادة التصميم الافتراضي" → Reset → Save, and watch a successful toast + the row updating in `settings_chat_design`.
-- Spot-check the same flow on Train AI and Account pages.
+### 5. Verify
+- Hard reload `/dashboard` on a tenant with cached data → expect: numbers and bars appear immediately at their cached values, then silently update if the server returns something different.
+- Hard reload as a brand-new account (no cache) → expect: skeletons for ~1 s, then the real data fades in with a single, smooth count-up.
+- Trigger a realtime update (e.g. send a test message) → expect: the affected number animates from the old value to the new one (no `0` flash), bars tween to the new height in place.
 
 ### Out of scope
-
-- No UI redesign of the team-permissions modal. The existing checkboxes still work; ticking just `settings` is now enough.
-- No change to non-settings RLS (team, conversations, tickets) — those continue to require their own keys.
-- No data migration for existing members' `permissions` JSON.
+- No backend / SQL changes.
+- No change to `useDashboardMetrics`'s realtime channels or refetch debouncing.
+- No restyle of the cards beyond adding skeleton placeholders.

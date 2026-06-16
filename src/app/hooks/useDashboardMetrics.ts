@@ -23,22 +23,35 @@ import {
  */
 export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, snapshot?: any | null, frozenAt?: string | null) {
   const { tenantId } = useApp();
-  const cacheKey = tenantId ? `dashboard-metrics-cache:${tenantId}` : null;
-  const readCache = () => {
-    if (!cacheKey) return null;
+  const LAST_TENANT_KEY = 'dashboard-metrics-last-tenant';
+  const cacheKeyFor = (tid: string | null | undefined) =>
+    tid ? `dashboard-metrics-cache:${tid}` : null;
+  const readCacheFor = (tid: string | null | undefined) => {
+    const key = cacheKeyFor(tid);
+    if (!key) return null;
     try {
-      const raw = localStorage.getItem(cacheKey);
+      const raw = localStorage.getItem(key);
       if (!raw) return null;
       return JSON.parse(raw) as { metrics: DashboardMetrics; topSubjects: any; recentFeedback: RecentAiFeedback[] };
     } catch { return null; }
   };
-  const cached = readCache();
-  const [metrics, setMetrics] = useState<DashboardMetrics>(cached?.metrics ?? EMPTY_METRICS);
+  // Seed from cache even before tenantId is known by falling back to the
+  // last tenant we saw on this device. This prevents the dashboard from
+  // painting zeros for 1–2s on hard reload while AppContext resolves.
+  const initialCached = (() => {
+    if (tenantId) return readCacheFor(tenantId);
+    try {
+      const last = localStorage.getItem(LAST_TENANT_KEY);
+      if (last) return readCacheFor(last);
+    } catch { /* ignore */ }
+    return null;
+  })();
+  const [metrics, setMetrics] = useState<DashboardMetrics>(() => initialCached?.metrics ?? EMPTY_METRICS);
   const [topSubjects, setTopSubjects] = useState<Record<string, TopSubject[]>>(
-    cached?.topSubjects ?? { complaint: [], inquiry: [], request: [], suggestion: [], other: [] },
+    () => initialCached?.topSubjects ?? { complaint: [], inquiry: [], request: [], suggestion: [], other: [] },
   );
-  const [recentFeedback, setRecentFeedback] = useState<RecentAiFeedback[]>(cached?.recentFeedback ?? []);
-  const [loading, setLoading] = useState(!cached);
+  const [recentFeedback, setRecentFeedback] = useState<RecentAiFeedback[]>(() => initialCached?.recentFeedback ?? []);
+  const [loading, setLoading] = useState(!initialCached);
   const refetchTimer = useRef<number | null>(null);
   const fromKey = range?.from.getTime();
   const toKey = range?.to.getTime();
@@ -81,8 +94,8 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
     }
 
     if (!tenantId) {
-      setMetrics(EMPTY_METRICS);
-      setLoading(false);
+      // We don't know which tenant we are yet. Keep whatever we seeded from
+      // the last-tenant cache visible and just wait for tenantId to resolve.
       return;
     }
 
@@ -99,10 +112,12 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
         setRecentFeedback(fb);
         setLoading(false);
         try {
-          if (cacheKey) localStorage.setItem(
-            cacheKey,
+          const key = cacheKeyFor(tenantId);
+          if (key) localStorage.setItem(
+            key,
             JSON.stringify({ metrics: m, topSubjects: subs, recentFeedback: fb }),
           );
+          localStorage.setItem(LAST_TENANT_KEY, tenantId);
         } catch { /* ignore quota */ }
       }
     };
