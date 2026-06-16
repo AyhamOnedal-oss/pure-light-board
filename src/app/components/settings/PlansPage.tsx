@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
@@ -51,10 +51,10 @@ export function PlansPage() {
   const remaining = currentPlan.totalWords - currentPlan.usedWords;
   const usagePercent = currentPlan.totalWords > 0 ? Math.round((currentPlan.usedWords / currentPlan.totalWords) * 100) : 0;
 
-  const usageData = [
+  const usageData = useMemo(() => [
     { name: t('Used', 'مستخدم'), value: currentPlan.usedWords, color: '#043CC8' },
     { name: t('Remaining', 'متبقي'), value: remaining, color: theme === 'dark' ? '#ffffff' : '#1a1a2e' },
-  ];
+  ], [currentPlan.usedWords, remaining, theme, t]);
 
   // Animated count-up values
   const animatedPercent = useAnimatedNumber(usagePercent, 2000, 200);
