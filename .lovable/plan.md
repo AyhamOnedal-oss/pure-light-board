@@ -1,47 +1,75 @@
-## Why deleting a member takes ~6 seconds
+## What's happening
 
-I traced the flow end-to-end: `TeamPage.confirmDelete` → `supabase.functions.invoke('delete-employee')` → the edge function in `supabase/functions/delete-employee/index.ts`.
+The "إعادة التصميم الافتراضي" button on `/dashboard/settings/customize` only mutates **local React state** (`applyDefaults` in `src/app/components/settings/ChatCustomization.tsx`). The actual write to `public.settings_chat_design` happens when the user then clicks "حفظ التغييرات" → `saveToSupabase` → `supabase.from('settings_chat_design').upsert(...)`.
 
-The UI today **awaits the full network round-trip** before removing the row and closing the confirmation modal. That round-trip is the sum of every step inside the function, done sequentially:
+That upsert is gated by RLS:
 
-1. **Edge function cold boot** — first invocation after idle adds ~200–800 ms (visible in the Boot logs for sibling functions).
-2. **`userClient.auth.getUser()`** — a network call to Supabase Auth to validate the JWT (~150–400 ms).
-3. **Authorization lookup** (parallel pair of selects) — ~100 ms.
-4. **`team_members` lookup by id** — ~80 ms.
-5. **`team_members` soft-delete UPDATE** — ~80 ms. This also fires any row-level triggers/policies on that table.
-6. **`auth_tenant_members` DELETE** — ~80 ms.
-7. **Two COUNT queries** (parallel) to decide whether to nuke the auth user — ~100 ms.
-8. **`admin.auth.admin.deleteUser(targetUserId)`** — this is the single biggest contributor. The Auth admin API typically takes **1.5–4 seconds** because it cascades through `auth.users` (identities, sessions, refresh tokens, MFA factors, audit log) and any `ON DELETE CASCADE` foreign keys pointing at `auth.users` from your schema.
+```
+policy chat_widget_write USING / WITH CHECK
+  member_can(tenant_id, auth.uid(), 'settings_chat_design')
+```
 
-Add it up: boot + ~5 sequential DB round-trips + the slow `deleteUser` call ≈ **4–6 seconds**, exactly what you're seeing. None of step 1–7 alone is the problem; it's that the **UI waits for step 8** before reacting.
+And `member_can(_tenant, _user, _key)` returns true only if:
+- the caller is tenant `admin`/`owner`, OR
+- super_admin, OR
+- `team_members.permissions ->> _key = 'true'` — i.e. the **exact** sub-key `settings_chat_design`.
 
-The "disable member" action feels instant because it's a single UPDATE with optimistic UI (`setMembers` is called before any awaits).
+The same shape is mirrored client-side: `isAllowed` requires both `perms.settings` and `perms.settings_chat_design` to be true for any `settings_*` route, and `handleSave` swallows the RLS denial in a `catch` and shows "تم الحفظ محلياً (خطأ في الخادم)" — so to the member the Reset+Save flow looks like nothing happened. The same problem exists on every other settings sub-page (Train AI, Account, Store, Plans) because each of them is gated by its own `settings_<name>` permission key.
 
-## Plan to fix
+You want a simpler rule: **granting a member the parent `settings` permission should let them do everything inside settings**, and any button visible to them must actually work end-to-end.
 
-Two changes, no schema/migrations:
+## Plan
 
-### 1. `supabase/functions/delete-employee/index.ts` — return as soon as access is revoked
+### 1. Loosen `member_can` so the parent `settings` permission covers every `settings_*` sub-key (database migration)
 
-Critical path (what the user actually cares about) = the member can no longer log in and disappears from the list. That only needs steps 1–6. The auth-account cleanup (step 8) is housekeeping.
+Update `public.member_can(_tenant uuid, _user uuid, _key text)` so that, when `_key` starts with `settings_`, it also returns true if `permissions ->> 'settings' = 'true'`. Owner/admin and super_admin paths stay unchanged.
 
-- After the soft-delete + `auth_tenant_members` delete succeed, **return `{ ok: true }` immediately**.
-- Move the "count remaining memberships → `admin.auth.admin.deleteUser`" block into `EdgeRuntime.waitUntil(...)` so it runs in the background after the response is sent. Wrap it in try/catch and log failures; nothing in the UI depends on `auth_deleted` today.
-- Drop `auth_deleted` from the response (or always return `false`); it's unused on the client.
+Pseudocode of the new body:
 
-Expected response time after this change: ~400–800 ms (boot + 4 quick DB calls), down from 4–6 s.
+```
+select
+     tenant_role_at_least(_tenant, _user, 'admin')
+  or has_role(_user, 'super_admin')
+  or exists (
+       select 1 from public.team_members
+       where tenant_id = _tenant and user_id = _user
+         and (
+           coalesce((permissions ->> _key)::boolean, false)
+           or (
+             _key like 'settings\_%' escape '\'
+             and coalesce((permissions ->> 'settings')::boolean, false)
+           )
+         )
+     );
+```
 
-### 2. `src/app/components/TeamPage.tsx` — optimistic delete
+This fixes the actual cause of the silent failure for every sub-settings RLS policy (`settings_chat_design`, `settings_train_ai`, `settings_account`, `settings_store`, `settings_plans`, `settings_test_chat`) in one place — no per-table policy changes needed.
 
-Mirror the pattern already used by `toggleMemberStatus`:
+### 2. Mirror the rule in the frontend permission helper
 
-- In `confirmDelete`, snapshot the member, call `setMembers(m => m.filter(...))` and `setDeleteConfirm(null)` and show the success toast **before** awaiting `supabase.functions.invoke`.
-- If the invoke returns an error, restore the member into the list and show a failure toast.
+In `src/app/utils/permissions.ts`, change `isAllowed` so that for any `settings_*` key, having `perms.settings === true` is sufficient:
 
-With both changes the modal closes and the row disappears instantly; the network call resolves in the background and only surfaces if something actually failed.
+```ts
+if (key.startsWith('settings_')) {
+  return !!perms.settings;          // parent perm grants all sub-pages
+}
+```
+
+`firstAllowedPath` keeps working because the existing fallback already routes into the first sub-page when `perms.settings` is true.
+
+This means: as soon as you tick "الإعدادات" for a member, they get every sub-page; the sub-key checkboxes in the team modal become an optional finer-grained override (still respected if `settings` is off and a specific sub-key is on).
+
+### 3. Surface real errors instead of "saved locally"
+
+In `src/app/components/settings/ChatCustomization.tsx#handleSave`, when `saveToSupabase` throws, also log to console with the original error and show the actual server message in the toast (e.g. "خطأ: <message>") rather than the misleading "تم الحفظ محلياً". Same one-line fix in the equivalent save handlers used by `TrainAI.tsx`, `AccountSettings.tsx`, and `StoreInfo.tsx` so any future RLS denial is visible instead of silent.
+
+### 4. Verify
+
+- After the migration + frontend changes, sign in as a member that has only `settings: true` and confirm: open `/dashboard/settings/customize`, click "إعادة التصميم الافتراضي" → Reset → Save, and watch a successful toast + the row updating in `settings_chat_design`.
+- Spot-check the same flow on Train AI and Account pages.
 
 ### Out of scope
 
-- No database migration.
-- No change to which rows are deleted or to permissions.
-- `delete-employee` keeps doing the same work; only the response timing and ordering change.
+- No UI redesign of the team-permissions modal. The existing checkboxes still work; ticking just `settings` is now enough.
+- No change to non-settings RLS (team, conversations, tickets) — those continue to require their own keys.
+- No data migration for existing members' `permissions` JSON.
