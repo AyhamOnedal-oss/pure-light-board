@@ -446,9 +446,9 @@ export function DashboardPage() {
           {insights.map((ins, idx) => (
             <motion.button
               key={ins.key}
-              initial={{ opacity: 0, y: 16 }}
+              initial={animateOnce ? { opacity: 0, y: 12 } : false}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: 0.7 + idx * 0.06 }}
+              transition={{ duration: 0.3 }}
               onClick={() => setOpenInsight(ins.key)}
               className="relative overflow-hidden bg-card rounded-2xl p-4 border border-border shadow-sm hover:border-[#043CC8]/20 transition-colors group text-start w-full cursor-pointer"
             >
@@ -469,7 +469,7 @@ export function DashboardPage() {
                 <AnimatedValue
                   value={ins.count}
                   duration={2000}
-                  delay={800 + idx * 100}
+                  delay={0}
                   className="text-[20px]"
                   style={{ fontWeight: 700, color: ins.color }}
                 />
