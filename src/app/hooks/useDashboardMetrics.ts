@@ -94,8 +94,8 @@ export function useDashboardMetrics(range?: DateRange, frozen: boolean = false, 
     }
 
     if (!tenantId) {
-      setMetrics(EMPTY_METRICS);
-      setLoading(false);
+      // We don't know which tenant we are yet. Keep whatever we seeded from
+      // the last-tenant cache visible and just wait for tenantId to resolve.
       return;
     }
 
