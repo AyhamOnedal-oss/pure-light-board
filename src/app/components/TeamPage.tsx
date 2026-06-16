@@ -454,22 +454,27 @@ export function TeamPage() {
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
     if (!tenantId) return;
+    const targetId = deleteConfirm;
+    const snapshot = members;
+    const removed = members.find(x => x.id === targetId);
+    // Optimistic UI: close modal + remove row instantly.
+    setMembers(m => m.filter(x => x.id !== targetId));
+    setDeleteConfirm(null);
+    showToast(t('Member deleted', 'تم حذف العضو'));
     const { data, error } = await supabase.functions.invoke('delete-employee', {
-      body: { tenant_id: tenantId, member_id: deleteConfirm },
+      body: { tenant_id: tenantId, member_id: targetId },
     });
     if (error || !data?.ok) {
       const reason = (data as any)?.detail || (data as any)?.error || error?.message || '';
       console.error('delete-employee failed', { error, data });
+      // Roll back
+      setMembers(removed ? snapshot : (m => m));
       showToast(
         reason
           ? t(`Failed to delete: ${reason}`, `فشل الحذف: ${reason}`)
           : t('Failed to delete', 'فشل الحذف')
       );
-      return;
     }
-    setMembers(m => m.filter(x => x.id !== deleteConfirm));
-    setDeleteConfirm(null);
-    showToast(t('Member deleted', 'تم حذف العضو'));
   };
 
   const openAddModal = () => {
