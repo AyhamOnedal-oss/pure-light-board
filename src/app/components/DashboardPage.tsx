@@ -276,7 +276,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-5">
         {/* Classification Pie */}
         <motion.div
-          initial={false}
+          initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
@@ -290,7 +290,7 @@ export function DashboardPage() {
                 cx="50%" cy="50%"
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive={false}
+                isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
               >
                 {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
               </Pie>
@@ -388,7 +388,7 @@ export function DashboardPage() {
 
         {/* AI Feedback Chart — positive vs negative donut */}
         <motion.div
-          initial={false}
+          initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
@@ -415,7 +415,7 @@ export function DashboardPage() {
                   cx="50%" cy="50%"
                   innerRadius={50} outerRadius={78}
                   dataKey="value" paddingAngle={4} strokeWidth={0}
-                  isAnimationActive={false}
+                  isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
                 >
                   <Cell key="fb-positive" fill="#10b981" />
                   <Cell key="fb-negative" fill="#ff4466" />
