@@ -282,25 +282,36 @@ export function DashboardPage() {
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Conversation Classification', 'تصنيف المحادثات')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Distribution by type', 'التوزيع حسب النوع')}</p>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={classificationData}
-                cx="50%" cy="50%"
-                startAngle={90} endAngle={450}
-                innerRadius={50} outerRadius={78}
-                dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
-              >
-                {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <div className="relative h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={classificationData}
+                  cx="50%" cy="50%"
+                  startAngle={90} endAngle={450}
+                  innerRadius={48} outerRadius={82}
+                  dataKey="value" paddingAngle={4} strokeWidth={0}
+                  isAnimationActive={false}
+                >
+                  {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <AnimatedValue
+                value={String(classificationData.reduce((s, d) => s + d.value, 0))}
+                duration={1400}
+                delay={0.5}
+                className="text-[20px] text-foreground"
+                style={{ fontWeight: 700 }}
+              />
+            </div>
+          </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-2">
             {classificationData.map((entry) => (
               <div key={entry.name} className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
                 <span className="text-[11px] text-foreground" style={{ fontWeight: 500 }}>{entry.name}</span>
               </div>
             ))}
