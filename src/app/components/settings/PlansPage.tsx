@@ -6,7 +6,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CreditCard, Zap } from 'lucide-react';
 
 export function PlansPage() {
-  const { t, theme, tenantId } = useApp();
+  const { t, theme, tenantId, language } = useApp();
   const [chartLoaded, setChartLoaded] = useState(false);
   const [planData, setPlanData] = useState({
     name: 'Free',
