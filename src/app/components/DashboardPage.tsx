@@ -241,7 +241,7 @@ export function DashboardPage() {
             key={kpi.label}
             initial={animateOnce ? { opacity: 0, y: 12 } : false}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.35, delay: animateOnce ? idx * 0.05 : 0, ease: [0.16, 1, 0.3, 1] }}
             className="relative overflow-hidden bg-card rounded-2xl p-4 border border-border shadow-sm hover:border-border/80 transition-colors group"
           >
             <div
