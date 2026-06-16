@@ -92,7 +92,9 @@ export function getCurrentUserPermissions(getMemberById: (id: string) => { permi
 export function isAllowed(perms: MemberPermissions, key: PermissionKey): boolean {
   if (!perms) return false;
   if (key.startsWith('settings_')) {
-    return !!perms.settings && !!perms[key];
+    // Parent `settings` permission grants every settings sub-page.
+    // The fine-grained sub-key still works as a standalone grant.
+    return !!perms.settings || !!perms[key];
   }
   return !!perms[key];
 }
