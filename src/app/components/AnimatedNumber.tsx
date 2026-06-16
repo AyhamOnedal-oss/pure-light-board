@@ -12,6 +12,12 @@ export function useAnimatedNumber(target: number, duration = 1800, delay = 0) {
   const fromRef = useRef<number>(target);
   const lastTargetRef = useRef<number>(target);
   const hasMountedRef = useRef(false);
+  // Until we've seen a non-zero target at least once, treat incoming targets
+  // as the "real" first value and snap instead of animating 0 → N. This
+  // matters when the dashboard mounts with EMPTY_METRICS (no cache) and the
+  // first real fetch lands a few hundred ms later — we don't want a
+  // count-up jitter on that first reveal.
+  const hasRealValueRef = useRef<boolean>(target !== 0);
 
   useEffect(() => {
     if (!hasMountedRef.current) {
@@ -19,9 +25,18 @@ export function useAnimatedNumber(target: number, duration = 1800, delay = 0) {
       lastTargetRef.current = target;
       fromRef.current = target;
       setValue(target);
+      if (target !== 0) hasRealValueRef.current = true;
       return;
     }
     if (target === lastTargetRef.current) return;
+    if (!hasRealValueRef.current) {
+      // First non-zero value after a zero seed — snap, don't animate.
+      hasRealValueRef.current = true;
+      lastTargetRef.current = target;
+      fromRef.current = target;
+      setValue(target);
+      return;
+    }
     const from = value;
     fromRef.current = from;
     lastTargetRef.current = target;
