@@ -345,10 +345,11 @@ Deno.serve(async (req) => {
     let nonProductShortCircuit: string | null = null;
 
     // === Vision pre-processing (image-first analysis) ===
-    // Analyze the image BEFORE the n8n text agent runs. We classify the image
-    // kind (real product photo vs icon/emoji/clipart/etc.) and only allow
-    // catalog matching when it's actually a product photo. Output is strict
-    // JSON so we can branch on it deterministically.
+    // Analyze the image BEFORE the n8n text agent runs and EXTRACT every
+    // searchable signal (description, visible text, brand/logo, depicted
+    // object, colors, suggested search query). We pass this to n8n so the
+    // agent can search the merchant catalog by what the image depicts,
+    // even when the image is a logo/icon/drawing rather than a real photo.
     if (hasAttachments && OPENAI_API_KEY) {
       try {
         const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -360,29 +361,30 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model: "gpt-4o-mini",
             temperature: 0,
-            max_tokens: 400,
+            max_tokens: 500,
             response_format: { type: "json_object" },
             messages: [
               {
                 role: "system",
                 content:
                   "You analyze customer-attached images for a shopping support agent. " +
-                  "ANALYZE THE IMAGE FIRST AND OBJECTIVELY — do NOT assume it is a product. " +
-                  "Icons, emoji, stickers, clipart, cartoons, logos, screenshots, and drawings are NOT real products even if they depict a product-like object. " +
-                  "Example: a small cartoon gift box with a ribbon on a flat background = icon_or_clipart, NOT product_photo. " +
-                  "A real product photo is a photograph of an actual physical item (realistic lighting, texture, background, packaging or studio shot). " +
+                  "ANALYZE THE IMAGE FIRST. Your job is to EXTRACT every searchable detail so the agent can find the matching product in the merchant catalog. " +
+                  "Do NOT refuse just because the image is not a photograph: a logo, icon, sticker, drawing, or cartoon that depicts an object is still useful — describe what it depicts. " +
+                  "Example 1: a small cartoon gift box with a ribbon and the wordmark \"Fuqah\" → image_kind=\"logo\", depicted_object=\"gift box\", brand_or_logo=\"Fuqah\", readable_text=\"Fuqah\", search_query=\"علبة هدية فقاهة\", has_useful_signal=true. " +
+                  "Example 2: a photo of a real perfume bottle → image_kind=\"product_photo\", depicted_object=\"perfume bottle\", search_query=\"عطر\", has_useful_signal=true. " +
+                  "Example 3: a single 🤔 emoji or random scribble with no recognizable object → has_useful_signal=false. " +
                   "Return ONLY a JSON object with this exact schema: " +
                   "{ " +
                   "\"image_kind\": one of [\"product_photo\",\"screenshot\",\"icon_or_clipart\",\"emoji\",\"logo\",\"receipt_or_document\",\"drawing_or_sketch\",\"person_or_selfie\",\"unclear\"], " +
-                  "\"is_real_product_photo\": boolean, " +
-                  "\"description\": string (1-2 short objective sentences in Arabic if customer wrote Arabic, else English; describe what you SEE, do not call it a product unless image_kind=product_photo), " +
-                  "\"readable_text\": string (literal transcription of any text visible in the image, or empty string), " +
-                  "\"suggested_action\": one of [\"match_to_catalog\",\"ask_for_real_photo\",\"answer_text_only\",\"ask_clarification\"] " +
+                  "\"description\": string (1-2 short objective sentences in Arabic if customer wrote Arabic else English; describe what you SEE — do not call it a product unless image_kind=product_photo), " +
+                  "\"readable_text\": string (literal transcription of any text inside the image including brand/logo wordmarks, or \"\"), " +
+                  "\"depicted_object\": string (the main object/subject the image represents, even for icons/logos/drawings, e.g. \"gift box\", \"sneaker\", \"perfume bottle\"; \"\" only if truly nothing identifiable), " +
+                  "\"brand_or_logo\": string (any brand/logo name visible, or \"\"), " +
+                  "\"dominant_colors\": array of 1-3 short color names in the user's language (e.g. [\"ذهبي\",\"أخضر داكن\"], or []), " +
+                  "\"search_query\": string (the best short Arabic search phrase a shopper would type to find this in a store catalog — combine depicted_object + brand + colors; \"\" only when nothing identifiable), " +
+                  "\"has_useful_signal\": boolean (true when ANY of description, readable_text, depicted_object, brand_or_logo, or search_query is non-empty and meaningful) " +
                   "}. " +
-                  "Rules: suggested_action=match_to_catalog ONLY when is_real_product_photo=true. " +
-                  "If image_kind is icon_or_clipart/emoji/drawing_or_sketch/logo → is_real_product_photo=false and suggested_action=ask_for_real_photo. " +
-                  "If image_kind=unclear → suggested_action=ask_clarification. " +
-                  "If image_kind=screenshot/receipt_or_document → suggested_action=answer_text_only.",
+                  "Never refuse. Always fill what you can.",
               },
               {
                 role: "user",
@@ -412,11 +414,23 @@ Deno.serve(async (req) => {
           try { parsed = JSON.parse(raw); } catch { /* leave null */ }
           if (parsed && typeof parsed === "object") {
             const kind: string = String(parsed.image_kind ?? "unclear");
-            const isProduct: boolean = parsed.is_real_product_photo === true && kind === "product_photo";
+            const isProduct: boolean = kind === "product_photo";
             const desc: string = String(parsed.description ?? "").trim();
             const readable: string = String(parsed.readable_text ?? "").trim();
-            const action: string = String(parsed.suggested_action ?? "");
-            console.log("vision_verdict", { kind, isProduct, action, has_readable: !!readable });
+            const depicted: string = String(parsed.depicted_object ?? "").trim();
+            const brand: string = String(parsed.brand_or_logo ?? "").trim();
+            const colors: string[] = Array.isArray(parsed.dominant_colors)
+              ? parsed.dominant_colors.map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 3)
+              : [];
+            const searchQuery: string = String(parsed.search_query ?? "").trim();
+            const usefulSignal: boolean =
+              parsed.has_useful_signal === true ||
+              !!(desc || readable || depicted || brand || searchQuery);
+            console.log("vision_verdict", {
+              kind, isProduct, has_readable: !!readable,
+              has_depicted: !!depicted, has_brand: !!brand,
+              has_query: !!searchQuery, useful: usefulSignal,
+            });
 
             const kindAr: Record<string, string> = {
               product_photo: "صورة منتج",
@@ -430,36 +444,55 @@ Deno.serve(async (req) => {
               unclear: "غير واضحة",
             };
 
+            const fmtLine = (label: string, value: string) =>
+              value ? `${label}: ${value}\n` : "";
+            const colorsLine = colors.length ? `الألوان البارزة: ${colors.join("، ")}\n` : "";
+
             let block: string;
             if (isProduct) {
+              // Real product photograph — try a catalog match, but require
+              // an actual match before confirming availability.
               block =
                 `[تحليل الصورة المرفقة]\n` +
                 `النوع: صورة منتج\n` +
-                `الوصف: ${desc || "(بدون وصف)"}\n` +
-                `نص ظاهر داخل الصورة: ${readable || "لا يوجد"}\n` +
-                `التعليمة: حاول مطابقة هذا المنتج مع كتالوج المتجر، ولا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً.`;
-            } else if (kind === "unclear") {
+                fmtLine("الوصف", desc) +
+                fmtLine("الشيء الظاهر", depicted) +
+                fmtLine("العلامة/الشعار", brand) +
+                fmtLine("نص ظاهر داخل الصورة", readable) +
+                colorsLine +
+                fmtLine("اقتراح بحث في الكتالوج", searchQuery) +
+                `التعليمة: ابحث عن هذا المنتج في كتالوج المتجر باستخدام الوصف/العلامة/الكلمات المقترحة. لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً في الكتالوج. إذا لم تجد، قل ذلك بأدب واسأل العميل عن اسم المنتج بالضبط.`;
+            } else if (usefulSignal) {
+              // Logo / icon / drawing / receipt / etc. that still carries
+              // useful signal — USE it to search the catalog. Do not dismiss.
               block =
                 `[تحليل الصورة المرفقة]\n` +
-                `النوع: غير واضحة\n` +
-                `الوصف: ${desc || "(لا يمكن تحديد محتوى الصورة بدقة)"}\n` +
-                `التعليمة الحرجة: لا تخمّن. اطلب من العميل توضيح ما يقصده أو إرسال صورة أوضح.`;
-            } else {
-              block =
-                `[تحليل الصورة المرفقة]\n` +
-                `النوع: ${kindAr[kind] ?? kind} — ليست صورة منتج حقيقية\n` +
-                `الوصف: ${desc || "(بدون وصف)"}\n` +
-                (readable ? `نص ظاهر داخل الصورة: ${readable}\n` : "") +
-                `التعليمة الحرجة: لا تؤكد توفر أي منتج بناءً على هذه الصورة، ولا تتعامل معها كأنها صورة منتج فعلية. اطلب من العميل إرسال صورة المنتج الفعلي أو اسمه أو رابطه.`;
-
-              // If the customer sent no text at all, short-circuit and reply
-              // directly without invoking n8n — the agent has no real query.
-              if (!customerSentText) {
-                const kindWordAr = kindAr[kind] ?? "صورة غير منتج";
+                `النوع: ${kindAr[kind] ?? kind} (ليست صورة منتج فوتوغرافية، لكنها تحمل معلومات مفيدة)\n` +
+                fmtLine("الوصف", desc) +
+                fmtLine("الشيء الذي تمثله الصورة", depicted) +
+                fmtLine("العلامة/الشعار", brand) +
+                fmtLine("نص ظاهر داخل الصورة", readable) +
+                colorsLine +
+                fmtLine("اقتراح بحث في الكتالوج", searchQuery) +
+                `التعليمة: استخدم هذه المعلومات للبحث في كتالوج المتجر بالوصف/العلامة/الكلمات. إذا وجدت منتجاً يطابق بشكل معقول، اقترحه على العميل واطلب منه التأكيد. إذا لم تجد أي تطابق، قل ذلك بأدب واطلب اسم المنتج أو رابطه. لا تتجاهل الصورة، ولا تطلب صورة أخرى ما دامت هذه تحمل معلومات.`;
+            } else if (kind === "unclear" || !usefulSignal) {
+              // No useful signal extracted at all.
+              if (customerSentText) {
+                block =
+                  `[تحليل الصورة المرفقة]\n` +
+                  `النوع: ${kindAr[kind] ?? kind} — لم يتم استخراج معلومات واضحة\n` +
+                  `التعليمة: تجاهل الصورة وأجب عن سؤال العميل النصي بشكل طبيعي.`;
+              } else {
+                block =
+                  `[تحليل الصورة المرفقة]\n` +
+                  `النوع: ${kindAr[kind] ?? kind} — لم يتم استخراج معلومات واضحة\n` +
+                  `التعليمة: اطلب من العميل اسم المنتج أو رابطه.`;
                 nonProductShortCircuit =
-                  `وصلتني صورتك، لكنها تبدو ${kindWordAr} وليست صورة منتج فعلية. ` +
-                  `هل تقصد منتجاً معيناً؟ ابعث لي اسمه أو رابطه أو صورته الفعلية وأخدمك 🌷`;
+                  `وصلتني صورتك لكن ما قدرت أستخرج منها معلومات واضحة عن منتج. ` +
+                  `ابعث لي اسم المنتج أو رابطه أو صورته الفعلية وأخدمك 🌷`;
               }
+            } else {
+              block = `[تحليل الصورة المرفقة]\nالوصف: ${desc || "(بدون وصف)"}`;
             }
 
             userText = customerSentText ? `${message}\n\n${block}` : block;
