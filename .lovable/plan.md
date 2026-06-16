@@ -1,24 +1,26 @@
-## Goal
+## Plan
 
-Make the red Tickets sidebar badge match the per-row "unread notes" indicator inside the Tickets page, and make "opening a ticket's notes" permanently clear it (survives refresh — which it already does via `localStorage`, we just need the count to drop correctly).
+Make the Tickets sidebar badge count the same unread ticket-note notifications the user sees in the Notes/bell area, not all notes and not just distinct tickets.
 
-## Current behavior (why it shows "1")
+### Changes
 
-- `Layout.tsx` counts **every note row** whose `created_at > ticketNotesSeen[ticketId]`.
-- That means a ticket with 3 unread notes contributes 3 to the badge, and ticket-row indicators on the Tickets page use a different rule, so the two numbers don't line up. Right now only one note in the whole tenant happens to be newer than its ticket's `seen` timestamp, so the sidebar shows `1` while several ticket rows still display a note indicator.
+1. **Use notification rows as the source of truth**
+   - In `Layout.tsx`, calculate the Tickets sidebar badge from unread `app_notifications` that represent a ticket/note message.
+   - Only count notifications that are still unread for the current user.
+   - Exclude normal notifications like subscription, word limit, admin messages, etc.
 
-## New behavior
+2. **Make each note notification decrease the badge when clicked**
+   - When clicking a notification that belongs to a ticket/note, mark that notification as read.
+   - Trigger the sidebar badge reload immediately so the count changes from 10 → 9 → 8, etc.
+   - Because `markRead` writes to `app_notifications.read_by`, the decreased number stays after refresh.
 
-- Badge = **number of tickets that have at least one unread note** (one per ticket, not per note). This matches what the user sees as red dots on ticket rows.
-- Opening a ticket's notes panel writes `ticketNotesSeen[ticketId] = now()` (already implemented in `openNotes`). The sidebar listens to `fuqah:badges-bump` / `badgeVersion`, so the badge drops by 1 immediately and stays dropped after refresh because the timestamp is persisted in `localStorage`.
-- A new customer note arriving later (realtime INSERT on `tickets_activities`) re-increments the badge for that ticket — expected and desired.
+3. **Keep note-panel behavior separate**
+   - Opening a ticket’s notes panel can still mark that ticket’s note activity as seen for the red note indicator.
+   - The sidebar badge will follow unread ticket-note notification count, as requested.
 
-## Files
+### Technical details
 
-- `src/app/components/Layout.tsx` — change the reducer in the tickets-badge `useEffect` to count **distinct `ticket_id`s** that have any note with `created_at > getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, ticket_id))`, instead of summing all unread notes. No other logic, query, or subscription changes.
-
-## Out of scope
-
-- No DB or migration changes.
-- No changes to `TicketsPage` per-row indicators, `openNotes`, or the bell dropdown.
-- No reset of existing `localStorage` seen entries.
+- Update `AppContext.tsx` notification mapping to include enough metadata (`kind` and/or payload fields if present) to identify ticket notifications.
+- Update `Layout.tsx` sidebar badge logic to count unread ticket-note notifications from `notifications` instead of querying `tickets_activities`.
+- Update the bell notification click handler to dispatch `fuqah:badges-bump` after `markRead(n.id)` so the Tickets badge refreshes immediately.
+- If the notification has a ticket id in its payload, optionally navigate/open the relevant ticket context only if the existing data supports it safely; otherwise only mark read and decrement.

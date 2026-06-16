@@ -155,18 +155,26 @@ export function Layout() {
         .eq('tenant_id', tenantId)
         .eq('type', 'note')
         .order('created_at', { ascending: false })
-        .limit(500);
+        .limit(2000);
       if (cancelled) return;
-      const unreadTickets = new Set<string>();
+      // Total unread NOTE count across all tickets (matches per-ticket badge sum).
+      // Opening a ticket's notes panel marks every note in that ticket as seen,
+      // so the sidebar badge drops by that ticket's unread count and stays
+      // dropped across refresh (persisted in localStorage).
+      let unread = 0;
+      const seenCache = new Map<string, number>();
       for (const r of noteRows || []) {
         const tid = (r as { ticket_id?: string | null }).ticket_id;
         const createdAt = (r as { created_at?: string | null }).created_at;
         if (!tid || !createdAt) continue;
-        if (unreadTickets.has(tid)) continue;
-        const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
-        if (toMs(createdAt) > seen) unreadTickets.add(tid);
+        let seen = seenCache.get(tid);
+        if (seen === undefined) {
+          seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
+          seenCache.set(tid, seen);
+        }
+        if (toMs(createdAt) > seen) unread += 1;
       }
-      setTicketsBadge(unreadTickets.size);
+      setTicketsBadge(unread);
     };
     load();
 
