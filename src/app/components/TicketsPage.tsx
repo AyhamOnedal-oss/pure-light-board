@@ -330,6 +330,7 @@ export function TicketsPage() {
       setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id));
       markTicketNotificationRead(selected.id);
       bump();
+      window.dispatchEvent(new Event('fuqah:badges-bump'));
     }
     setNotesOpen(true);
   };
