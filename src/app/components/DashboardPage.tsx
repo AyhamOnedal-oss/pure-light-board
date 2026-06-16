@@ -70,12 +70,9 @@ export function DashboardPage() {
     ],
     [feedback.positive, feedback.negative, language],
   );
-  // Run heavy chart entry animations only on the very first mount, so that
-  // realtime data refreshes update bars/pies in place instead of restarting
-  // the whole choreography.
-  const firstRenderRef = useRef(true);
-  const animateOnce = firstRenderRef.current;
-  useEffect(() => { firstRenderRef.current = false; }, []);
+  // Motion's `initial` only fires on mount, and every animated element below
+  // has a stable key, so cards/bars/stars naturally animate once on entrance
+  // and update in place afterwards. No gating flag needed.
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   // Persisted dismissed/resolved issue IDs per category (localStorage, scoped by tenant).
   const storageKey = (kind: 'dismissed' | 'resolved') =>
@@ -239,9 +236,9 @@ export function DashboardPage() {
         {kpis.map((kpi, idx) => (
           <motion.div
             key={kpi.label}
-            initial={animateOnce ? { opacity: 0, y: 12 } : false}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: animateOnce ? idx * 0.05 : 0, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.45, delay: idx * 0.06, ease: [0.16, 1, 0.3, 1] }}
             className="relative overflow-hidden bg-card rounded-2xl p-4 border border-border shadow-sm hover:border-border/80 transition-colors group"
           >
             <div
@@ -278,9 +275,9 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-5">
         {/* Classification Pie */}
         <motion.div
-          initial={animateOnce ? { opacity: 0, y: 12 } : false}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: animateOnce ? 0.35 : 0, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.5, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Conversation Classification', 'تصنيف المحادثات')}</h3>
@@ -311,9 +308,9 @@ export function DashboardPage() {
 
         {/* Ticket Status Bar — subtle hover, white text in dark */}
         <motion.div
-          initial={animateOnce ? { opacity: 0, y: 12 } : false}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: animateOnce ? 0.4 : 0, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.5, delay: 0.46, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Ticket Status', 'حالة التذاكر')}</h3>
@@ -327,9 +324,9 @@ export function DashboardPage() {
                   <span className="text-[13px]" style={{ fontWeight: 700, color: tickColor }}>{d.value}</span>
                   <div className="w-full flex justify-center" style={{ height: `${pct}%` }}>
                     <motion.div
-                      initial={animateOnce ? { scaleY: 0 } : false}
+                      initial={{ scaleY: 0 }}
                       animate={{ scaleY: 1 }}
-                      transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+                      transition={{ duration: 0.9, delay: 0.6 + idx * 0.08, ease: [0.16, 1, 0.3, 1] }}
                       className="w-full rounded-t-lg origin-bottom"
                       style={{ backgroundColor: d.fill, maxWidth: 64, height: '100%' }}
                     />
@@ -343,9 +340,9 @@ export function DashboardPage() {
 
         {/* Rating */}
         <motion.div
-          initial={animateOnce ? { opacity: 0, y: 12 } : false}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: animateOnce ? 0.45 : 0, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.5, delay: 0.52, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm flex flex-col"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Customer Rating', 'تقييم العملاء')}</h3>
@@ -368,9 +365,9 @@ export function DashboardPage() {
                   return (
                     <motion.div
                       key={s}
-                      initial={animateOnce ? { opacity: 0, scale: 0 } : false}
+                      initial={{ opacity: 0, scale: 0 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                      transition={{ duration: 0.4, delay: 0.7 + s * 0.06, ease: [0.16, 1, 0.3, 1] }}
                     >
                       <Star className={`w-7 h-7 ${s <= rounded ? 'fill-yellow-400 text-yellow-400' : 'fill-yellow-400/40 text-yellow-400/40'}`} />
                     </motion.div>
@@ -390,9 +387,9 @@ export function DashboardPage() {
 
         {/* AI Feedback Chart — positive vs negative donut */}
         <motion.div
-          initial={animateOnce ? { opacity: 0, y: 12 } : false}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: animateOnce ? 0.5 : 0, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.5, delay: 0.58, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('AI Feedback', 'تقييم الذكاء الاصطناعي')}</h3>
@@ -448,9 +445,9 @@ export function DashboardPage() {
           {insights.map((ins, idx) => (
             <motion.button
               key={ins.key}
-              initial={animateOnce ? { opacity: 0, y: 12 } : false}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: animateOnce ? 0.55 + idx * 0.05 : 0, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.45, delay: 0.7 + idx * 0.06, ease: [0.16, 1, 0.3, 1] }}
               onClick={() => setOpenInsight(ins.key)}
               className="relative overflow-hidden bg-card rounded-2xl p-4 border border-border shadow-sm hover:border-[#043CC8]/20 transition-colors group text-start w-full cursor-pointer"
             >
