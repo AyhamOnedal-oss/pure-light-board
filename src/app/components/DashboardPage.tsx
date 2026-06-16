@@ -287,6 +287,7 @@ export function DashboardPage() {
               <Pie
                 data={classificationData}
                 cx="50%" cy="50%"
+                startAngle={90} endAngle={450}
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
                 isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
@@ -412,6 +413,7 @@ export function DashboardPage() {
                   key={feedbackAnimationKey}
                   data={feedbackPieData}
                   cx="50%" cy="50%"
+                  startAngle={90} endAngle={450}
                   innerRadius={50} outerRadius={78}
                   dataKey="value" paddingAngle={4} strokeWidth={0}
                   isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
