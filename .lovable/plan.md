@@ -1,36 +1,93 @@
-## Goal
-Make `/dashboard` feel live immediately on entry/reload:
-- No 2–3 second blank/zero delay.
-- No cached number like `2K` dropping to `0` then counting back up.
-- Dashboard cards/charts enter together in one smooth gradual choreography.
+## رؤى الذكاء الاصطناعي — تقرير فجوات التدريب
 
-## Plan
+تحويل قسم "رؤى الذكاء الاصطناعي" من نسخة مكررة من رسم التصنيف، إلى تقرير حقيقي عن الحالات التي **فشل الذكاء فيها** (لم يفهم / لم يجد معلومة)، مجمّعة حسب نوع رسالة العميل، مع أمثلة فعلية يستخدمها التاجر لتحسين التدريب.
 
-1. **Stop permission loading from wiping dashboard metrics**
-   - In `DashboardPage`, stop passing `permissionsLoading` as `frozen` into `useDashboardMetrics`.
-   - Only use actual inactive-member state (`isFrozen`) for frozen dashboard snapshots.
-   - Keep the date controls visually disabled while permissions are loading, but do not reset metrics because of it.
+مستقل تمامًا عن: رفع التذاكر، رسم تصنيف المحادثات (يبقى كما هو).
 
-2. **Make cached metrics the first paint source**
-   - Keep the existing last-tenant cache behavior, but harden `useDashboardMetrics` so it never replaces cached/live metrics with `EMPTY_METRICS` during temporary states like missing tenant, permission loading, or frozen snapshot not ready.
-   - If no cache exists, return a proper `loading` state instead of rendering fake zero data.
+### 1. جدول `ai_insights` جديد
 
-3. **Prevent first-render zero numbers entirely**
-   - Update the dashboard rendering so KPI numbers only mount once there is real data or cached data.
-   - On first real data arrival, show the final values directly with the page entrance animation, instead of animating `0 → value`.
-   - After the dashboard is already live, keep normal number animations for real updates, but avoid dramatic downward-to-zero transitions caused by temporary empty data.
+Migration ينشئ `public.ai_insights` مع RLS:
 
-4. **Add one coordinated dashboard entrance animation**
-   - Add a parent motion container for the KPI grid and chart grid using staggered children.
-   - Cards should fade/slide in gradually as a group, not wait for each query separately.
-   - Charts should animate only on the initial dashboard entrance; later realtime updates should update in place.
+- `id uuid pk`
+- `tenant_id uuid` (FK → settings_workspace)
+- `conversation_id uuid` (FK → conversations_main)
+- `message_id uuid` (FK → conversations_messages) — رسالة العميل التي فشل الذكاء في الرد عليها
+- `category text` — تصنيف رسالة العميل: `inquiry` | `request` | `complaint` | `suggestion` | `unknown`
+  - `unknown` = الذكاء ما عرف حتى يصنّف الرسالة
+- `reason text` — `fallback_phrase` (الذكاء قال صراحة "ما أعرف") أو `negative_feedback` (إبهام سلبي)
+- `customer_question text` — نص رسالة العميل
+- `ai_answer text` — رد الذكاء (إن وُجد)
+- `summary_ar text` — جملة عربية قصيرة للتاجر (مثل: "العميل سأل عن الشحن المبرد ولم تتوفر معلومة")
+- `created_at timestamptz default now()`
 
-5. **Use polished loading placeholders only for first-ever load**
-   - If the user has no cache yet, show stable skeleton/shimmer blocks with the same card dimensions.
-   - Replace them with the real dashboard in one fade transition once data arrives.
-   - This avoids showing incorrect zeros while still making the page feel responsive.
+GRANTs: `select` لـ `authenticated`، `all` لـ `service_role`. RLS: أعضاء التينانت يقرؤون، الخدمة فقط تكتب. فهرسة على `(tenant_id, created_at desc)` و `(tenant_id, category)`.
 
-## Technical details
-- Main files: `src/app/components/DashboardPage.tsx`, `src/app/hooks/useDashboardMetrics.ts`, `src/app/components/AnimatedNumber.tsx`.
-- Root issue: `freezeDashboard = permissionsLoading || isFrozen` causes `useDashboardMetrics` to enter frozen mode during permission resolution, which can set `EMPTY_METRICS`; that is why cached `2K` drops to `0` before real metrics return.
-- The fix is frontend-only; no SQL/backend changes needed.
+### 2. كشف الفجوة داخل `chat-ai`
+
+بعد توليد كل رد من الذكاء:
+
+**أ. Heuristic سريع (مجاني):** يفحص رد الذكاء عن عبارات مثل:
+`لا أملك معلومات`, `لا أعلم`, `لم أفهم`, `لا أستطيع`, `سأحوّلك`, `تواصل مع خدمة`, `I don't know`, `I'm not sure`, إلخ.
+
+**ب. إذا تطابق الـ heuristic:** نداء واحد لـ `openai/gpt-5-mini` عبر Lovable AI Gateway:
+- المدخل: آخر رسالة عميل + رد الذكاء + (تصنيف المحادثة من `conversations_main.category` إن وُجد)
+- المخرج (JSON منظّم):
+  ```json
+  {
+    "is_real_gap": true,
+    "category": "inquiry" | "request" | "complaint" | "suggestion" | "unknown",
+    "summary_ar": "جملة قصيرة"
+  }
+  ```
+- `category="unknown"` يعني الذكاء ما قدر يحدد نوع الرسالة أصلًا.
+- إذا `is_real_gap=true` → insert صف في `ai_insights`.
+
+**ج. مسار الإبهام السلبي:** عند تسجيل `feedback='negative'` على رسالة ذكاء، يُستدعى نفس المنطق (إعادة استخدام `chat-ai` بـ action param أو edge function صغير `record-ai-insight`) لإنتاج `summary_ar` و `category` ثم insert مع `reason='negative_feedback'`.
+
+### 3. RPC جديد `dashboard_ai_insights(_tenant, _from, _to)`
+
+يرجّع JSON:
+```json
+{
+  "counts": {
+    "inquiry": 5,
+    "request": 3,
+    "complaint": 2,
+    "suggestion": 1,
+    "unknown": 4
+  },
+  "total": 15,
+  "examples": {
+    "inquiry":    [{ "summary_ar": "...", "conversation_id": "...", "created_at": "..." }, ...],
+    "request":    [...],
+    "complaint":  [...],
+    "suggestion": [...],
+    "unknown":    [...]
+  }
+}
+```
+حتى 10 أمثلة لكل بطاقة، مرتبة بالأحدث. نفس حماية عضو التينانت مثل `dashboard_metrics`.
+
+### 4. تغييرات الواجهة
+
+- `useDashboardMetrics`: يجلب `dashboard_ai_insights` بالتوازي مع `dashboard_metrics`.
+- **رسم تصنيف المحادثات** يبقى كما هو، يقرأ من `metrics.classification` (استفسار/طلب/شكوى/اقتراح/لا يوجد).
+- **بطاقات رؤى الذكاء الاصطناعي (5)** تقرأ من `insights.counts` و `insights.examples`:
+  - كل بطاقة تعرض العدد + قائمة قابلة للتمرير بأمثلة `summary_ar` (كل مثال قابل للنقر لفتح المحادثة المصدر).
+  - الأرقام **مختلفة عمدًا** عن أرقام الرسم — وهذا هو السلوك الصحيح.
+- نصوص توضيحية تحت العنوان: "حالات احتاج فيها الذكاء معلومات إضافية — استخدمها لتحسين تدريبه."
+
+### 5. خارج النطاق
+
+- لا تغيير على رسم تصنيف المحادثات.
+- لا تغيير على كيفية تعبئة `conversations_main.category`.
+- لا backfill للمحادثات السابقة (الرؤى تبدأ من لحظة النشر).
+- لا ربط برفع التذاكر.
+
+### تفاصيل تقنية
+
+- النموذج: `openai/gpt-5-mini` عبر `LOVABLE_API_KEY` (موجود مسبقًا في الأسرار).
+- نداء النموذج فقط عند تطابق الـ heuristic أو feedback سلبي → تكلفة منخفضة.
+- جميع الـ inserts من service role داخل edge function.
+- Migration: `supabase/migrations/<timestamp>_ai_insights.sql`.
+- Edge functions: تعديل `chat-ai` + إضافة `record-ai-insight` (أو action داخل `chat-ai`).

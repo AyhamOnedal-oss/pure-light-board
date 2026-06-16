@@ -182,19 +182,19 @@ export async function fetchTopSubjectsByCategory(
     const r = row as any;
     const cat = r.category as string | null;
     const unanswered = ((r.unanswered_question as string | null) ?? '').trim();
-    // Unknown Questions card: every conversation with a real unanswered question
-    // (set by the classifier only for genuine knowledge gaps) goes into `other`,
-    // regardless of its main category. Other buckets keep the AI subject.
-    const bucket = unanswered ? 'other' : (cat && tallies[cat] ? cat : 'other');
-    const display = bucket === 'other'
-      ? (unanswered || ((r.subject as string | null) ?? '').trim())
-      : ((r.subject as string | null) ?? '').trim();
-    if (!display) continue;
-    // Extra safety: filter trivial strings from the Unknown bucket on read.
-    if (bucket === 'other') {
-      const stripped = display.replace(/[؟?.!،,;:"'«»()\[\]]+$/g, '').trim();
-      if (stripped.length < 8 || stripped.split(/\s+/).length < 2) continue;
-    }
+    // AI-Insights = TRAINING-GAP REPORT.
+    // EVERY card (complaint/inquiry/request/suggestion/other) shows ONLY
+    // conversations where the AI failed to handle the customer. The classifier
+    // marks those by populating `unanswered_question`. Bucket = the customer's
+    // original intent (`category`). Conversations the classifier couldn't even
+    // categorize (`category='other'` or NULL) go into the "Unknown Questions"
+    // card.
+    if (!unanswered) continue;
+    const display = unanswered;
+    const bucket = cat && cat !== 'other' && tallies[cat] ? cat : 'other';
+    // Extra safety: drop trivial/short strings.
+    const stripped = display.replace(/[؟?.!،,;:"'«»()\[\]]+$/g, '').trim();
+    if (stripped.length < 8 || stripped.split(/\s+/).length < 2) continue;
     const key = normalize(display);
     if (!key) continue;
     const at = (r.last_message_at as string | null) ?? (r.created_at as string | null) ?? '';

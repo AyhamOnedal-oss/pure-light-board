@@ -162,12 +162,18 @@ export function DashboardPage() {
     suggestions: 'suggestion',
     unknown: 'other',
   };
+  // Insight card counts = number of times the AI failed in this bucket
+  // (sum of `count` across topSubjects). This is a TRAINING-GAP REPORT,
+  // not a per-conversation classification count, so it intentionally differs
+  // from the classification pie chart.
+  const insightCount = (bucketKey: string) =>
+    (topSubjects[bucketKey] ?? []).reduce((s, it) => s + (it.count ?? 0), 0);
   const insights = [
-    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(metrics.classification.complaint ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#ff4466' },
-    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(metrics.classification.request ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#f59e0b' },
-    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(metrics.classification.inquiry ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#043CC8' },
-    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(metrics.classification.suggestion ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#10b981' },
-    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(metrics.classification.other ?? 0), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#8b5cf6' },
+    { key: 'complaints', icon: AlertCircle, label: t('Complaints', 'الشكاوى'), count: formatNumber(insightCount('complaint')), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#ff4466' },
+    { key: 'requests', icon: TrendingUp, label: t('Requests', 'الطلبات'), count: formatNumber(insightCount('request')), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#f59e0b' },
+    { key: 'inquiries', icon: HelpCircle, label: t('Inquiries', 'الاستفسارات'), count: formatNumber(insightCount('inquiry')), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#043CC8' },
+    { key: 'suggestions', icon: Lightbulb, label: t('Suggestions', 'الاقتراحات'), count: formatNumber(insightCount('suggestion')), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#10b981' },
+    { key: 'unknown', icon: CircleHelp, label: t('Unknown Questions', 'أسئلة غير معروفة'), count: formatNumber(insightCount('other')), clickLabel: t('Click to view', 'اضغط لعرض'), color: '#8b5cf6' },
   ];
 
   const currentIssues = useMemo(() => {
