@@ -280,7 +280,7 @@ export function DashboardPage() {
         <motion.div
           initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.4, delay: animateOnce ? 0.35 : 0, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Conversation Classification', 'تصنيف المحادثات')}</h3>
@@ -313,7 +313,7 @@ export function DashboardPage() {
         <motion.div
           initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.4, delay: animateOnce ? 0.4 : 0, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Ticket Status', 'حالة التذاكر')}</h3>
@@ -345,7 +345,7 @@ export function DashboardPage() {
         <motion.div
           initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.4, delay: animateOnce ? 0.45 : 0, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm flex flex-col"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Customer Rating', 'تقييم العملاء')}</h3>
@@ -392,7 +392,7 @@ export function DashboardPage() {
         <motion.div
           initial={animateOnce ? { opacity: 0, y: 12 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.4, delay: animateOnce ? 0.5 : 0, ease: [0.16, 1, 0.3, 1] }}
           className="bg-card rounded-2xl p-5 border border-border shadow-sm"
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('AI Feedback', 'تقييم الذكاء الاصطناعي')}</h3>
@@ -450,7 +450,7 @@ export function DashboardPage() {
               key={ins.key}
               initial={animateOnce ? { opacity: 0, y: 12 } : false}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.35, delay: animateOnce ? 0.55 + idx * 0.05 : 0, ease: [0.16, 1, 0.3, 1] }}
               onClick={() => setOpenInsight(ins.key)}
               className="relative overflow-hidden bg-card rounded-2xl p-4 border border-border shadow-sm hover:border-[#043CC8]/20 transition-colors group text-start w-full cursor-pointer"
             >
