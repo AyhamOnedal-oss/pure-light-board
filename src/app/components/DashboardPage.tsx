@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { AnimatedValue } from './AnimatedNumber';
@@ -68,6 +68,12 @@ export function DashboardPage() {
     ],
     [feedback.positive, feedback.negative, language],
   );
+  // Run heavy chart entry animations only on the very first mount, so that
+  // realtime data refreshes update bars/pies in place instead of restarting
+  // the whole choreography.
+  const firstRenderRef = useRef(true);
+  const animateOnce = firstRenderRef.current;
+  useEffect(() => { firstRenderRef.current = false; }, []);
   const [openInsight, setOpenInsight] = useState<string | null>(null);
   // Persisted dismissed/resolved issue IDs per category (localStorage, scoped by tenant).
   const storageKey = (kind: 'dismissed' | 'resolved') =>
@@ -131,20 +137,23 @@ export function DashboardPage() {
   const allowedClassifications = [
     'inquiry', 'complaint', 'suggestion', 'request',
   ];
-  const classificationData = Object.entries(metrics.classification)
-    .filter(([k, v]) => allowedClassifications.includes(k) && v > 0)
-    .map(([k, v]) => ({
-      name: t(classificationLabels[k]?.en ?? k, classificationLabels[k]?.ar ?? k),
-      value: v,
-      color: classificationLabels[k]?.color ?? '#8b5cf6',
-    }))
-    .sort((a, b) => b.value - a.value);
+  const classificationData = useMemo(() =>
+    Object.entries(metrics.classification)
+      .filter(([k, v]) => allowedClassifications.includes(k) && v > 0)
+      .map(([k, v]) => ({
+        name: t(classificationLabels[k]?.en ?? k, classificationLabels[k]?.ar ?? k),
+        value: v,
+        color: classificationLabels[k]?.color ?? '#8b5cf6',
+      }))
+      .sort((a, b) => b.value - a.value),
+    [metrics.classification, language],
+  );
 
-  const ticketStatusData = [
+  const ticketStatusData = useMemo(() => [
     { name: t('Total', 'الإجمالي'), value: metrics.ticketsTotal, fill: '#043CC8' },
     { name: t('Open', 'مفتوحة'), value: metrics.ticketsOpen, fill: '#ff4466' },
     { name: t('Closed', 'مغلقة'), value: metrics.ticketsClosed, fill: '#10b981' },
-  ];
+  ], [metrics.ticketsTotal, metrics.ticketsOpen, metrics.ticketsClosed, language]);
 
   // Map insight keys to classification bucket keys used by the AI classifier.
   const insightBucket: Record<string, string> = {
