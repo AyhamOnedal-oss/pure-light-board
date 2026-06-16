@@ -54,7 +54,7 @@ export function PlansPage() {
   const usageData = useMemo(() => [
     { name: t('Used', 'مستخدم'), value: currentPlan.usedWords, color: '#043CC8' },
     { name: t('Remaining', 'متبقي'), value: remaining, color: theme === 'dark' ? '#ffffff' : '#1a1a2e' },
-  ], [currentPlan.usedWords, remaining, theme, t]);
+  ], [currentPlan.usedWords, remaining, theme, language]);
 
   // Animated count-up values
   const animatedPercent = useAnimatedNumber(usagePercent, 2000, 200);
