@@ -325,7 +325,7 @@ export function DashboardPage() {
                   <span className="text-[13px]" style={{ fontWeight: 700, color: tickColor }}>{d.value}</span>
                   <div className="w-full flex justify-center" style={{ height: `${pct}%` }}>
                     <motion.div
-                      initial={{ scaleY: 0 }}
+                      initial={animateOnce ? { scaleY: 0 } : false}
                       animate={{ scaleY: 1 }}
                       transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
                       className="w-full rounded-t-lg origin-bottom"
@@ -366,7 +366,7 @@ export function DashboardPage() {
                   return (
                     <motion.div
                       key={s}
-                      initial={{ opacity: 0, scale: 0 }}
+                      initial={animateOnce ? { opacity: 0, scale: 0 } : false}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
                     >
