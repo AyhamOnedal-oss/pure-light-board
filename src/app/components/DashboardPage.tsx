@@ -290,7 +290,7 @@ export function DashboardPage() {
                 startAngle={90} endAngle={450}
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+                isAnimationActive={false}
               >
                 {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
               </Pie>
@@ -416,7 +416,7 @@ export function DashboardPage() {
                   startAngle={90} endAngle={450}
                   innerRadius={50} outerRadius={78}
                   dataKey="value" paddingAngle={4} strokeWidth={0}
-                  isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+                  isAnimationActive={false}
                 >
                   <Cell key="fb-positive" fill="#10b981" />
                   <Cell key="fb-negative" fill="#ff4466" />
