@@ -1,32 +1,31 @@
 ## Goal
-Make Tickets behave like Conversations:
-- When a new ticket is raised, show a count on the Tickets sidebar item.
-- Show a per-ticket `1` badge in the ticket list for that new ticket.
-- If 10 tickets are raised, show `10` beside Tickets.
-- When the user clicks/opens a ticket, decrement the sidebar count and remove that ticket's badge.
-- Persist the decreased count across refresh.
+Make the dashboard render smoothly without each card animating in separately or charts restarting whenever data refreshes.
+
+## Root causes
+1. **KPI counters always start at 0** — `AnimatedValue` re-animates from zero on every render, so cached values still count up.
+2. **Recharts re-animates on every data refresh** — every realtime event creates a new `data` array reference for the Pie/Bar charts, restarting their entry animation (this is the "حالة التذكرة chart starts, then restarts" effect).
+3. **KPI cards use a staggered framer-motion `delay: idx * 0.07`** — produces a visible sequential fade-in on every mount.
+4. **Chart data arrays are recreated on every render**, breaking Recharts' memoization and forcing re-animation.
 
 ## Plan
-1. **Count unread raised tickets, not only note activities**
-   - Update the Tickets sidebar badge in `Layout.tsx` to count tickets from `tickets_main` whose `created_at` is newer than the user's saved `ticketOpened` timestamp.
-   - Keep the existing unread note count too, so both raised tickets and new notes can contribute when needed.
+1. **Stop counters from restarting**
+   - Make `AnimatedValue` skip the count-up when the value hasn't actually changed (and on first paint when the dashboard hydrates from localStorage cache).
 
-2. **Show per-ticket badge for new raised tickets**
-   - Update `TicketsPage.tsx` so the ticket list badge uses:
-     - `1` for a newly raised unopened ticket
-     - plus unread note count if there are note notifications
-   - This matches the screenshot case where the ticket exists but no number appears on the ticket row.
+2. **Stop charts from re-animating on refresh**
+   - Set `isAnimationActive` only on initial mount for `PieChart`, `BarChart`, etc. Subsequent data updates apply without restarting the animation.
+   - Memoize chart data arrays (`classificationData`, `ticketStatusData`, `feedbackPieData`) with `useMemo` so the same reference is reused when values don't change.
 
-3. **Decrement when opened**
-   - Keep `handleSelect` saving `ticketOpened` immediately when a ticket is clicked.
-   - Dispatch the badge refresh event after opening so the sidebar number updates immediately.
+3. **Render all cards together**
+   - Remove the staggered `delay: idx * 0.07` on KPI cards (and any insight cards using the same pattern). Use a single short fade-in for the whole grid instead, so the whole dashboard appears at once.
 
-4. **Persist across refresh**
-   - Continue using the same localStorage notification keys already used for conversations/tickets, so once a ticket is opened, the decreased count stays saved.
+4. **Avoid the 0 → value flash on first load**
+   - When `useDashboardMetrics` returns cached data, render immediately with cached values.
+   - When there's no cache, render a skeleton placeholder once and replace it with the populated dashboard in one swap (no per-card stagger and no count-up from zero).
 
 ## Technical details
-- Files to change after approval:
-  - `src/app/components/Layout.tsx`
-  - `src/app/components/TicketsPage.tsx`
-- No database schema changes needed.
-- No visual redesign; only badge/count behavior changes.
+Files to update:
+- `src/app/components/DashboardPage.tsx` — remove stagger, memoize chart data, set `isAnimationActive` only on first mount, render skeleton when there's no cache.
+- `src/app/components/AnimatedNumber.tsx` — skip animation when value is unchanged or when starting from cached state.
+- `src/app/hooks/useDashboardMetrics.ts` — expose a `hasCache` / `isInitial` flag so the page can decide whether to animate or render statically.
+
+No backend or schema changes.
