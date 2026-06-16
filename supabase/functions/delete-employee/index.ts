@@ -32,9 +32,9 @@ Deno.serve(async (req) => {
     const userClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "invalid_auth" }, 401);
-    const callerId = userData.user.id;
+    const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(jwt);
+    const callerId = claimsData?.claims?.sub as string | undefined;
+    if (claimsErr || !callerId) return json({ error: "invalid_auth" }, 401);
 
     const body = await req.json().catch(() => ({}));
     const tenant_id = String(body?.tenant_id ?? "").trim();
