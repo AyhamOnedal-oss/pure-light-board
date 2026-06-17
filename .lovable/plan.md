@@ -1,29 +1,113 @@
-## Plan
+# Why the storefront feels slow
 
-Switch vision model to **GPT-5** and keep the "identify but never substitute" guardrail.
+The dashboard preview updates instantly because it subscribes to Supabase realtime on `settings_chat_design`. The real merchant storefront does **not**. The Hostinger widget script (`public/widget-4.7.31-hostinger.js`) calls `fetchConfig()` **exactly once** at script boot:
 
-### Changes to `supabase/functions/chat-ai/index.ts`
+```text
+storefront load → fetchConfig() once → render bubble → never refetch
+```
 
-1. **Use `gpt-5` for image analysis**
-   - Set `VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-5"`.
-   - Keep `detail: "high"` and `max_tokens: 1200`.
-   - Add `gpt-5` to `MODEL_PRICING` (~$1.25 input / $10.00 output per 1M tokens) so cost logging stays accurate.
-   - Cheaper classifiers stay on `gpt-4o-mini`.
+So after you change a color and click Save:
+1. Save hits Supabase (~150–400ms) — fast.
+2. Dashboard preview re-renders via realtime — looks instant.
+3. Storefront keeps showing old colors until the customer **hard-refreshes the page**, and even then Hostinger's CDN can serve a stale copy of the `.js` for hours.
 
-2. **Identify, never substitute** (kept from previous plan)
-   - Vision describes what it sees (e.g. "جراب iPhone برتقالي") but the reply must NOT name any other catalog SKU.
-   - For image-only messages with no explicit model name in caption / on-image text: skip catalog search, skip product cards, and ask the customer to confirm the exact model.
-   - Image + explicit model name in text → existing text-override path runs catalog search.
-   - Add an explicit assistant-prompt guardrail forbidding suggestions of different products from an image alone.
+There is also a small `Cache-Control: public, max-age=5` on `widget-config` (already reduced from 60s in the last change), but that's no longer the dominant delay.
 
-3. **Per-image token + cost logging**
-   - Log `{ vision_model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, conversation_id }` per vision call so you can compare gpt-5 vs gpt-4o real spend.
+# Plan — live config refresh in the Hostinger widget
 
-### Notes on GPT-5 via the gateway
-- GPT-5 is available on the Lovable AI Gateway as `openai/gpt-5` (multimodal, text + image input).
-- It is the strongest of the candidates for distinguishing recent iPhone generations from a back-of-case photo, but even GPT-5 will sometimes be uncertain — the guardrail (#2) is what prevents wrong-product suggestions, not the model upgrade.
-- Pricing is roughly equal to gpt-4o per image at high detail, with better accuracy.
+Ship a new `public/widget-4.7.32-hostinger.js` that keeps config in sync without a page reload.
 
-### Out of scope
-- No DB / ticket / widget / dashboard changes.
-- Text-only messages unchanged.
+### 1. Refetch on tab focus / visibility
+
+When the customer switches back to the store tab, refetch `widget-config` and diff against the in-memory `settings` object. This is the highest-impact change because most "slow" reports happen when the merchant is testing — they save in the dashboard, then click back to the store tab.
+
+```text
+document.visibilitychange (visible) → fetchConfig() → applyConfigDiff()
+window.focus                        → fetchConfig() → applyConfigDiff()
+```
+
+### 2. Light background poll while tab is visible
+
+Every 20s while the tab is visible, refetch `widget-config`. Stop polling while the tab is hidden so we don't burn battery. With the edge cache at 5s and a 20s interval, traffic is negligible (~3 req/min per open tab, almost all served from CDN).
+
+### 3. `applyConfigDiff(newSettings)` — re-style without rebuilding
+
+Don't re-mount the whole widget. Update only what changed:
+
+- Bubble background/inner color → set CSS vars on the bubble element.
+- Position (left/right) → swap anchor class.
+- Welcome bubble text / enabled → re-render that one node.
+- Inactivity timers → write to `state.inactivityConfig`, no DOM change.
+- `bubble_visible=false` → call existing `cleanupWidgetDom()`.
+- Logo / icon / store name → swap `src` / `textContent` in the header.
+
+If the chat window is currently open we skip the visual re-style of the open window (to avoid flicker mid-conversation) and only update closed-state UI; the next open picks up the new values.
+
+### 4. Cache‑bust the Hostinger JS itself
+
+Hostinger CDN caches `widget-4.7.31-hostinger.js` aggressively, so when we ship a new version merchants keep the old one. Two parts:
+
+- Publish as `widget-4.7.32-hostinger.js` (new filename → guaranteed fresh fetch). The merchant's snippet stays on the versioned URL until they bump it.
+- Document the snippet pattern: `<script src=".../widget-4.7.32-hostinger.js" defer></script>`. Bumping the version number is the supported way to push a new widget build.
+
+### 5. Keep edge cache short
+
+`supabase/functions/widget-config/index.ts` is already at `public, max-age=5, stale-while-revalidate=30`. Leave as is — it bounds worst-case staleness for the new poll/visibility paths to ~5s.
+
+## Technical details
+
+**File touched:** `public/widget-4.7.32-hostinger.js` (new file, copy of 4.7.31 + the changes below). The current `4.7.32` file in the repo is empty (1 byte), so it can be populated.
+
+**`fetchConfig` refactor** — split into two functions:
+
+```text
+resolveTenantOnce()  // runs once at boot, sets TENANT_ID
+fetchConfigOnly()    // runs whenever we need fresh settings;
+                     // skips widget-resolve, just calls widget-config
+```
+
+**Subscriptions added at boot (after first fetchConfig):**
+
+```text
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') fetchConfigOnly().then(applyConfigDiff);
+});
+window.addEventListener('focus', () => fetchConfigOnly().then(applyConfigDiff));
+setInterval(() => {
+  if (document.visibilityState === 'visible') fetchConfigOnly().then(applyConfigDiff);
+}, 20000);
+```
+
+**`applyConfigDiff` implementation sketch:**
+
+```text
+function applyConfigDiff(s) {
+  if (!s) return;
+  const changed = {};
+  // compare each field against current settings, write into settings,
+  // then call small targeted updaters:
+  if (changed.widgetOuterColor || changed.widgetInnerColor) restyleBubble();
+  if (changed.position) repositionAnchor();
+  if (changed.welcomeBubble*) rerenderWelcomeBubble();
+  if (changed.bubbleVisible === false) cleanupWidgetDom();
+  if (changed.bubbleVisible === true && !bubbleEl) buildBubble();
+  if (changed.storeName || changed.storeLogo || changed.storeIcon) restyleHeader();
+}
+```
+
+The existing render functions in the file (`buildBubble`, `buildHeader`, `buildWelcomeBubble`, `cleanupWidgetDom`) are reused — no new rendering logic.
+
+## Out of scope
+
+- No DB schema changes.
+- No dashboard changes — the dashboard preview already updates live.
+- No change to `chat-ai` / vision flow.
+- We do **not** add Supabase realtime in the widget bundle (would bloat the JS and require auth wiring on the storefront); polling + visibility is enough for a settings-change use case.
+
+## Expected result
+
+After deploy + merchants bumping their snippet to `4.7.32`:
+
+- Switching back to the store tab → new colors within ~1s.
+- Tab kept open the whole time → new colors within ≤20s.
+- No page reload needed.
