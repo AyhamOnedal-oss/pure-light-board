@@ -356,7 +356,7 @@ Deno.serve(async (req) => {
     // even when the image is a logo/icon/drawing rather than a real photo.
     if (hasAttachments && OPENAI_API_KEY) {
       try {
-        const VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-5";
+        const VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-4.1";
         const isGpt5 = /^gpt-5/i.test(VISION_MODEL);
         const visionBody: Record<string, unknown> = {
           model: VISION_MODEL,
