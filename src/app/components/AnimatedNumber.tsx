@@ -5,41 +5,20 @@ function easeOutExpo(t: number): number {
 }
 
 export function useAnimatedNumber(target: number, duration = 1800, delay = 0) {
-  // Animate from the previous value to the new one. On first mount, snap
-  // straight to the target so cached dashboards never flash "0 → value".
-  const [value, setValue] = useState(target);
+  // Always animate from the current displayed value to `target`. On mount
+  // the displayed value starts at 0 so every fresh dashboard load produces
+  // a visible count-up. When `target` changes (date-range refresh, etc.)
+  // we animate from the previously displayed value to the new target.
+  const [value, setValue] = useState(0);
   const rafRef = useRef<number>(0);
-  const fromRef = useRef<number>(target);
-  const lastTargetRef = useRef<number>(target);
-  const hasMountedRef = useRef(false);
-  // Until we've seen a non-zero target at least once, treat incoming targets
-  // as the "real" first value and snap instead of animating 0 → N. This
-  // matters when the dashboard mounts with EMPTY_METRICS (no cache) and the
-  // first real fetch lands a few hundred ms later — we don't want a
-  // count-up jitter on that first reveal.
-  const hasRealValueRef = useRef<boolean>(target !== 0);
+  const lastTargetRef = useRef<number>(0);
+  const valueRef = useRef(0);
+  valueRef.current = value;
 
   useEffect(() => {
-    if (!hasMountedRef.current) {
-      hasMountedRef.current = true;
-      lastTargetRef.current = target;
-      fromRef.current = target;
-      setValue(target);
-      if (target !== 0) hasRealValueRef.current = true;
-      return;
-    }
     if (target === lastTargetRef.current) return;
-    if (!hasRealValueRef.current) {
-      // First non-zero value after a zero seed — snap, don't animate.
-      hasRealValueRef.current = true;
-      lastTargetRef.current = target;
-      fromRef.current = target;
-      setValue(target);
-      return;
-    }
-    const from = value;
-    fromRef.current = from;
     lastTargetRef.current = target;
+    const from = valueRef.current;
     const start = performance.now() + delay;
     const animate = (now: number) => {
       if (now < start) { rafRef.current = requestAnimationFrame(animate); return; }
@@ -52,7 +31,6 @@ export function useAnimatedNumber(target: number, duration = 1800, delay = 0) {
     };
     rafRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, duration, delay]);
 
   return value;
