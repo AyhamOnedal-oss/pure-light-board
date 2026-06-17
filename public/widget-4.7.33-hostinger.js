@@ -2766,8 +2766,9 @@
         console.log('[Fuqah] Resolved tenant=' + TENANT_ID + ' active=' + res.is_active);
         if (res.store_id && !STORE_ID) { STORE_ID = String(res.store_id); console.info('[Fuqah] Backfilled storeId: ' + STORE_ID); }
         if (res.store_uuid && !STORE_UUID) { STORE_UUID = String(res.store_uuid); }
+        var changed = false;
         if (res.cfg) {
-          applyConfigPayload(res.cfg);
+          changed = applyConfigPayload(res.cfg);
           console.log('[Fuqah] Config OK: name=' + settings.storeName + ' main=' + settings.mainColor + ' mode=' + settings.mode + ' pos=' + settings.position + ' visible=' + settings.bubbleVisible);
           // Cache for instant paint on next visit
           try {
@@ -2781,11 +2782,11 @@
             }));
           } catch (e) {}
         }
-        callback();
+        callback(changed);
       })
       .catch(function (err) {
         console.warn('[Fuqah] Bootstrap fetch failed (using defaults):', err && err.message || err);
-        callback();
+        callback(false);
       });
   }
 
