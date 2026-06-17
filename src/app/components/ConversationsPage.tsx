@@ -333,7 +333,7 @@ export function ConversationsPage() {
     inquiry: { en: 'Inquiry', ar: 'استفسار', color: '#043CC8' },
     request: { en: 'Request', ar: 'طلب', color: '#f59e0b' },
     suggestion: { en: 'Suggestion', ar: 'اقتراح', color: '#10b981' },
-    other: { en: 'Other', ar: 'أخرى', color: '#8b95a8' },
+    other: { en: 'Uncategorized', ar: 'بدون تصنيف', color: '#8b95a8' },
   };
 
   const closeReasonMap: Record<ChatCloseReason, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
