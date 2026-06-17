@@ -175,6 +175,9 @@
     Prefer: 'return=representation',
   };
 
+  // v4.7.33 — instant-paint cache key (per platform/external_id)
+  var FQ_CACHE_KEY = 'fuqah_widget_cache_' + PLATFORM + '_' + (STORE_EXTERNAL_ID || 'default');
+
   // ── Direct Supabase REST helpers ─────────────────────────────────
   function isUuid(v) { return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v); }
 
