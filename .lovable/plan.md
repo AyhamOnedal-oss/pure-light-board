@@ -1,60 +1,47 @@
-## Problem
+# Speed up the Hostinger `widget.js` (v4.7.33)
 
-On storefronts the bubble takes 4–7s to appear. The loader currently does:
-
-1. `GET /widget-resolve` (cold-start edge call) → returns `tenant_id`
-2. `GET /widget-config?tenant_id=…` (second sequential edge call) → returns design
-
-Two sequential edge-function round-trips, both `no-store`, on top of a Supabase cold start = several seconds on first visit. There is a localStorage instant-paint cache, but it only helps return visitors — first visit and any cache miss still waits for both calls. Dashboard setting changes also feel slow because the cached cfg stays painted until the SWR fetch completes and the visual-keys diff matches.
+The earlier work optimized the storefront-loader edge function (`widget-loader`), but Hostinger merchants embed a different script: `public/widget-4.7.32-hostinger.js` (served from `https://widget.fuqah.net/widget.js`). That script still does a sequential `widget-resolve` → `widget-config` round-trip with no cache, which is why the bubble takes 4–7s to appear on cold start.
 
 ## Goal
 
-- Bubble visible in < 300 ms on every visit (first visit included).
-- Dashboard setting changes appear on the storefront within ~1s of reload, not 5–7s.
+- Bubble visible in <200ms on repeat visits, ~1 round-trip on first visit.
+- Dashboard setting changes apply within seconds (keep existing 20s poll + tab-focus refresh).
+- No regressions in events, inactivity, rating, or chat flow.
 
-## Plan
+## Changes to `public/widget-4.7.32-hostinger.js` → save as `public/widget-4.7.33-hostinger.js`
 
-### 1. One round-trip instead of two
+1. **Bump banner to v4.7.33** with a short note: "instant paint via localStorage cache + single-round-trip `widget-bootstrap`".
+2. **Preconnect**: on script start, inject `<link rel="preconnect" crossorigin>` and `<link rel="dns-prefetch">` for `SUPABASE_URL` so the first fetch reuses a warm TLS connection.
+3. **Cache key**: `fuqah_widget_cache_<platform>_<external_id>` storing `{ tenant_id, cfg, updated_at, ts }`.
+4. **Instant paint path** (inside `boot()` before `fetchConfig`):
+   - Read cache; if present, set `TENANT_ID`, call `applyConfigPayload(cached.cfg)`, then `buildWidget()` immediately.
+   - If no cache, render a default skeleton bubble (black outer / white inner, right side, size 60) so the user always sees a launcher within ~100ms. Track `mountedSkeleton = true`.
+5. **Replace `fetchConfig` round-trip**: swap the `widget-resolve` + `widget-config` chain for a single call to `widget-bootstrap?platform=…&external_id=…` (already deployed). Pass `If-None-Match` from cached ETag (`"<tenant>:<updated_at>"`) so we get a 304 when nothing changed.
+6. **On response**:
+   - If `!tenant_id || !is_active || !cfg`: if a skeleton was mounted, remove it via `cleanupWidgetDom()`.
+   - Else: write fresh cache; only call `buildWidget()` again when `mountedSkeleton`, tenant changed, or `updated_at` moved (covers every visual field — drop the manual diff list eventually, but keep `applyConfigPayload` change-detection as a fallback).
+7. **`refreshConfigLive`** (the 20s poll + focus refresh) keeps using `widget-config?tenant_id=…` — no change needed, it already re-renders only when visuals change and the window is closed.
+8. **Backfill `STORE_ID`/`STORE_UUID`**: `widget-bootstrap` doesn't return these today. Either:
+   - (a) extend `widget-bootstrap` to also return `store_id` / `store_uuid` from `resolveTenant`, OR
+   - (b) keep `widget-resolve` as a one-shot fallback only when the snippet renders neither ID (rare).
+   Prefer (a) — minor edit, no extra request.
+9. Update any reference to `widget-4.7.32-hostinger.js` (docs, snippets) → `widget-4.7.33-hostinger.js` and keep v4.7.32 on disk as a fallback.
 
-Add a new edge function `widget-bootstrap` that takes `platform` + `external_id` and returns `{ tenant_id, is_active, cfg }` in a single call by doing the resolve + config join server-side (one query, one response). Update `widget-loader` to call only `widget-bootstrap`. This removes the sequential resolve→config waterfall (saves one full RTT + one cold start).
+## Technical details
 
-### 2. Paint bubble before any network
-
-In `widget-loader`'s `boot()`:
-
-- If localStorage cache exists → mount immediately (already done).
-- If no cache → mount a "skeleton" bubble immediately using built-in defaults (black outer, white inner, bottom-right, size 60, no welcome). The user always sees a bubble in < 100 ms. When `widget-bootstrap` returns, diff visual keys and re-mount only if the real config differs from the skeleton. If `bubble_visible === false` arrives, remove the skeleton.
-
-This makes first-visit perceived load identical to a repeat visit.
-
-### 3. Make settings changes propagate fast
-
-Two complementary changes:
-
-- **Short edge cache with revalidation**: `widget-bootstrap` returns `Cache-Control: public, max-age=0, s-maxage=10, stale-while-revalidate=60` + a strong `ETag` derived from the cfg row's `updated_at`. The loader keeps `cache: "no-store"` so the browser always asks, but Supabase's edge/CDN can serve repeat requests in tens of ms.
-- **Tighten the visual-keys diff & always re-mount on `updated_at` change**: include `updated_at` (or a hash) in the cached payload. If the fresh `updated_at` differs from cached, re-mount unconditionally — covers any field the visual-keys list forgets (e.g. welcome lines, offsets, bubble size). Today the diff list is hand-maintained and easy to miss.
-
-### 4. Cut connection setup time
-
-In `widget-loader`'s injected HTML head additions (done in JS at boot, before the fetch): inject `<link rel="preconnect" href="{SUPABASE_URL}" crossorigin>` and `<link rel="preconnect" href="{APP_BASE_URL}">`. Saves ~100–300 ms of TLS/DNS on first call and on the chat iframe load.
-
-### 5. Lazy-load the chat iframe
-
-Today the loader appends the chat `<iframe>` to the DOM at mount time even though it's `display:none`. That forces the iframe to fetch the React widget bundle on every page load, competing with the storefront for bandwidth. Change: only create/append the iframe on first bubble click. The bubble click already has a small loading affordance via its own UI. This dramatically reduces work during page load and makes the bubble paint feel even snappier.
-
-## Technical notes
-
-- New file: `supabase/functions/widget-bootstrap/index.ts` — joins `tenants` + `settings_chat_design` by `(platform, external_id)`, returns `{ tenant_id, is_active, cfg, updated_at }`. Reuses logic from existing `widget-resolve` and `widget-config`.
-- Edit: `supabase/functions/widget-loader/index.ts`
-  - Replace the resolve→config chain with one `widget-bootstrap` call.
-  - Mount skeleton-with-defaults immediately on cache miss.
-  - Include `updated_at` in cache; re-mount whenever it changes.
-  - Inject preconnect link tags before the fetch.
-  - Defer iframe creation until first bubble click.
-- No dashboard or React-widget code changes required.
-- Deploy `widget-bootstrap` and `widget-loader` after the edit.
+- File: `public/widget-4.7.33-hostinger.js` (new copy, edits per above).
+- Edge function: `supabase/functions/widget-bootstrap/index.ts` — add `store_id` + `store_uuid` from `resolveTenant` to the JSON payload; redeploy.
+- No changes to chat-ai, events, rating, ticketing, inactivity, or DOM building.
+- Cache TTL: rely on `updated_at` ETag; no hard expiry. Optional safety: ignore cache older than 7 days.
 
 ## Out of scope
 
-- Bundling the React widget into the loader to drop the iframe entirely (bigger refactor; revisit later if needed).
-- Server-side rendering of the bubble HTML inside `widget-loader`'s response (would require per-tenant loader URLs and break the shared `widget.js` snippet model).
+- Bundling the widget into the loader.
+- Service-worker / HTTP/3 / CDN tuning.
+- Changing the embed snippet's `<script>` URL pattern.
+
+## Validation
+
+- Hard-reload a Hostinger store with cache cleared → bubble appears immediately (skeleton), real config swaps in once `widget-bootstrap` returns.
+- Reload again → bubble paints from cache in <200ms; network shows a single `widget-bootstrap` call returning 304.
+- Change widget color in dashboard → within ≤20s (poll) or on tab focus, the bubble re-renders with the new color while closed.
