@@ -18,6 +18,38 @@ import { DateRangePicker, computeRange, type RangePreset } from './dashboard/Dat
 import type { DateRange } from '../services/metrics';
 import { useCurrentMemberPermissions } from '../utils/permissions';
 
+type DonutDatum = { name: string; value: number; color: string };
+
+// Mirrors `UsagePieChart` from PlansPage line-for-line so the dashboard donuts
+// play the EXACT same counter-clockwise sweep animation as استخدام الكلمات.
+const DashboardDonut = React.memo(function DashboardDonut({
+  data, theme,
+}: { data: DonutDatum[]; theme: string }) {
+  const tooltipStyle = {
+    backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff',
+    border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+    borderRadius: '12px',
+    color: theme === 'dark' ? '#ffffff' : '#1a1a2e',
+    fontSize: '13px',
+  };
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%" cy="50%"
+          innerRadius={50} outerRadius={78}
+          dataKey="value" paddingAngle={4} strokeWidth={0}
+          isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+        >
+          {data.map((entry, i) => <Cell key={`donut-${i}`} fill={entry.color} />)}
+        </Pie>
+        <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+});
+
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
   if (n >= 10_000) return (n / 1_000).toFixed(0) + 'K';
