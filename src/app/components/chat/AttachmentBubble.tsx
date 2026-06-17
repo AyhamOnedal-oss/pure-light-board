@@ -19,8 +19,11 @@ function previewUrlFor(att: AttachmentMeta): string {
   if (att.url) return att.url;
   const name = att.fileName || 'file';
   if (att.type === 'image') {
-    const seed = encodeURIComponent(name);
-    return `https://picsum.photos/seed/${seed}/800/600`;
+    // No real URL yet (e.g. while uploading or when storage isn't wired):
+    // render a plain black placeholder instead of a random stock photo.
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#000"/></svg>'
+    );
   }
   const body = `This is a demo attachment preview for "${name}".\nIn production, this would be the real file downloaded from Supabase Storage.\n`;
   return `data:${att.contentType || 'text/plain'};charset=utf-8,${encodeURIComponent(body)}`;
