@@ -63,7 +63,7 @@ export function DashboardPage() {
   const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen, snapshot, frozenAt);
   const feedback = metrics.feedback;
   const feedbackAnimationKey = `feedback-${feedback.positive}-${feedback.negative}`;
-  const classificationAnimationKey = `cls-${metrics.byIntent.complaint}-${metrics.byIntent.inquiry}-${metrics.byIntent.request}-${metrics.byIntent.suggestion}-${metrics.byIntent.other}`;
+  const classificationAnimationKey = `cls-${JSON.stringify(metrics.classification)}`;
   const feedbackPieData = useMemo(
     () => [
       { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
