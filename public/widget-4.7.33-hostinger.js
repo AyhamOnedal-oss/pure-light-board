@@ -1,9 +1,9 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.32 (Hostinger embed: live settings refresh — refetches
- *                  widget-config on tab focus/visibility and on a 20s
- *                  background poll, so dashboard changes appear on the
- *                  storefront within seconds without a page reload.)
+ * Version: 4.7.33 (Hostinger embed: instant paint via localStorage cache +
+ *                  single round-trip widget-bootstrap. Bubble shows in
+ *                  <200ms on repeat visits and ~1 RTT on first visit;
+ *                  20s poll + tab-focus live refresh kept from 4.7.32.)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
