@@ -1,8 +1,9 @@
 /**
  * Fuqah AI Chat Widget — Embeddable Script
- * Version: 4.7.31 (Hostinger embed: anchor to bottom bar without floating;
- *                  thumbs-feedback persists across re-renders;
- *                  rating idle timer = same effect as تخطي وإغلاق)
+ * Version: 4.7.32 (Hostinger embed: live settings refresh — refetches
+ *                  widget-config on tab focus/visibility and on a 20s
+ *                  background poll, so dashboard changes appear on the
+ *                  storefront within seconds without a page reload.)
  *
  * Usage:
  *   <script src="https://widget.fuqah.net/widget.js" charset="UTF-8" data-store-id="STORE_ID"></script>
