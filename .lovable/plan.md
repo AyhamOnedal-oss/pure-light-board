@@ -1,36 +1,29 @@
 ## Plan
 
-Got it — the fix is on the vision side, not tickets. Increasing tokens alone won't reliably tell iPhone 17 Pro Max from iPhone 14 (they look very similar). We need a stronger vision model + more output room + customer text override.
+Switch vision model to **GPT-5** and keep the "identify but never substitute" guardrail.
 
-1. **Upgrade the vision model for image analysis**
-   - In `supabase/functions/chat-ai/index.ts`, change the vision call from `gpt-4o-mini` to a stronger vision model (e.g. `gpt-4o` or `gpt-4.1`).
-   - Keep `gpt-4o-mini` for the cheap intent classifiers — only the image step gets upgraded.
+### Changes to `supabase/functions/chat-ai/index.ts`
 
-2. **Give the vision step more tokens to "think"**
-   - Raise `max_tokens` on the vision request so it can return full reasoning + all `search_queries` without truncation.
-   - Keep `detail: "high"` (already set) so fine cues like Camera Control button / camera island shape are actually visible.
+1. **Use `gpt-5` for image analysis**
+   - Set `VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-5"`.
+   - Keep `detail: "high"` and `max_tokens: 1200`.
+   - Add `gpt-5` to `MODEL_PRICING` (~$1.25 input / $10.00 output per 1M tokens) so cost logging stays accurate.
+   - Cheaper classifiers stay on `gpt-4o-mini`.
 
-3. **Add MODEL_PRICING entry for the new vision model**
-   - Update the `MODEL_PRICING` map so cost logging stays accurate for the upgraded model.
+2. **Identify, never substitute** (kept from previous plan)
+   - Vision describes what it sees (e.g. "جراب iPhone برتقالي") but the reply must NOT name any other catalog SKU.
+   - For image-only messages with no explicit model name in caption / on-image text: skip catalog search, skip product cards, and ask the customer to confirm the exact model.
+   - Image + explicit model name in text → existing text-override path runs catalog search.
+   - Add an explicit assistant-prompt guardrail forbidding suggestions of different products from an image alone.
 
-4. **Customer text & readable-image text override visual guess**
-   - If `message` (caption) or `readable_text` contains an explicit model name (e.g. "iPhone 17 Pro Max", "آيفون 17 برو ماكس"), use that as `product_guess` and override any older-model guess from vision.
-   - Prepend the explicit model to `search_queries` (EN + AR + Eastern-Arabic digits) so the catalog search hits the correct SKU.
+3. **Per-image token + cost logging**
+   - Log `{ vision_model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, conversation_id }` per vision call so you can compare gpt-5 vs gpt-4o real spend.
 
-5. **Tighten the strong-identity gate for iPhones**
-   - When vision returns an iPhone guess with confidence < 0.8 AND there is no model name in caption/readable text, do NOT treat it as strong identity.
-   - Fall through to the existing "ask the customer for the exact model" branch (`askForNameInstruction`) instead of searching with a wrong model.
+### Notes on GPT-5 via the gateway
+- GPT-5 is available on the Lovable AI Gateway as `openai/gpt-5` (multimodal, text + image input).
+- It is the strongest of the candidates for distinguishing recent iPhone generations from a back-of-case photo, but even GPT-5 will sometimes be uncertain — the guardrail (#2) is what prevents wrong-product suggestions, not the model upgrade.
+- Pricing is roughly equal to gpt-4o per image at high detail, with better accuracy.
 
-6. **Logging**
-   - Log when caption/readable text overrides the vision guess (`vision_override`), and log the final `product_guess` actually used, so we can verify the upgrade is paying off.
-
-## Out of scope
-
-- No DB changes.
-- No tickets/escalation logic changes.
-- No widget/dashboard UI changes.
-- Classifier models stay on `gpt-4o-mini`.
-
-## Cost note
-
-Vision will become more expensive per image (stronger model + more tokens). Text-only messages are unaffected.
+### Out of scope
+- No DB / ticket / widget / dashboard changes.
+- Text-only messages unchanged.

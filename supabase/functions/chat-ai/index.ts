@@ -22,6 +22,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
   "gpt-4o":       { input: 2.50, output: 10.00 },
   "gpt-4.1":      { input: 2.00, output: 8.00 },
+  "gpt-5":        { input: 1.25, output: 10.00 },
+  "gpt-5-mini":   { input: 0.25, output: 2.00 },
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
@@ -354,75 +356,93 @@ Deno.serve(async (req) => {
     // even when the image is a logo/icon/drawing rather than a real photo.
     if (hasAttachments && OPENAI_API_KEY) {
       try {
-        const VISION_MODEL = "gpt-4o";
+        const VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-5";
+        const isGpt5 = /^gpt-5/i.test(VISION_MODEL);
+        const visionBody: Record<string, unknown> = {
+          model: VISION_MODEL,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content:
+                "You analyze customer-attached images for a shopping support agent. " +
+                "ANALYZE THE IMAGE FIRST. Your job is to EXTRACT every searchable detail so the agent can find the matching product in the merchant catalog. " +
+                "Do NOT refuse just because the image is not a photograph: a logo, icon, sticker, drawing, or cartoon that depicts an object is still useful — describe what it depicts. " +
+                "LOOK FOR DISTINCTIVE PRODUCT CUES to name the SPECIFIC model/variant: phone camera layout & count, MagSafe ring / Dynamic Island / Camera Control button, body material/finish, sneaker silhouette/logo, perfume cap shape, watch dial. Combine these cues with any visible text/logo/retailer badge to pin down the exact model. " +
+                "If you are at least ~70% confident of the specific model/variant, set product_guess to the full model name in English (e.g. 'iPhone 17 Pro Max', 'Nike Air Force 1 Low White', 'Dior Sauvage EDP'). If unsure, leave product_guess empty and rely on category + brand + color. " +
+                "Never invent specifications you cannot see (storage size, RAM, release year). Only name what visual cues support. " +
+                "ALWAYS produce search_queries in BOTH English AND Arabic when the product has a recognizable international name. For Arabic queries containing numbers, include BOTH ASCII digits (1,2,3) AND Eastern-Arabic digits (١,٢,٣) as SEPARATE variants — Saudi catalogs use both. Order queries from MOST specific to least specific. " +
+                "Example 1: iPhone 17 Pro Max in orange on a SmartBuy listing → image_kind='product_photo', category='smartphone', brand_or_logo='Apple', product_guess='iPhone 17 Pro Max', product_guess_confidence=0.85, color='orange', retailer_or_source_text='SmartBuy', search_queries=['iPhone 17 Pro Max Orange','Apple iPhone 17 Pro Max','ايفون 17 برو ماكس برتقالي','آيفون ١٧ برو ماكس','iphone pro max orange'], has_useful_signal=true. " +
+                "Example 2: cartoon gift box with wordmark 'Fuqah' → image_kind='logo', depicted_object='gift box', brand_or_logo='Fuqah', readable_text='Fuqah', product_guess='', category='gift', color='', search_queries=['علبة هدية فقاهة','Fuqah gift box','هدية فقاهة'], has_useful_signal=true. " +
+                "Example 3: real perfume bottle, no readable brand → image_kind='product_photo', category='perfume', depicted_object='perfume bottle', search_queries=['عطر','perfume bottle'], has_useful_signal=true. " +
+                "Example 4: a single 🤔 emoji or random scribble with no recognizable object → has_useful_signal=false, search_queries=[]. " +
+                "Return ONLY a JSON object with this exact schema: " +
+                "{ " +
+                "\"image_kind\": one of [\"product_photo\",\"screenshot\",\"icon_or_clipart\",\"emoji\",\"logo\",\"receipt_or_document\",\"drawing_or_sketch\",\"person_or_selfie\",\"unclear\"], " +
+                "\"description\": string (1-2 short objective sentences in Arabic if customer wrote Arabic else English; describe what you SEE — do not call it a product unless image_kind=product_photo), " +
+                "\"readable_text\": string (literal transcription of any text inside the image including brand/logo wordmarks, or \"\"), " +
+                "\"depicted_object\": string (the main object/subject the image represents, even for icons/logos/drawings, e.g. \"gift box\", \"sneaker\", \"perfume bottle\"; \"\" only if truly nothing identifiable), " +
+                "\"brand_or_logo\": string (any brand/logo name visible, or \"\"), " +
+                "\"product_guess\": string (specific model/variant name in English when ≥~70% confident from visual cues, e.g. \"iPhone 17 Pro Max\"; otherwise \"\"), " +
+                "\"product_guess_confidence\": number between 0 and 1 (0 when product_guess is \"\"), " +
+                "\"category\": string (short product category, e.g. \"smartphone\", \"sneaker\", \"perfume\", \"watch\"; \"\" if unknown), " +
+                "\"color\": string (primary color in English, single word, e.g. \"orange\", \"black\"; \"\" if not applicable), " +
+                "\"retailer_or_source_text\": string (any retailer/store badge, price, or source text visible like \"SmartBuy\", \"299 SAR\"; \"\"), " +
+                "\"dominant_colors\": array of 1-3 short color names in the user's language (e.g. [\"ذهبي\",\"أخضر داكن\"], or []), " +
+                "\"search_queries\": array of 3-6 query variants ordered most-specific first, covering full product name in English, full product name in Arabic (BOTH digit systems if it contains a number), brand+category+color, and generic category+color fallbacks. Empty array [] only when has_useful_signal=false. " +
+                "\"has_useful_signal\": boolean (true when ANY of description, readable_text, depicted_object, brand_or_logo, or search_query is non-empty and meaningful) " +
+                "}. " +
+                "Never refuse. Always fill what you can.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: customerSentText ? `Customer caption: ${message}` : "No caption from the customer." },
+                ...attachmentsIn.map((a: any) => ({
+                  type: "image_url",
+                  image_url: { url: a.url, detail: "high" },
+                })),
+              ],
+            },
+          ],
+        };
+        if (isGpt5) {
+          // gpt-5 family rejects `temperature` overrides and uses `max_completion_tokens`.
+          visionBody.max_completion_tokens = 1500;
+        } else {
+          visionBody.temperature = 0;
+          visionBody.max_tokens = 1200;
+        }
         const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${OPENAI_API_KEY}`,
           },
-          body: JSON.stringify({
-            model: VISION_MODEL,
-            temperature: 0,
-            max_tokens: 1200,
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You analyze customer-attached images for a shopping support agent. " +
-                  "ANALYZE THE IMAGE FIRST. Your job is to EXTRACT every searchable detail so the agent can find the matching product in the merchant catalog. " +
-                  "Do NOT refuse just because the image is not a photograph: a logo, icon, sticker, drawing, or cartoon that depicts an object is still useful — describe what it depicts. " +
-                  "LOOK FOR DISTINCTIVE PRODUCT CUES to name the SPECIFIC model/variant: phone camera layout & count, MagSafe ring / Dynamic Island / Camera Control button, body material/finish, sneaker silhouette/logo, perfume cap shape, watch dial. Combine these cues with any visible text/logo/retailer badge to pin down the exact model. " +
-                  "If you are at least ~70% confident of the specific model/variant, set product_guess to the full model name in English (e.g. 'iPhone 17 Pro Max', 'Nike Air Force 1 Low White', 'Dior Sauvage EDP'). If unsure, leave product_guess empty and rely on category + brand + color. " +
-                  "Never invent specifications you cannot see (storage size, RAM, release year). Only name what visual cues support. " +
-                  "ALWAYS produce search_queries in BOTH English AND Arabic when the product has a recognizable international name. For Arabic queries containing numbers, include BOTH ASCII digits (1,2,3) AND Eastern-Arabic digits (١,٢,٣) as SEPARATE variants — Saudi catalogs use both. Order queries from MOST specific to least specific. " +
-                  "Example 1: iPhone 17 Pro Max in orange on a SmartBuy listing → image_kind='product_photo', category='smartphone', brand_or_logo='Apple', product_guess='iPhone 17 Pro Max', product_guess_confidence=0.85, color='orange', retailer_or_source_text='SmartBuy', search_queries=['iPhone 17 Pro Max Orange','Apple iPhone 17 Pro Max','ايفون 17 برو ماكس برتقالي','آيفون ١٧ برو ماكس','iphone pro max orange'], has_useful_signal=true. " +
-                  "Example 2: cartoon gift box with wordmark 'Fuqah' → image_kind='logo', depicted_object='gift box', brand_or_logo='Fuqah', readable_text='Fuqah', product_guess='', category='gift', color='', search_queries=['علبة هدية فقاهة','Fuqah gift box','هدية فقاهة'], has_useful_signal=true. " +
-                  "Example 3: real perfume bottle, no readable brand → image_kind='product_photo', category='perfume', depicted_object='perfume bottle', search_queries=['عطر','perfume bottle'], has_useful_signal=true. " +
-                  "Example 4: a single 🤔 emoji or random scribble with no recognizable object → has_useful_signal=false, search_queries=[]. " +
-                  "Return ONLY a JSON object with this exact schema: " +
-                  "{ " +
-                  "\"image_kind\": one of [\"product_photo\",\"screenshot\",\"icon_or_clipart\",\"emoji\",\"logo\",\"receipt_or_document\",\"drawing_or_sketch\",\"person_or_selfie\",\"unclear\"], " +
-                  "\"description\": string (1-2 short objective sentences in Arabic if customer wrote Arabic else English; describe what you SEE — do not call it a product unless image_kind=product_photo), " +
-                  "\"readable_text\": string (literal transcription of any text inside the image including brand/logo wordmarks, or \"\"), " +
-                  "\"depicted_object\": string (the main object/subject the image represents, even for icons/logos/drawings, e.g. \"gift box\", \"sneaker\", \"perfume bottle\"; \"\" only if truly nothing identifiable), " +
-                  "\"brand_or_logo\": string (any brand/logo name visible, or \"\"), " +
-                  "\"product_guess\": string (specific model/variant name in English when ≥~70% confident from visual cues, e.g. \"iPhone 17 Pro Max\"; otherwise \"\"), " +
-                  "\"product_guess_confidence\": number between 0 and 1 (0 when product_guess is \"\"), " +
-                  "\"category\": string (short product category, e.g. \"smartphone\", \"sneaker\", \"perfume\", \"watch\"; \"\" if unknown), " +
-                  "\"color\": string (primary color in English, single word, e.g. \"orange\", \"black\"; \"\" if not applicable), " +
-                  "\"retailer_or_source_text\": string (any retailer/store badge, price, or source text visible like \"SmartBuy\", \"299 SAR\"; \"\"), " +
-                  "\"dominant_colors\": array of 1-3 short color names in the user's language (e.g. [\"ذهبي\",\"أخضر داكن\"], or []), " +
-                  "\"search_queries\": array of 3-6 query variants ordered most-specific first, covering full product name in English, full product name in Arabic (BOTH digit systems if it contains a number), brand+category+color, and generic category+color fallbacks. Empty array [] only when has_useful_signal=false. " +
-                  "\"has_useful_signal\": boolean (true when ANY of description, readable_text, depicted_object, brand_or_logo, or search_query is non-empty and meaningful) " +
-                  "}. " +
-                  "Never refuse. Always fill what you can.",
-              },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: customerSentText ? `Customer caption: ${message}` : "No caption from the customer." },
-                  ...attachmentsIn.map((a: any) => ({
-                    type: "image_url",
-                    image_url: { url: a.url, detail: "high" },
-                  })),
-                ],
-              },
-            ],
-          }),
+          body: JSON.stringify(visionBody),
         });
         if (visionRes.ok) {
           const vdata = await visionRes.json();
           const raw: string = vdata?.choices?.[0]?.message?.content?.trim() ?? "";
           const usage = vdata?.usage ?? {};
-          console.log("vision_usage", {
+          console.log("vision_token_usage", {
+            conversation_id,
             attachments: attachmentsIn.length,
+            model: VISION_MODEL,
             prompt_tokens: usage.prompt_tokens,
             completion_tokens: usage.completion_tokens,
             total_tokens: usage.total_tokens,
-            model: VISION_MODEL,
-            cost_usd: estimateCost(VISION_MODEL, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
+            estimated_cost_usd: Number(
+              estimateCost(VISION_MODEL, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6),
+            ),
+            // Side-by-side comparison so we can pick the cheapest model that's accurate enough.
+            compare_cost_usd: {
+              "gpt-4o-mini": Number(estimateCost("gpt-4o-mini", usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6)),
+              "gpt-4o":      Number(estimateCost("gpt-4o",      usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6)),
+              "gpt-4.1":     Number(estimateCost("gpt-4.1",     usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6)),
+              "gpt-5-mini":  Number(estimateCost("gpt-5-mini",  usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6)),
+              "gpt-5":       Number(estimateCost("gpt-5",       usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6)),
+            },
           });
           let parsed: any = null;
           try { parsed = JSON.parse(raw); } catch { /* leave null */ }
@@ -559,16 +579,18 @@ Deno.serve(async (req) => {
               `التعليمة:\n` +
               `  - ابحث في كتالوج المتجر باستخدام كل استعلام بالترتيب حتى تجد تطابقاً فعلياً.\n` +
               `  - إذا وجدت تطابقاً، أكّد للعميل اسم المنتج كما هو في الكتالوج واسأله إن كان هذا ما يقصد.\n` +
-              `  - إذا لم تجد تطابقاً واضحاً بعد تجربة كل الاستعلامات، لا تعرض منتجات قريبة أو بديلة من الكتالوج. قل بأدب أنك لم تجد المنتج، اذكر التخمين البصري إن وُجد (مثال: "يبدو لي أنه ${productGuess || "هذا المنتج"}") واطلب من العميل تأكيد الاسم أو إرسال الرابط.\n` +
-              `  - لا تقترح على العميل قائمة موديلات قديمة عشوائية إذا الصورة تشير لموديل محدد.\n` +
-              `  - لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً في الكتالوج.`;
+              `  - ممنوع منعاً باتاً اقتراح أو ذكر أي منتج آخر من الكتالوج كبديل أو "شبيه" أو "موديل قريب". إما تطابق فعلي أو لا شيء.\n` +
+              `  - إذا لم تجد تطابقاً واضحاً بعد تجربة كل الاستعلامات، قل بأدب أنك لم تجد المنتج بالضبط، اذكر فقط ما تراه في الصورة (مثال: "يبدو لي أنه ${productGuess || "هذا المنتج"}") واطلب من العميل تأكيد الاسم الكامل أو إرسال رابط المنتج. لا تذكر أي SKU آخر.\n` +
+              `  - لا تقترح على العميل قائمة موديلات قديمة أو بديلة (مثل iPhone 14 أو iPhone 15) إذا الصورة تشير لموديل آخر.\n` +
+              `  - لا تؤكد التوفر إلا إذا وجدت تطابقاً فعلياً بالاسم في الكتالوج.`;
 
             // Used when the image has SOME signal but no specific product
             // identity. Tells n8n: do NOT search catalog, ask the customer.
             const askForNameInstruction =
               `التعليمة الصارمة:\n` +
               `  - الصورة لا تحدد منتجاً بعينه بثقة كافية.\n` +
-              `  - ممنوع البحث في الكتالوج أو اقتراح أو عرض أي منتج بناءً على هذه الصورة وحدها.\n` +
+              `  - ممنوع منعاً باتاً البحث في الكتالوج أو اقتراح أو ذكر أو عرض أي منتج (بأي اسم أو SKU) بناءً على هذه الصورة وحدها.\n` +
+              `  - يمكنك وصف ما تراه في الصورة بشكل عام (مثلاً: "أرى ما يبدو أنه جراب آيفون برتقالي") لكن بدون ذكر اسم موديل محدد من الكتالوج.\n` +
               `  - اطلب من العميل بأدب اسم المنتج كما هو مكتوب، أو وصفاً أوضح (الموديل، الحجم، اللون)، أو رابطاً للمنتج.\n` +
               `  - يمكنك الإشارة باختصار لما رأيته في الصورة (مثلاً: "أرى علامة ${brand || "—"}${color ? ` باللون ${color}` : ""}") لكن بدون عرض أي منتج من الكتالوج.`;
 
