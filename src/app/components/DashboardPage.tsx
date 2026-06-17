@@ -18,6 +18,38 @@ import { DateRangePicker, computeRange, type RangePreset } from './dashboard/Dat
 import type { DateRange } from '../services/metrics';
 import { useCurrentMemberPermissions } from '../utils/permissions';
 
+type DonutDatum = { name: string; value: number; color: string };
+
+// Mirrors `UsagePieChart` from PlansPage line-for-line so the dashboard donuts
+// play the EXACT same counter-clockwise sweep animation as استخدام الكلمات.
+const DashboardDonut = React.memo(function DashboardDonut({
+  data, theme,
+}: { data: DonutDatum[]; theme: string }) {
+  const tooltipStyle = {
+    backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff',
+    border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+    borderRadius: '12px',
+    color: theme === 'dark' ? '#ffffff' : '#1a1a2e',
+    fontSize: '13px',
+  };
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%" cy="50%"
+          innerRadius={50} outerRadius={78}
+          dataKey="value" paddingAngle={4} strokeWidth={0}
+          isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+        >
+          {data.map((entry, i) => <Cell key={`donut-${i}`} fill={entry.color} />)}
+        </Pie>
+        <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+});
+
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
   if (n >= 10_000) return (n / 1_000).toFixed(0) + 'K';
@@ -71,8 +103,6 @@ export function DashboardPage() {
     return () => cancelAnimationFrame(id);
   }, [metricsLoading, range.from, range.to]);
   const feedback = metrics.feedback;
-  const feedbackAnimationKey = `feedback-${feedback.positive}-${feedback.negative}`;
-  const classificationAnimationKey = `cls-${JSON.stringify(metrics.classification)}`;
   const feedbackPieData = useMemo(
     () => [
       { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
@@ -300,20 +330,11 @@ export function DashboardPage() {
           <p className="text-[11px] text-muted-foreground mb-3">{t('Distribution by type', 'التوزيع حسب النوع')}</p>
           <div style={{ height: 200 }}>
             {chartsLoaded && (
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={classificationData}
-                    cx="50%" cy="50%"
-                    innerRadius={50} outerRadius={78}
-                    dataKey="value" paddingAngle={4} strokeWidth={0}
-                    isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
-                  >
-                    {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <DashboardDonut
+                key={`cls-${classificationData.map(d => `${d.name}:${d.value}`).join('|')}`}
+                data={classificationData}
+                theme={theme}
+              />
             )}
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-2">
@@ -427,21 +448,11 @@ export function DashboardPage() {
           ) : (
           <div className="h-[200px]">
             {chartsLoaded && (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={feedbackPieData}
-                    cx="50%" cy="50%"
-                    innerRadius={50} outerRadius={78}
-                    dataKey="value" paddingAngle={4} strokeWidth={0}
-                    isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
-                  >
-                    <Cell key="fb-positive" fill="#10b981" />
-                    <Cell key="fb-negative" fill="#ff4466" />
-                  </Pie>
-                  <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <DashboardDonut
+                key={`fb-${feedback.positive}-${feedback.negative}`}
+                data={feedbackPieData}
+                theme={theme}
+              />
             )}
           </div>
           )}
