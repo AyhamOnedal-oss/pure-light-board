@@ -106,7 +106,8 @@ const LOADER_JS = `
         if (node && node.parentNode) node.parentNode.removeChild(node);
       });
     } catch (e) {}
-    if (cfg && cfg.bubble_visible === false) { return; }
+    cfg = cfg || {};
+    if (cfg.bubble_visible === false) { return; }
     var host = document.createElement("div");
     host.id = "fuqah-widget-host";
     host.style.cssText = "all: initial; position: fixed; z-index: 2147483647;";
@@ -155,21 +156,29 @@ const LOADER_JS = `
     bubble.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
     wrap.appendChild(bubble);
 
-    var iframe = document.createElement("iframe");
-    iframe.className = "fq-iframe";
-    iframe.id = "fuqah-widget-iframe";
-    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
-    iframe.setAttribute("title", "Chat");
-    var qs =
-      "platform=" + encodeURIComponent(ctx.platform) +
-      "&store_id=" + encodeURIComponent(ctx.store_id || ctx.external_id) +
-      "&tenant_id=" + encodeURIComponent(tenantId);
-    if (ctx.store_uuid) qs += "&store_uuid=" + encodeURIComponent(ctx.store_uuid);
-    iframe.src = APP_BASE_URL + "/widget/chat?" + qs;
-    document.body.appendChild(iframe);
-
+    // Iframe is created lazily on first bubble click — saves a full chat
+    // bundle download on every storefront page load, and lets the bubble
+    // paint without competing with the storefront for bandwidth.
+    var iframe = null;
     var open = false;
+    function ensureIframe() {
+      if (iframe) return iframe;
+      iframe = document.createElement("iframe");
+      iframe.className = "fq-iframe";
+      iframe.id = "fuqah-widget-iframe";
+      iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+      iframe.setAttribute("title", "Chat");
+      var qs =
+        "platform=" + encodeURIComponent(ctx.platform) +
+        "&store_id=" + encodeURIComponent(ctx.store_id || ctx.external_id) +
+        "&tenant_id=" + encodeURIComponent(tenantId || "");
+      if (ctx.store_uuid) qs += "&store_uuid=" + encodeURIComponent(ctx.store_uuid);
+      iframe.src = APP_BASE_URL + "/widget/chat?" + qs;
+      document.body.appendChild(iframe);
+      return iframe;
+    }
     bubble.addEventListener("click", function () {
+      ensureIframe();
       open = !open;
       iframe.style.display = open ? "block" : "none";
       if (open) postEvent("bubble.click", tenantId);
@@ -197,6 +206,23 @@ const LOADER_JS = `
       };
     } catch (e) {}
 
+    // Preconnect to Supabase + app origin so the upcoming fetch and
+    // (later) chat iframe share an already-warm TLS connection.
+    try {
+      var head = document.head || document.getElementsByTagName("head")[0];
+      if (head) {
+        ["preconnect", "dns-prefetch"].forEach(function (rel) {
+          [SUPABASE_URL, APP_BASE_URL].forEach(function (href) {
+            if (!href) return;
+            var l = document.createElement("link");
+            l.rel = rel; l.href = href;
+            if (rel === "preconnect") l.setAttribute("crossorigin", "");
+            head.appendChild(l);
+          });
+        });
+      }
+    } catch (e) {}
+
     // ── Instant paint: hydrate from localStorage cache so the bubble shows
     // in < 200ms on repeat visits instead of waiting for the resolve+config
     // round-trip (which can take 10+ seconds on edge cold starts).
@@ -207,37 +233,62 @@ const LOADER_JS = `
       if (raw) cached = JSON.parse(raw);
     } catch (e) {}
     var mounted = false;
+    var mountedSkeleton = false;
     if (cached && cached.tenant_id && cached.cfg) {
       try { window.__FUQAH_TENANT_ID = cached.tenant_id; } catch (e) {}
       try { mount(cached.tenant_id, ctx, cached.cfg); mounted = true; } catch (e) {}
     }
-
-    api("/widget-resolve?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id))
-      .then(function (res) {
-        if (!res || !res.tenant_id || !res.is_active) { return; }
-        try { window.__FUQAH_TENANT_ID = res.tenant_id; } catch (e) {}
-        return api("/widget-config?tenant_id=" + res.tenant_id).then(function (cfg) {
-          var fresh = cfg || {};
-          try {
-            window.localStorage && window.localStorage.setItem(cacheKey, JSON.stringify({
-              tenant_id: res.tenant_id,
-              cfg: fresh,
-              ts: Date.now(),
-            }));
-          } catch (e) {}
-          // Re-mount only if we didn't already paint, or if visible config changed.
-          if (!mounted) {
-            mount(res.tenant_id, ctx, fresh);
-            return;
-          }
-          var cachedCfg = (cached && cached.cfg) || {};
-          var visualKeys = ["bubble_visible","position","bubble_offset_x","bubble_offset_y","bubble_size","widget_outer_color","widget_inner_color","welcome_bubble_enabled","welcome_bubble_line1","welcome_bubble_line2","auto_open_delay"];
-          var changed = cached.tenant_id !== res.tenant_id;
-          for (var k = 0; k < visualKeys.length && !changed; k++) {
-            if (cachedCfg[visualKeys[k]] !== fresh[visualKeys[k]]) changed = true;
-          }
-          if (changed) mount(res.tenant_id, ctx, fresh);
+    // First-visit instant paint: render a default bubble immediately so the
+    // user always sees the launcher within ~100ms, regardless of network.
+    if (!mounted) {
+      try {
+        mount(null, ctx, {
+          position: "right",
+          bubble_offset_x: 20,
+          bubble_offset_y: 20,
+          bubble_size: 60,
+          widget_outer_color: "#000000",
+          widget_inner_color: "#FFFFFF",
+          welcome_bubble_enabled: false,
+          bubble_visible: true,
         });
+        mountedSkeleton = true;
+      } catch (e) {}
+    }
+
+    api("/widget-bootstrap?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id || ""))
+      .then(function (res) {
+        if (!res || !res.tenant_id || !res.is_active || !res.cfg) {
+          // Tenant unknown/inactive — drop the skeleton so we don't show a
+          // bubble that can't actually chat.
+          if (mountedSkeleton) {
+            var stale = document.getElementById("fuqah-widget-host");
+            if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+          }
+          return;
+        }
+        try { window.__FUQAH_TENANT_ID = res.tenant_id; } catch (e) {}
+        var fresh = res.cfg;
+        var freshUpdatedAt = res.updated_at || null;
+        try {
+          window.localStorage && window.localStorage.setItem(cacheKey, JSON.stringify({
+            tenant_id: res.tenant_id,
+            cfg: fresh,
+            updated_at: freshUpdatedAt,
+            ts: Date.now(),
+          }));
+        } catch (e) {}
+        // Re-mount whenever we showed a skeleton, the tenant changed, or the
+        // design row's updated_at moved — catches every visual setting.
+        var prevUpdatedAt = cached && cached.updated_at;
+        var changed =
+          mountedSkeleton ||
+          !cached ||
+          cached.tenant_id !== res.tenant_id ||
+          prevUpdatedAt !== freshUpdatedAt;
+        if (changed) {
+          mount(res.tenant_id, ctx, fresh);
+        }
       })
       .catch(function (e) { console.error("fuqah loader error", e); });
   }

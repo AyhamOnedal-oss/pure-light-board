@@ -1,0 +1,97 @@
+// Single-round-trip loader bootstrap: resolves (platform, external_id) to a
+// tenant_id AND returns the chat design config + branding in one response.
+// Replaces the sequential widget-resolve → widget-config waterfall used by
+// the storefront loader, cutting time-to-bubble roughly in half on cold start.
+import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { resolveTenant } from "../_shared/resolve-tenant.ts";
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+);
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const url = new URL(req.url);
+  const platform = url.searchParams.get("platform");
+  const externalId = url.searchParams.get("external_id");
+  const domain = url.searchParams.get("domain");
+
+  if (!platform && !domain) {
+    return jsonResponse({ error: "missing_context" }, 400);
+  }
+
+  try {
+    const { tenant_id: tenantId, is_active } = await resolveTenant({
+      platform,
+      store_id: externalId,
+      domain,
+    });
+
+    if (!tenantId) {
+      return jsonResponse(
+        { tenant_id: null, is_active: false, cfg: null },
+        200,
+        { "Cache-Control": "public, max-age=30, stale-while-revalidate=120" },
+      );
+    }
+
+    const [{ data: design }, { data: workspace }, { data: train }] = await Promise.all([
+      supabase.from("settings_chat_design").select("*").eq("tenant_id", tenantId).maybeSingle(),
+      supabase
+        .from("settings_workspace")
+        .select("name, logo_url, icon_url, locale")
+        .eq("id", tenantId)
+        .maybeSingle(),
+      supabase
+        .from("settings_train_ai")
+        .select("bubble_visible")
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
+    ]);
+
+    const cfg = design
+      ? {
+          ...design,
+          workspace_name: workspace?.name ?? null,
+          logo_url: workspace?.logo_url ?? null,
+          icon_url: workspace?.icon_url ?? null,
+          locale: workspace?.locale ?? "ar",
+          bubble_visible: train?.bubble_visible ?? true,
+        }
+      : null;
+
+    const updatedAt = (design as { updated_at?: string } | null)?.updated_at ?? null;
+    const etag = updatedAt ? `"${tenantId}:${updatedAt}"` : `"${tenantId}"`;
+
+    if (req.headers.get("if-none-match") === etag) {
+      return new Response(null, {
+        status: 304,
+        headers: {
+          ...corsHeaders,
+          ETag: etag,
+          "Cache-Control": "public, max-age=0, s-maxage=10, stale-while-revalidate=60",
+        },
+      });
+    }
+
+    return jsonResponse(
+      {
+        tenant_id: tenantId,
+        is_active: !!is_active,
+        updated_at: updatedAt,
+        cfg,
+      },
+      200,
+      {
+        ETag: etag,
+        "Cache-Control": "public, max-age=0, s-maxage=10, stale-while-revalidate=60",
+      },
+    );
+  } catch (e) {
+    console.error("widget-bootstrap error", e);
+    return jsonResponse({ error: "server_error" }, 500);
+  }
+});
