@@ -866,7 +866,7 @@ Deno.serve(async (req) => {
     if (nonProductShortCircuit) {
       const reply = nonProductShortCircuit;
       const action = { type: "none" as ActionType, reason: "non_product_image" };
-      const persisted = await persistMessages(userText, reply);
+      const persisted = await persistMessages(message, reply);
       return jsonResponse({
         reply,
         attachments: [],
