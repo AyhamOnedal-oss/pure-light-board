@@ -60,7 +60,16 @@ export function DashboardPage() {
   // Only freeze the dashboard for actually-disabled members. Previously this
   // also froze during permission loading, which reset live metrics to zeros
   // for 1–2s on every reload (causing the cached "2K → 0 → 2K" flash).
-  const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen, snapshot, frozenAt);
+  const { metrics, topSubjects, recentFeedback, loading: metricsLoading } = useDashboardMetrics(range, isFrozen, snapshot, frozenAt);
+  // Gate the donut charts behind a "loaded" flip so they mount fresh with
+  // real data and play the same counter-clockwise sweep as the Plans pie.
+  const [chartsLoaded, setChartsLoaded] = useState(false);
+  useEffect(() => {
+    if (metricsLoading) { setChartsLoaded(false); return; }
+    setChartsLoaded(false);
+    const id = requestAnimationFrame(() => setChartsLoaded(true));
+    return () => cancelAnimationFrame(id);
+  }, [metricsLoading, range.from, range.to]);
   const feedback = metrics.feedback;
   const feedbackAnimationKey = `feedback-${feedback.positive}-${feedback.negative}`;
   const classificationAnimationKey = `cls-${JSON.stringify(metrics.classification)}`;
@@ -289,24 +298,24 @@ export function DashboardPage() {
         >
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('Conversation Classification', 'تصنيف المحادثات')}</h3>
           <p className="text-[11px] text-muted-foreground mb-3">{t('Distribution by type', 'التوزيع حسب النوع')}</p>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                key={classificationAnimationKey}
-                data={classificationData}
-                cx="50%" cy="50%"
-                innerRadius={50} outerRadius={78}
-                dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive
-                animationBegin={0}
-                animationDuration={900}
-                animationEasing="ease-out"
-              >
-                {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <div style={{ height: 200 }}>
+            {chartsLoaded && (
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={classificationData}
+                    cx="50%" cy="50%"
+                    innerRadius={50} outerRadius={78}
+                    dataKey="value" paddingAngle={4} strokeWidth={0}
+                    isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+                  >
+                    {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-2">
             {classificationData.map((entry) => (
               <div key={entry.name} className="flex items-center gap-1.5">
@@ -417,25 +426,23 @@ export function DashboardPage() {
             </div>
           ) : (
           <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  key={feedbackAnimationKey}
-                  data={feedbackPieData}
-                  cx="50%" cy="50%"
-                  innerRadius={50} outerRadius={78}
-                  dataKey="value" paddingAngle={4} strokeWidth={0}
-                  isAnimationActive
-                  animationBegin={0}
-                  animationDuration={900}
-                  animationEasing="ease-out"
-                >
-                  <Cell key="fb-positive" fill="#10b981" />
-                  <Cell key="fb-negative" fill="#ff4466" />
-                </Pie>
-                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
-              </PieChart>
-            </ResponsiveContainer>
+            {chartsLoaded && (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={feedbackPieData}
+                    cx="50%" cy="50%"
+                    innerRadius={50} outerRadius={78}
+                    dataKey="value" paddingAngle={4} strokeWidth={0}
+                    isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+                  >
+                    <Cell key="fb-positive" fill="#10b981" />
+                    <Cell key="fb-negative" fill="#ff4466" />
+                  </Pie>
+                  <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
           )}
           {/* Custom legend with thumbs icons */}
