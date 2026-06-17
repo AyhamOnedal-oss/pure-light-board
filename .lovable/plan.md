@@ -1,39 +1,36 @@
-# Show image caption in dashboard chat view
+## Plan
 
-## What the user reported
-When the customer sends an image **with text** in the widget (e.g. "هل متوفر عندكم المنتج؟" attached to a photo), the dashboard conversation view shows only the image — the caption text is missing.
+Got it — the fix is on the vision side, not tickets. Increasing tokens alone won't reliably tell iPhone 17 Pro Max from iPhone 14 (they look very similar). We need a stronger vision model + more output room + customer text override.
 
-## Root cause (not a widget / hostinger bug)
-The widget actually sends the text correctly. There are two real bugs, both server/dashboard side:
+1. **Upgrade the vision model for image analysis**
+   - In `supabase/functions/chat-ai/index.ts`, change the vision call from `gpt-4o-mini` to a stronger vision model (e.g. `gpt-4o` or `gpt-4.1`).
+   - Keep `gpt-4o-mini` for the cheap intent classifiers — only the image step gets upgraded.
 
-1. **Dashboard renderer drops the caption.** In `src/app/components/ConversationsPage.tsx` (around line 540) and `src/app/components/TicketsPage.tsx` (around line 717), when `msg.type === 'image' | 'file'` the bubble renders ONLY `<AttachmentBubble />` and never renders `msg.text`. So any caption is invisible by design.
-2. **Edge function persists the wrong body for image messages.** In `supabase/functions/chat-ai/index.ts`, the `isProduct && hasStrongIdentity` / weak-signal / fallback branches call `persistMessages(userText, reply)`. `userText` has been mutated to include the vision JSON block / search instructions for n8n. That noise then becomes the message `body` stored in `conversations_messages`, so even if the dashboard rendered the caption, it would show the vision payload, not what the customer typed.
+2. **Give the vision step more tokens to "think"**
+   - Raise `max_tokens` on the vision request so it can return full reasoning + all `search_queries` without truncation.
+   - Keep `detail: "high"` (already set) so fine cues like Camera Control button / camera island shape are actually visible.
 
-So the hostinger widget file does not need any edit — the widget already includes the text in the payload and the customer bubble in the widget shows it. The fix is on the dashboard + edge function side.
+3. **Add MODEL_PRICING entry for the new vision model**
+   - Update the `MODEL_PRICING` map so cost logging stays accurate for the upgraded model.
 
-## Changes
+4. **Customer text & readable-image text override visual guess**
+   - If `message` (caption) or `readable_text` contains an explicit model name (e.g. "iPhone 17 Pro Max", "آيفون 17 برو ماكس"), use that as `product_guess` and override any older-model guess from vision.
+   - Prepend the explicit model to `search_queries` (EN + AR + Eastern-Arabic digits) so the catalog search hits the correct SKU.
 
-### 1. `supabase/functions/chat-ai/index.ts`
-- In `persistMessages`, always persist the **original customer message** as the user `body`, not the vision-augmented `userText`. Concretely: replace each `persistMessages(userText, reply)` call with `persistMessages(message, reply)` (the existing variable that already holds the raw customer text, or the auto-placeholder when the customer sent no text). Keep `userText` purely for the n8n payload (`message: userText` stays unchanged).
-- Leave attachment persistence as-is (`attachments: attachmentsIn`) so the dashboard still knows it's an image message.
+5. **Tighten the strong-identity gate for iPhones**
+   - When vision returns an iPhone guess with confidence < 0.8 AND there is no model name in caption/readable text, do NOT treat it as strong identity.
+   - Fall through to the existing "ask the customer for the exact model" branch (`askForNameInstruction`) instead of searching with a wrong model.
 
-### 2. `src/app/components/ConversationsPage.tsx` (image/file bubble around line 540)
-Render the attachment **and** the caption when both exist:
-```text
-<AttachmentBubble ... />
-{msg.text && msg.text.trim() && (
-  <div className="px-4 pt-2"><LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} /></div>
-)}
-```
-Keep the existing time row underneath.
-
-### 3. `src/app/components/TicketsPage.tsx` (image/file bubble around line 717)
-Same change as ConversationsPage so ticket detail view also shows captions under attachments.
-
-### 4. `src/app/components/ChatLogDownload.tsx`
-Already renders `[Attachment: <fileName>]` next to message text, so no change needed — it will start including the caption automatically once the edge function stores the raw customer text.
+6. **Logging**
+   - Log when caption/readable text overrides the vision guess (`vision_override`), and log the final `product_guess` actually used, so we can verify the upgrade is paying off.
 
 ## Out of scope
-- `public/widget-*.js` hostinger bundle (no change required — widget already sends text + attachment correctly and renders both locally).
-- `TestChat.tsx`, classifier prompts, vision prompt, n8n workflow JSON, billing, `classify-conversation`.
-- The widget source under `widget/src/app/components/ChatMessage.tsx` (it already renders text + attachment together).
+
+- No DB changes.
+- No tickets/escalation logic changes.
+- No widget/dashboard UI changes.
+- Classifier models stay on `gpt-4o-mini`.
+
+## Cost note
+
+Vision will become more expensive per image (stronger model + more tokens). Text-only messages are unaffected.
