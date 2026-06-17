@@ -62,7 +62,8 @@ export function DashboardPage() {
   // for 1–2s on every reload (causing the cached "2K → 0 → 2K" flash).
   const { metrics, topSubjects, recentFeedback } = useDashboardMetrics(range, isFrozen, snapshot, frozenAt);
   const feedback = metrics.feedback;
-  const feedbackAnimationKey = 'feedback-live';
+  const feedbackAnimationKey = `feedback-${feedback.positive}-${feedback.negative}`;
+  const classificationAnimationKey = `cls-${JSON.stringify(metrics.classification)}`;
   const feedbackPieData = useMemo(
     () => [
       { name: t('Positive', 'إيجابي'), value: feedback.positive, color: '#10b981' },
@@ -291,6 +292,7 @@ export function DashboardPage() {
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie
+                key={classificationAnimationKey}
                 data={classificationData}
                 cx="50%" cy="50%"
                 startAngle={90} endAngle={-270}
@@ -330,7 +332,7 @@ export function DashboardPage() {
               const max = Math.max(...ticketStatusData.map(x => x.value));
               const pct = (d.value / max) * 100;
               return (
-                <div key={d.name} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
+                <div key={`${d.name}-${d.value}`} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
                   <span className="text-[13px]" style={{ fontWeight: 700, color: tickColor }}>{d.value}</span>
                   <div className="w-full flex justify-center" style={{ height: `${pct}%` }}>
                     <motion.div
