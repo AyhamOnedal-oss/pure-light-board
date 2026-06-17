@@ -44,8 +44,8 @@ Deno.serve(async (req) => {
         locale: workspace?.locale ?? "ar",
         bubble_visible: train?.bubble_visible ?? true,
       },
-      200,
-      { "Cache-Control": "public, max-age=60, stale-while-revalidate=600" },
+        200,
+        { "Cache-Control": "public, max-age=5, stale-while-revalidate=30" },
     );
   } catch (e) {
     console.error("widget-config error", e);
