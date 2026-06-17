@@ -2995,7 +2995,7 @@
       }
     } catch (e) {}
 
-    function onLoaded() {
+    function onLoaded(changed) {
       console.log('[Fuqah] Config done. Building widget DOM...');
       {
         if (settings.bubbleVisible === false) {
@@ -3010,7 +3010,10 @@
         if (hydrated && state && state.isOpen) {
           return;
         }
-        buildWidget();
+        // Skip the rebuild if cache was already accurate — avoids a visible flicker.
+        if (!hydrated || changed) {
+          buildWidget();
+        }
 
         // Verify critical elements exist
         if (!dom.root || !dom.bubble || !dom.window) {
