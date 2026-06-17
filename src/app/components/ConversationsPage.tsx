@@ -538,16 +538,23 @@ export function ConversationsPage() {
                         : 'bg-[#043CC8] text-white rounded-br-sm msg-bubble-ai'
                     }`}>
                       {msg.type === 'image' || msg.type === 'file' ? (
-                        <AttachmentBubble
-                          attachment={{
-                            type: msg.type,
-                            fileName: msg.fileName,
-                            url: msg.attachmentUrl,
-                            size: msg.attachmentSize,
-                            contentType: msg.attachmentContentType,
-                          }}
-                          onAi={msg.sender !== 'customer'}
-                        />
+                        <>
+                          <AttachmentBubble
+                            attachment={{
+                              type: msg.type,
+                              fileName: msg.fileName,
+                              url: msg.attachmentUrl,
+                              size: msg.attachmentSize,
+                              contentType: msg.attachmentContentType,
+                            }}
+                            onAi={msg.sender !== 'customer'}
+                          />
+                          {msg.text && msg.text.trim() && (
+                            <div className="px-4 pt-2" style={{ overflowWrap: 'anywhere' }}>
+                              <LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} />
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="px-4 py-3" style={{ overflowWrap: 'anywhere' }}>
                           <LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} />

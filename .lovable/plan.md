@@ -1,66 +1,39 @@
-## Problem
+# Show image caption in dashboard chat view
 
-When the vision model can't confidently identify the product in an uploaded image, the current n8n instruction block still tells the agent to "search the catalog with the suggested queries". With weak signals (e.g. only `color="orange"` + `category="smartphone"`, or only a brand logo), n8n's catalog search can return loosely-related items, and the agent ends up listing random products the customer never asked about. This is both a bad UX and a potential abuse vector (image → unrelated product dump).
+## What the user reported
+When the customer sends an image **with text** in the widget (e.g. "هل متوفر عندكم المنتج؟" attached to a photo), the dashboard conversation view shows only the image — the caption text is missing.
 
-## Goal
+## Root cause (not a widget / hostinger bug)
+The widget actually sends the text correctly. There are two real bugs, both server/dashboard side:
 
-Only let the agent show catalog products when the image gives us a **specific, high-confidence product identity**. Otherwise, do not search the catalog at all — politely ask the customer to type the product name or describe it more clearly.
+1. **Dashboard renderer drops the caption.** In `src/app/components/ConversationsPage.tsx` (around line 540) and `src/app/components/TicketsPage.tsx` (around line 717), when `msg.type === 'image' | 'file'` the bubble renders ONLY `<AttachmentBubble />` and never renders `msg.text`. So any caption is invisible by design.
+2. **Edge function persists the wrong body for image messages.** In `supabase/functions/chat-ai/index.ts`, the `isProduct && hasStrongIdentity` / weak-signal / fallback branches call `persistMessages(userText, reply)`. `userText` has been mutated to include the vision JSON block / search instructions for n8n. That noise then becomes the message `body` stored in `conversations_messages`, so even if the dashboard rendered the caption, it would show the vision payload, not what the customer typed.
 
-## Changes (all in `supabase/functions/chat-ai/index.ts`, vision branch only)
+So the hostinger widget file does not need any edit — the widget already includes the text in the payload and the customer bubble in the widget shows it. The fix is on the dashboard + edge function side.
 
-### 1. Add a confidence gate
+## Changes
 
-After parsing the vision JSON, compute:
+### 1. `supabase/functions/chat-ai/index.ts`
+- In `persistMessages`, always persist the **original customer message** as the user `body`, not the vision-augmented `userText`. Concretely: replace each `persistMessages(userText, reply)` call with `persistMessages(message, reply)` (the existing variable that already holds the raw customer text, or the auto-placeholder when the customer sent no text). Keep `userText` purely for the n8n payload (`message: userText` stays unchanged).
+- Leave attachment persistence as-is (`attachments: attachmentsIn`) so the dashboard still knows it's an image message.
 
+### 2. `src/app/components/ConversationsPage.tsx` (image/file bubble around line 540)
+Render the attachment **and** the caption when both exist:
+```text
+<AttachmentBubble ... />
+{msg.text && msg.text.trim() && (
+  <div className="px-4 pt-2"><LinkifiedText text={msg.text} onAi={msg.sender === 'ai'} /></div>
+)}
 ```
-const hasStrongIdentity =
-  (product_guess && product_guess_confidence >= 0.7) ||
-  // OR brand + specific category + a readable model/SKU text from the image
-  (brand_or_logo && category && readable_text && readable_text.length >= 3);
-```
+Keep the existing time row underneath.
 
-`hasStrongIdentity = true` → keep current behavior: pass `search_queries` to n8n with "search catalog, try queries in order" instructions.
+### 3. `src/app/components/TicketsPage.tsx` (image/file bubble around line 717)
+Same change as ConversationsPage so ticket detail view also shows captions under attachments.
 
-`hasStrongIdentity = false` but `has_useful_signal = true` → **new branch (see #2)**.
+### 4. `src/app/components/ChatLogDownload.tsx`
+Already renders `[Attachment: <fileName>]` next to message text, so no change needed — it will start including the caption automatically once the edge function stores the raw customer text.
 
-`has_useful_signal = false` → existing `nonProductShortCircuit` stays as-is.
-
-### 2. New "weak signal" branch — do NOT search catalog
-
-When the image has some signal (e.g. just a brand logo, just a color, just a generic category) but no specific product identity:
-
-- Do **not** include `search_queries` in the payload to n8n.
-- Replace the `searchInstruction` block with an explicit "do not search, ask the customer" instruction in Arabic, e.g.:
-
-```
-[تحليل الصورة المرفقة]
-النوع: <image_kind>
-الفئة: <category or "غير محددة">
-العلامة: <brand_or_logo or "—">
-اللون: <color or "—">
-وصف مختصر: <description>
-نص ظاهر: <readable_text or "—">
-
-التعليمة الصارمة:
-  - الصورة لا تحدد منتجاً بعينه بثقة كافية.
-  - ممنوع البحث في الكتالوج أو اقتراح أي منتج بناءً على هذه الصورة وحدها.
-  - اطلب من العميل بأدب اسم المنتج كما هو مكتوب، أو وصفاً أوضح (الموديل، الحجم، اللون)، أو رابطاً للمنتج.
-  - يمكنك الإشارة باختصار لما رأيته في الصورة (مثلاً: "أرى علامة Apple باللون البرتقالي") لكن بدون عرض أي منتج.
-```
-
-### 3. Tighten the `isProduct` / `hasStrongIdentity` branch wording
-
-Keep the multi-variant query block, but harden the existing rule:
-- "إذا لم تجد تطابقاً واضحاً في الكتالوج بعد تجربة كل الاستعلامات، **لا تعرض منتجات قريبة أو بديلة**. اذكر للعميل أنك لم تجد المنتج واطلب منه تأكيد الاسم أو إرسال الرابط."
-
-This prevents the same abuse when the strong-identity query also misses.
-
-### 4. Out of scope
-
-- TestChat.tsx, classifier, persistence, n8n workflow file, billing, classify-conversation, vision model choice, schema.
-
-## Outcome
-
-- Orange iPhone with clear cues → still searches catalog for "iPhone 17 Pro Max" variants.
-- Brand-only logo / generic colored object / partial photo → no catalog search, agent asks for name/description/link.
-- Empty/irrelevant image with no text → still short-circuits as before.
+## Out of scope
+- `public/widget-*.js` hostinger bundle (no change required — widget already sends text + attachment correctly and renders both locally).
+- `TestChat.tsx`, classifier prompts, vision prompt, n8n workflow JSON, billing, `classify-conversation`.
+- The widget source under `widget/src/app/components/ChatMessage.tsx` (it already renders text + attachment together).
