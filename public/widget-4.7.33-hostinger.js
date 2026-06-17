@@ -2746,43 +2746,42 @@
   }
 
   function fetchConfig(callback) {
-    var resolveUrl = cacheBust(
-      FUNCTIONS_BASE + '/widget-resolve?platform=' + encodeURIComponent(PLATFORM)
+    var url = cacheBust(
+      FUNCTIONS_BASE + '/widget-bootstrap?platform=' + encodeURIComponent(PLATFORM)
       + '&external_id=' + encodeURIComponent(STORE_EXTERNAL_ID)
       + (STORE_DOMAIN ? '&domain=' + encodeURIComponent(STORE_DOMAIN) : '')
     );
-    fetch(resolveUrl, { cache: 'no-store', headers: AUTH_HEADERS })
+    fetch(url, { cache: 'no-store', headers: AUTH_HEADERS })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (res) {
         if (!res || !res.tenant_id) {
-          console.warn('[Fuqah] widget-resolve: no tenant for storeId=' + STORE_ID + ' storeUuid=' + STORE_UUID + ' domain=' + STORE_DOMAIN);
+          console.warn('[Fuqah] widget-bootstrap: no tenant for storeId=' + STORE_ID + ' storeUuid=' + STORE_UUID + ' domain=' + STORE_DOMAIN);
           callback();
-          return null;
+          return;
         }
         TENANT_ID = res.tenant_id;
         console.log('[Fuqah] Resolved tenant=' + TENANT_ID + ' active=' + res.is_active);
-        // Backfill platform IDs from backend when the snippet didn't render them.
-        if (res.store_id && !STORE_ID) {
-          STORE_ID = String(res.store_id);
-          console.info('[Fuqah] Backfilled storeId from backend: ' + STORE_ID);
-        }
-        if (res.store_uuid && !STORE_UUID) {
-          STORE_UUID = String(res.store_uuid);
-        }
-        return fetch(cacheBust(FUNCTIONS_BASE + '/widget-config?tenant_id=' + TENANT_ID), { cache: 'no-store', headers: AUTH_HEADERS })
-          .then(function (r) { return r.ok ? r.json() : null; });
-      })
-      .then(function (s) {
-        if (s) {
-          applyConfigPayload(s);
+        if (res.store_id && !STORE_ID) { STORE_ID = String(res.store_id); console.info('[Fuqah] Backfilled storeId: ' + STORE_ID); }
+        if (res.store_uuid && !STORE_UUID) { STORE_UUID = String(res.store_uuid); }
+        if (res.cfg) {
+          applyConfigPayload(res.cfg);
           console.log('[Fuqah] Config OK: name=' + settings.storeName + ' main=' + settings.mainColor + ' mode=' + settings.mode + ' pos=' + settings.position + ' visible=' + settings.bubbleVisible);
-        } else {
-          console.log('[Fuqah] Config: no data, using defaults');
+          // Cache for instant paint on next visit
+          try {
+            window.localStorage && window.localStorage.setItem(FQ_CACHE_KEY, JSON.stringify({
+              tenant_id: res.tenant_id,
+              store_id: STORE_ID || null,
+              store_uuid: STORE_UUID || null,
+              updated_at: res.updated_at || null,
+              cfg: res.cfg,
+              ts: Date.now(),
+            }));
+          } catch (e) {}
         }
         callback();
       })
       .catch(function (err) {
-        console.warn('[Fuqah] Config fetch failed (using defaults):', err && err.message || err);
+        console.warn('[Fuqah] Bootstrap fetch failed (using defaults):', err && err.message || err);
         callback();
       });
   }
