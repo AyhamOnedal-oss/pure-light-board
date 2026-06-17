@@ -20,6 +20,8 @@ const CLASSIFIER_MIN_CONFIDENCE = 0.5;
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "gpt-4o-mini":  { input: 0.15, output: 0.60 },
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
+  "gpt-4o":       { input: 2.50, output: 10.00 },
+  "gpt-4.1":      { input: 2.00, output: 8.00 },
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
@@ -352,6 +354,7 @@ Deno.serve(async (req) => {
     // even when the image is a logo/icon/drawing rather than a real photo.
     if (hasAttachments && OPENAI_API_KEY) {
       try {
+        const VISION_MODEL = "gpt-4o";
         const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -359,9 +362,9 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${OPENAI_API_KEY}`,
           },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: VISION_MODEL,
             temperature: 0,
-            max_tokens: 700,
+            max_tokens: 1200,
             response_format: { type: "json_object" },
             messages: [
               {
@@ -418,7 +421,8 @@ Deno.serve(async (req) => {
             prompt_tokens: usage.prompt_tokens,
             completion_tokens: usage.completion_tokens,
             total_tokens: usage.total_tokens,
-            cost_usd: estimateCost("gpt-4o-mini", usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
+            model: VISION_MODEL,
+            cost_usd: estimateCost(VISION_MODEL, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
           });
           let parsed: any = null;
           try { parsed = JSON.parse(raw); } catch { /* leave null */ }
@@ -432,8 +436,8 @@ Deno.serve(async (req) => {
             const colors: string[] = Array.isArray(parsed.dominant_colors)
               ? parsed.dominant_colors.map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 3)
               : [];
-            const productGuess: string = String(parsed.product_guess ?? "").trim();
-            const productGuessConf: number = (() => {
+            let productGuess: string = String(parsed.product_guess ?? "").trim();
+            let productGuessConf: number = (() => {
               const n = Number(parsed.product_guess_confidence);
               return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
             })();
@@ -443,10 +447,55 @@ Deno.serve(async (req) => {
             const searchQueriesRaw: string[] = Array.isArray(parsed.search_queries)
               ? parsed.search_queries.map((q: unknown) => String(q).trim()).filter(Boolean)
               : (parsed.search_query ? [String(parsed.search_query).trim()] : []);
-            // De-dupe (case-insensitive) and cap at 6.
+
+            // === Caption / readable-text override =============================
+            // If the customer caption or the OCR'd image text explicitly names a
+            // product model, that wins over any visual guess. Vision often
+            // confuses similar-looking iPhone generations; an explicit textual
+            // model name is authoritative.
+            const textSources: string[] = [message || "", readable || ""];
+            const joinedText = textSources.join(" \n ");
+            // Normalize Eastern-Arabic digits to ASCII for matching.
+            const normalize = (s: string) =>
+              s.replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+               .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+            const normText = normalize(joinedText);
+            // iPhone: match "iphone <num> [pro] [max|plus|mini]" and Arabic "ايفون/آيفون".
+            const iphoneEn = normText.match(/i\s*phone\s*([0-9]{1,2})\s*(pro)?\s*(max|plus|mini)?/i);
+            const iphoneAr = normText.match(/(?:آيفون|ايفون|أيفون)\s*([0-9]{1,2})\s*(برو)?\s*(ماكس|بلس|ميني)?/);
+            let textModelName: string | null = null;
+            const m = iphoneEn || iphoneAr;
+            if (m) {
+              const num = m[1];
+              const pro = m[2] ? "Pro" : "";
+              const tail = m[3] ? (/ماكس/.test(m[3]) ? "Max" : /بلس/.test(m[3]) ? "Plus" : /ميني/.test(m[3]) ? "Mini" : m[3][0].toUpperCase() + m[3].slice(1).toLowerCase()) : "";
+              textModelName = ["iPhone", num, pro, tail].filter(Boolean).join(" ");
+            }
+
+            const prependQueries: string[] = [];
+            let visionOverridden = false;
+            if (textModelName) {
+              const prev = productGuess;
+              productGuess = textModelName;
+              productGuessConf = Math.max(productGuessConf, 0.95);
+              visionOverridden = !!prev && prev.toLowerCase() !== textModelName.toLowerCase();
+              // Build authoritative search queries (EN + AR ASCII + AR Eastern digits).
+              const num = (textModelName.match(/\d+/) || [""])[0];
+              const easternNum = num.replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + Number(d)));
+              const arBase = textModelName
+                .replace(/iPhone/i, "ايفون")
+                .replace(/Pro/i, "برو")
+                .replace(/Max/i, "ماكس")
+                .replace(/Plus/i, "بلس")
+                .replace(/Mini/i, "ميني");
+              const arEastern = arBase.replace(num, easternNum);
+              prependQueries.push(textModelName, "Apple " + textModelName, arBase, arEastern);
+            }
+
+            // De-dupe (case-insensitive) and cap at 6 — prepended queries first.
             const seen = new Set<string>();
             const searchQueries: string[] = [];
-            for (const q of searchQueriesRaw) {
+            for (const q of [...prependQueries, ...searchQueriesRaw]) {
               const k = q.toLowerCase();
               if (!seen.has(k)) { seen.add(k); searchQueries.push(q); }
               if (searchQueries.length >= 6) break;
@@ -460,14 +509,25 @@ Deno.serve(async (req) => {
             // agent must NOT search the catalog — it should ask the customer
             // to type the product name instead, to avoid dumping unrelated
             // products.
+            // iPhone-specific guard: vision can't reliably distinguish iPhone
+            // generations from a photo alone. Require either explicit textual
+            // model name (textModelName) or very high confidence (≥0.85) before
+            // treating an iPhone guess as strong identity.
+            const isIphoneGuess = /iphone|ايفون|آيفون|أيفون/i.test(productGuess);
+            const iphoneGuessTrusted = isIphoneGuess
+              ? (!!textModelName || productGuessConf >= 0.85)
+              : true;
             const hasStrongIdentity: boolean =
-              (!!productGuess && productGuessConf >= 0.7) ||
+              ((!!productGuess && productGuessConf >= 0.7) && iphoneGuessTrusted) ||
               (!!brand && !!category && !!readable && readable.length >= 3);
             console.log("vision_verdict", {
               kind, isProduct, has_readable: !!readable,
               has_depicted: !!depicted, has_brand: !!brand,
               product_guess: productGuess || null,
               product_guess_confidence: productGuessConf,
+              text_model_name: textModelName,
+              vision_overridden: visionOverridden,
+              iphone_guess_trusted: iphoneGuessTrusted,
               query_count: searchQueries.length,
               useful: usefulSignal,
               strong_identity: hasStrongIdentity,
