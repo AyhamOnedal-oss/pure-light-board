@@ -22,6 +22,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
   "gpt-4o":       { input: 2.50, output: 10.00 },
   "gpt-4.1":      { input: 2.00, output: 8.00 },
+  "gpt-5":        { input: 1.25, output: 10.00 },
+  "gpt-5-mini":   { input: 0.25, output: 2.00 },
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
