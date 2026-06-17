@@ -1,113 +1,38 @@
-# Why the storefront feels slow
+## Problem
 
-The dashboard preview updates instantly because it subscribes to Supabase realtime on `settings_chat_design`. The real merchant storefront does **not**. The Hostinger widget script (`public/widget-4.7.31-hostinger.js`) calls `fetchConfig()` **exactly once** at script boot:
+When the AI replies with a product image, it sends a plain URL (e.g. `https://media.zid.store/.../...jpg`) instead of showing the actual image. The reply text comes from the n8n agent, but the chat UIs only linkify URLs — they never render them as `<img>`.
 
-```text
-storefront load → fetchConfig() once → render bubble → never refetch
-```
+## Fix
 
-So after you change a color and click Save:
-1. Save hits Supabase (~150–400ms) — fast.
-2. Dashboard preview re-renders via realtime — looks instant.
-3. Storefront keeps showing old colors until the customer **hard-refreshes the page**, and even then Hostinger's CDN can serve a stale copy of the `.js` for hours.
+Detect image URLs inside AI message text and render them as an inline image (still clickable to open full size), in addition to (or replacing) the raw link. Applies wherever the AI reply is shown.
 
-There is also a small `Cache-Control: public, max-age=5` on `widget-config` (already reduced from 60s in the last change), but that's no longer the dominant delay.
+### Files to update
 
-# Plan — live config refresh in the Hostinger widget
+1. **`src/app/components/chat/LinkifiedText.tsx`** (dashboard: Conversations, Tickets, Test Chat)
+   - In the URL branch, if the URL looks like an image, render a small thumbnail (`<img>` ~240px wide, rounded, `object-cover`) wrapped in an `<a target="_blank">` so clicking opens the original.
+   - Otherwise, keep current anchor behavior.
 
-Ship a new `public/widget-4.7.32-hostinger.js` that keeps config in sync without a page reload.
+2. **`widget/src/app/components/MessageTextWithLinks.tsx`** (storefront widget)
+   - Same change: image URLs become an inline `<img>` (max-width 220px, rounded 12px) inside an anchor.
+   - Add `onError` fallback that reverts to the existing text link if the image fails to load (CORS / hotlink protection).
 
-### 1. Refetch on tab focus / visibility
+3. **Rebuild `public/widget-4.7.32-hostinger.js`** so the storefront snippet picks up the new widget behavior (bump to `4.7.33-hostinger.js` to bust Hostinger/CDN cache; update version constants accordingly).
 
-When the customer switches back to the store tab, refetch `widget-config` and diff against the in-memory `settings` object. This is the highest-impact change because most "slow" reports happen when the merchant is testing — they save in the dashboard, then click back to the store tab.
+### Image-URL detection
 
-```text
-document.visibilitychange (visible) → fetchConfig() → applyConfigDiff()
-window.focus                        → fetchConfig() → applyConfigDiff()
-```
+Single shared rule, used by both renderers:
 
-### 2. Light background poll while tab is visible
+- Ends with `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.avif` (optionally followed by `?query`), case-insensitive, **or**
+- Hostname matches a known image CDN: `media.zid.store`, `cdn.salla.sa`, `cdn.youcan.shop`, `images.unsplash.com`, `picsum.photos`.
 
-Every 20s while the tab is visible, refetch `widget-config`. Stop polling while the tab is hidden so we don't burn battery. With the edge cache at 5s and a 20s interval, traffic is negligible (~3 req/min per open tab, almost all served from CDN).
+### Out of scope
 
-### 3. `applyConfigDiff(newSettings)` — re-style without rebuilding
+- No change to the n8n agent prompt — the URL stays in the reply text; we just render it visually.
+- No new attachments pipeline; the AI's `attachments` array is untouched.
+- No change to how customer-sent images render (already handled by `AttachmentBubble`).
 
-Don't re-mount the whole widget. Update only what changed:
+### Verification
 
-- Bubble background/inner color → set CSS vars on the bubble element.
-- Position (left/right) → swap anchor class.
-- Welcome bubble text / enabled → re-render that one node.
-- Inactivity timers → write to `state.inactivityConfig`, no DOM change.
-- `bubble_visible=false` → call existing `cleanupWidgetDom()`.
-- Logo / icon / store name → swap `src` / `textContent` in the header.
-
-If the chat window is currently open we skip the visual re-style of the open window (to avoid flicker mid-conversation) and only update closed-state UI; the next open picks up the new values.
-
-### 4. Cache‑bust the Hostinger JS itself
-
-Hostinger CDN caches `widget-4.7.31-hostinger.js` aggressively, so when we ship a new version merchants keep the old one. Two parts:
-
-- Publish as `widget-4.7.32-hostinger.js` (new filename → guaranteed fresh fetch). The merchant's snippet stays on the versioned URL until they bump it.
-- Document the snippet pattern: `<script src=".../widget-4.7.32-hostinger.js" defer></script>`. Bumping the version number is the supported way to push a new widget build.
-
-### 5. Keep edge cache short
-
-`supabase/functions/widget-config/index.ts` is already at `public, max-age=5, stale-while-revalidate=30`. Leave as is — it bounds worst-case staleness for the new poll/visibility paths to ~5s.
-
-## Technical details
-
-**File touched:** `public/widget-4.7.32-hostinger.js` (new file, copy of 4.7.31 + the changes below). The current `4.7.32` file in the repo is empty (1 byte), so it can be populated.
-
-**`fetchConfig` refactor** — split into two functions:
-
-```text
-resolveTenantOnce()  // runs once at boot, sets TENANT_ID
-fetchConfigOnly()    // runs whenever we need fresh settings;
-                     // skips widget-resolve, just calls widget-config
-```
-
-**Subscriptions added at boot (after first fetchConfig):**
-
-```text
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') fetchConfigOnly().then(applyConfigDiff);
-});
-window.addEventListener('focus', () => fetchConfigOnly().then(applyConfigDiff));
-setInterval(() => {
-  if (document.visibilityState === 'visible') fetchConfigOnly().then(applyConfigDiff);
-}, 20000);
-```
-
-**`applyConfigDiff` implementation sketch:**
-
-```text
-function applyConfigDiff(s) {
-  if (!s) return;
-  const changed = {};
-  // compare each field against current settings, write into settings,
-  // then call small targeted updaters:
-  if (changed.widgetOuterColor || changed.widgetInnerColor) restyleBubble();
-  if (changed.position) repositionAnchor();
-  if (changed.welcomeBubble*) rerenderWelcomeBubble();
-  if (changed.bubbleVisible === false) cleanupWidgetDom();
-  if (changed.bubbleVisible === true && !bubbleEl) buildBubble();
-  if (changed.storeName || changed.storeLogo || changed.storeIcon) restyleHeader();
-}
-```
-
-The existing render functions in the file (`buildBubble`, `buildHeader`, `buildWelcomeBubble`, `cleanupWidgetDom`) are reused — no new rendering logic.
-
-## Out of scope
-
-- No DB schema changes.
-- No dashboard changes — the dashboard preview already updates live.
-- No change to `chat-ai` / vision flow.
-- We do **not** add Supabase realtime in the widget bundle (would bloat the JS and require auth wiring on the storefront); polling + visibility is enough for a settings-change use case.
-
-## Expected result
-
-After deploy + merchants bumping their snippet to `4.7.32`:
-
-- Switching back to the store tab → new colors within ~1s.
-- Tab kept open the whole time → new colors within ≤20s.
-- No page reload needed.
+- Send a message in Test Chat / storefront that triggers a product image URL in the reply → image renders inline, clicking opens original in new tab.
+- Send a normal product link (non-image URL) → still a plain blue link.
+- Break the image URL (404) → falls back to showing the text link.

@@ -467,13 +467,44 @@
 
   // URL detection in text
   var URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  var IMG_EXT_RE = /\.(jpe?g|png|webp|gif|avif|bmp|svg)(\?[^\s]*)?$/i;
+  var IMG_HOST_RE = /(media\.zid\.store|cdn\.salla\.sa|cdn\.youcan\.shop|images\.unsplash\.com|picsum\.photos|cloudinary\.com|imgur\.com)/i;
+  function isImgUrl(u) {
+    try {
+      var url = u.indexOf('http') === 0 ? u : 'https://' + u;
+      var p = new URL(url);
+      return IMG_EXT_RE.test(p.pathname) || IMG_HOST_RE.test(p.hostname);
+    } catch (e) { return false; }
+  }
   function textWithLinks(text) {
     var parts = text.split(URL_RE);
     var frag = document.createDocumentFragment();
     parts.forEach(function (part) {
       if (part.match(URL_RE)) {
+        var href = part.indexOf('http') === 0 ? part : 'https://' + part;
+        if (isImgUrl(part)) {
+          var aImg = el('a');
+          aImg.href = href;
+          aImg.target = '_blank';
+          aImg.rel = 'noopener noreferrer';
+          aImg.style.cssText = 'display:block;margin:4px 0;';
+          aImg.onclick = function (e) { e.stopPropagation(); };
+          var imgEl = el('img');
+          imgEl.src = href;
+          imgEl.alt = '';
+          imgEl.loading = 'lazy';
+          imgEl.style.cssText = 'max-width:220px;width:100%;height:auto;border-radius:12px;display:block;';
+          imgEl.onerror = function () {
+            aImg.removeChild(imgEl);
+            aImg.textContent = part;
+            aImg.style.cssText = 'color:#3b82f6;text-decoration:underline;cursor:pointer;word-break:break-all;';
+          };
+          aImg.appendChild(imgEl);
+          frag.appendChild(aImg);
+          return;
+        }
         var a = el('a');
-        a.href = part.indexOf('http') === 0 ? part : 'https://' + part;
+        a.href = href;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         a.textContent = part;
