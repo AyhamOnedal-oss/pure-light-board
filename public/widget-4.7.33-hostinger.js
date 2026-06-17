@@ -2984,9 +2984,9 @@
 
         // Mark as loaded for verification
         window.__FUQAH_WIDGET_LOADED__ = true;
-        window.__FUQAH_WIDGET_CONFIG__ = { platform: PLATFORM, storeId: STORE_ID, storeUuid: STORE_UUID, domain: STORE_DOMAIN, tenantId: TENANT_ID, mainColor: settings.mainColor, mode: settings.mode, position: settings.position, storeName: settings.storeName, bubbleVisible: settings.bubbleVisible, version: '4.7.32' };
+        window.__FUQAH_WIDGET_CONFIG__ = { platform: PLATFORM, storeId: STORE_ID, storeUuid: STORE_UUID, domain: STORE_DOMAIN, tenantId: TENANT_ID, mainColor: settings.mainColor, mode: settings.mode, position: settings.position, storeName: settings.storeName, bubbleVisible: settings.bubbleVisible, version: '4.7.33' };
 
-        console.log('[Fuqah] Widget v4.7.32 ready ✓  platform=' + PLATFORM + ' store=' + STORE_ID + ' uuid=' + STORE_UUID + ' domain=' + STORE_DOMAIN + ' bubble visible=' + settings.bubbleVisible + ' at ' + settings.position);
+        console.log('[Fuqah] Widget v4.7.33 ready ✓  platform=' + PLATFORM + ' store=' + STORE_ID + ' uuid=' + STORE_UUID + ' domain=' + STORE_DOMAIN + ' bubble visible=' + settings.bubbleVisible + ' at ' + settings.position);
         console.log('[Fuqah] Verify: document.getElementById("fq-bubble")=', document.getElementById('fq-bubble'));
 
         // v3.5: never restore prior conversations on page load.
