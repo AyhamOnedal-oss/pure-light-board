@@ -2960,14 +2960,53 @@
     console.log('[Fuqah] init() starting. document.body=' + !!document.body);
     loadCSS();
 
+    // v4.7.33 — Preconnect to Supabase so the bootstrap fetch reuses a warm TLS connection.
+    try {
+      var head = document.head || document.getElementsByTagName('head')[0];
+      if (head) {
+        ['preconnect', 'dns-prefetch'].forEach(function (rel) {
+          var l = document.createElement('link');
+          l.rel = rel;
+          l.href = 'https://' + SUPABASE_PROJECT + '.supabase.co';
+          if (rel === 'preconnect') l.setAttribute('crossorigin', '');
+          head.appendChild(l);
+        });
+      }
+    } catch (e) {}
+
+    // v4.7.33 — Instant paint from localStorage cache (sub-200ms on repeat visits).
+    var hydrated = false;
+    try {
+      var raw = window.localStorage && window.localStorage.getItem(FQ_CACHE_KEY);
+      if (raw) {
+        var cached = JSON.parse(raw);
+        if (cached && cached.tenant_id && cached.cfg) {
+          TENANT_ID = cached.tenant_id;
+          if (cached.store_id && !STORE_ID) STORE_ID = String(cached.store_id);
+          if (cached.store_uuid && !STORE_UUID) STORE_UUID = String(cached.store_uuid);
+          applyConfigPayload(cached.cfg);
+          if (settings.bubbleVisible !== false) {
+            buildWidget();
+            hydrated = true;
+            console.log('[Fuqah] Instant paint from cache (tenant=' + TENANT_ID + ')');
+          }
+        }
+      }
+    } catch (e) {}
+
     function onLoaded() {
       console.log('[Fuqah] Config done. Building widget DOM...');
       {
         if (settings.bubbleVisible === false) {
           cleanupWidgetDom();
           window.__FUQAH_WIDGET_LOADED__ = false;
-          window.__FUQAH_WIDGET_CONFIG__ = { platform: PLATFORM, storeId: STORE_ID, storeUuid: STORE_UUID, domain: STORE_DOMAIN, tenantId: TENANT_ID, bubbleVisible: false, version: '4.7.25' };
-          console.log('[Fuqah] Widget v4.7.25 hidden by dashboard setting');
+          window.__FUQAH_WIDGET_CONFIG__ = { platform: PLATFORM, storeId: STORE_ID, storeUuid: STORE_UUID, domain: STORE_DOMAIN, tenantId: TENANT_ID, bubbleVisible: false, version: '4.7.33' };
+          console.log('[Fuqah] Widget v4.7.33 hidden by dashboard setting');
+          return;
+        }
+        // If we already painted from cache and the chat window is open, don't
+        // re-render mid-conversation. Live-refresh loop will pick it up later.
+        if (hydrated && state && state.isOpen) {
           return;
         }
         buildWidget();
