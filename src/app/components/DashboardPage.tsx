@@ -129,7 +129,7 @@ export function DashboardPage() {
     refund: { en: 'Refund', ar: 'استرجاع', color: '#a855f7' },
     product: { en: 'Product', ar: 'منتج', color: '#14b8a6' },
     payment: { en: 'Payment', ar: 'دفع', color: '#eab308' },
-    other: { en: 'Other', ar: 'أخرى', color: '#8b5cf6' },
+    other: { en: 'Uncategorized', ar: 'بدون تصنيف', color: '#8b5cf6' },
   };
   // Only the four main categories appear in the classification chart.
   // "other" is intentionally hidden — it's a catch-all and not meaningful here.
