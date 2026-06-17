@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const [{ data: design }, { data: workspace }, { data: train }] = await Promise.all([
+    const [{ data: design }, { data: workspace }, { data: train }, idsRes] = await Promise.all([
       supabase.from("settings_chat_design").select("*").eq("tenant_id", tenantId).maybeSingle(),
       supabase
         .from("settings_workspace")
@@ -50,7 +50,32 @@ Deno.serve(async (req) => {
         .select("bubble_visible")
         .eq("tenant_id", tenantId)
         .maybeSingle(),
+      platform === "zid"
+        ? supabase
+            .from("zid_connections")
+            .select("store_id, store_uuid")
+            .eq("tenant_id", tenantId)
+            .maybeSingle()
+        : platform === "salla"
+          ? supabase
+              .from("salla_connections")
+              .select("merchant_id")
+              .eq("tenant_id", tenantId)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
     ]);
+
+    const ids = (idsRes as { data: Record<string, unknown> | null } | null)?.data ?? null;
+    const storeIdOut =
+      ids && "store_id" in ids && ids.store_id != null
+        ? String(ids.store_id)
+        : ids && "merchant_id" in ids && ids.merchant_id != null
+          ? String(ids.merchant_id)
+          : null;
+    const storeUuidOut =
+      ids && "store_uuid" in ids && ids.store_uuid != null
+        ? String(ids.store_uuid)
+        : null;
 
     const cfg = design
       ? {
@@ -82,6 +107,8 @@ Deno.serve(async (req) => {
         tenant_id: tenantId,
         is_active: !!is_active,
         updated_at: updatedAt,
+        store_id: storeIdOut,
+        store_uuid: storeUuidOut,
         cfg,
       },
       200,
