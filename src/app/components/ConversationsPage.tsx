@@ -279,6 +279,46 @@ export function ConversationsPage() {
     setSelected(c);
     setBumpV(v => v + 1);
     window.dispatchEvent(new Event('fuqah:badges-bump'));
+    // Lazy-load full messages (with attachments) for the selected conversation.
+    // The list-level fetch intentionally skips the `attachments` column because
+    // those JSON blobs (often base64 data URLs) make the initial payload huge.
+    (async () => {
+      const { data: full } = await supabase
+        .from('conversations_messages')
+        .select('id, conversation_id, sender, body, kind, file_name, feedback, created_at, attachments')
+        .eq('conversation_id', c.id)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
+      if (!full) return;
+      const SENDER_RANK: Record<string, number> = { customer: 0, ai: 1, agent: 1 };
+      full.sort((a, b) => {
+        const ta = new Date(a.created_at).getTime();
+        const tb = new Date(b.created_at).getTime();
+        if (ta !== tb) return ta - tb;
+        return (SENDER_RANK[a.sender] ?? 2) - (SENDER_RANK[b.sender] ?? 2);
+      });
+      const msgs: Message[] = full.map(m => {
+        const atts = Array.isArray((m as any).attachments) ? ((m as any).attachments as any[]) : [];
+        const firstAtt = atts[0] || null;
+        const inferredKind: 'text' | 'image' | 'file' = firstAtt
+          ? (String(firstAtt.content_type || '').startsWith('image/') ? 'image' : 'file')
+          : ((m.kind as 'text' | 'image' | 'file') || 'text');
+        return {
+          id: m.id,
+          sender: m.sender === 'customer' ? 'customer' : 'ai',
+          text: m.body || '',
+          time: formatTimeOnly(m.created_at),
+          type: inferredKind,
+          fileName: m.file_name || firstAtt?.name || undefined,
+          attachmentUrl: firstAtt?.url || undefined,
+          attachmentSize: typeof firstAtt?.size === 'number' ? firstAtt.size : undefined,
+          attachmentContentType: firstAtt?.content_type || undefined,
+          feedback: m.feedback === 'positive' ? 'positive' : m.feedback === 'negative' ? 'negative' : undefined,
+        };
+      });
+      setSelected(prev => (prev && prev.id === c.id ? { ...prev, messages: msgs } : prev));
+      setConversations(prev => prev.map(cv => cv.id === c.id ? { ...cv, messages: msgs } : cv));
+    })();
   };
 
   const getDisplayName = (name: string) => resolveVisitorName(name, t);
