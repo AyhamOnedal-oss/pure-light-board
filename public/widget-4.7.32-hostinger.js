@@ -2743,23 +2743,7 @@
       })
       .then(function (s) {
         if (s) {
-          if (s.primary_color) settings.mainColor = s.primary_color;
-          if (s.theme_mode === 'dark' || s.preview_mode === 'dark') settings.mode = 'dark';
-          if (s.widget_outer_color) settings.widgetOuterColor = s.widget_outer_color;
-          if (s.widget_inner_color) settings.widgetInnerColor = s.widget_inner_color;
-          if (s.position === 'left') settings.position = 'bottom-left';
-          if (typeof s.welcome_bubble_enabled === 'boolean') settings.welcomeBubbleEnabled = s.welcome_bubble_enabled;
-          if (s.welcome_bubble_line1) settings.welcomeBubbleLine1 = s.welcome_bubble_line1;
-          if (s.welcome_bubble_line2) settings.welcomeBubbleLine2 = s.welcome_bubble_line2;
-          if (typeof s.inactivity_enabled === 'boolean') settings.inactivityEnabled = s.inactivity_enabled;
-          if (typeof s.inactivity_prompt_seconds === 'number') settings.inactivityPromptSeconds = s.inactivity_prompt_seconds;
-          if (typeof s.inactivity_close_seconds === 'number') settings.inactivityCloseSeconds = s.inactivity_close_seconds;
-          if (typeof s.rating_inactivity_seconds === 'number') settings.ratingInactivitySeconds = s.rating_inactivity_seconds;
-          if (s.workspace_name) settings.storeName = s.workspace_name;
-          if (s.logo_url) settings.storeLogo = s.logo_url;
-          if (s.icon_url) settings.storeIcon = s.icon_url;
-          settings.bubbleVisible = s.bubble_visible === false ? false : true;
-          if (settings.bubbleVisible === false) cleanupWidgetDom();
+          applyConfigPayload(s);
           console.log('[Fuqah] Config OK: name=' + settings.storeName + ' main=' + settings.mainColor + ' mode=' + settings.mode + ' pos=' + settings.position + ' visible=' + settings.bubbleVisible);
         } else {
           console.log('[Fuqah] Config: no data, using defaults');
@@ -2770,6 +2754,104 @@
         console.warn('[Fuqah] Config fetch failed (using defaults):', err && err.message || err);
         callback();
       });
+  }
+
+  // Write a widget-config response into `settings`. Returns true if any
+  // visually relevant field changed.
+  function applyConfigPayload(s) {
+    if (!s) return false;
+    var before = JSON.stringify({
+      a: settings.mainColor, b: settings.mode, c: settings.widgetOuterColor,
+      d: settings.widgetInnerColor, e: settings.position, f: settings.welcomeBubbleEnabled,
+      g: settings.welcomeBubbleLine1, h: settings.welcomeBubbleLine2,
+      i: settings.storeName, j: settings.storeLogo, k: settings.storeIcon,
+      l: settings.bubbleVisible,
+    });
+    if (s.primary_color) settings.mainColor = s.primary_color;
+    // theme_mode/preview_mode may flip back to light, so honor both
+    if (s.theme_mode === 'dark' || s.preview_mode === 'dark') {
+      settings.mode = 'dark';
+    } else if (s.theme_mode === 'light' || s.preview_mode === 'light') {
+      settings.mode = 'light';
+    }
+    if (s.widget_outer_color) settings.widgetOuterColor = s.widget_outer_color;
+    if (s.widget_inner_color) settings.widgetInnerColor = s.widget_inner_color;
+    settings.position = (s.position === 'left') ? 'bottom-left' : 'bottom-right';
+    if (typeof s.welcome_bubble_enabled === 'boolean') settings.welcomeBubbleEnabled = s.welcome_bubble_enabled;
+    if (s.welcome_bubble_line1) settings.welcomeBubbleLine1 = s.welcome_bubble_line1;
+    if (s.welcome_bubble_line2) settings.welcomeBubbleLine2 = s.welcome_bubble_line2;
+    if (typeof s.inactivity_enabled === 'boolean') settings.inactivityEnabled = s.inactivity_enabled;
+    if (typeof s.inactivity_prompt_seconds === 'number') settings.inactivityPromptSeconds = s.inactivity_prompt_seconds;
+    if (typeof s.inactivity_close_seconds === 'number') settings.inactivityCloseSeconds = s.inactivity_close_seconds;
+    if (typeof s.rating_inactivity_seconds === 'number') settings.ratingInactivitySeconds = s.rating_inactivity_seconds;
+    if (s.workspace_name) settings.storeName = s.workspace_name;
+    if (s.logo_url) settings.storeLogo = s.logo_url;
+    if (s.icon_url) settings.storeIcon = s.icon_url;
+    settings.bubbleVisible = s.bubble_visible === false ? false : true;
+    var after = JSON.stringify({
+      a: settings.mainColor, b: settings.mode, c: settings.widgetOuterColor,
+      d: settings.widgetInnerColor, e: settings.position, f: settings.welcomeBubbleEnabled,
+      g: settings.welcomeBubbleLine1, h: settings.welcomeBubbleLine2,
+      i: settings.storeName, j: settings.storeLogo, k: settings.storeIcon,
+      l: settings.bubbleVisible,
+    });
+    return before !== after;
+  }
+
+  // Re-fetch widget-config only (skip widget-resolve once we have a tenant)
+  // and re-render the bubble if anything visual changed AND the chat window
+  // is closed (we avoid re-rendering mid-conversation to prevent flicker).
+  var _refreshing = false;
+  function refreshConfigLive() {
+    if (_refreshing) return;
+    if (!TENANT_ID) return; // boot fetch hasn't resolved a tenant yet
+    _refreshing = true;
+    fetch(cacheBust(FUNCTIONS_BASE + '/widget-config?tenant_id=' + TENANT_ID), {
+      cache: 'no-store', headers: AUTH_HEADERS,
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        if (!s) return;
+        var changed = applyConfigPayload(s);
+        if (!changed) return;
+        if (settings.bubbleVisible === false) {
+          cleanupWidgetDom();
+          return;
+        }
+        // Don't re-render while the chat window is open — it would wipe
+        // the current conversation UI. The new settings will apply next
+        // time the user opens the bubble.
+        if (state && state.isOpen) return;
+        try {
+          console.log('[Fuqah] Live settings change detected, re-rendering bubble');
+          buildWidget();
+        } catch (e) {
+          console.warn('[Fuqah] Live re-render failed:', e && e.message || e);
+        }
+      })
+      .catch(function (err) {
+        console.warn('[Fuqah] Live config refresh failed:', err && err.message || err);
+      })
+      .then(function () { _refreshing = false; });
+  }
+
+  // Wire visibility / focus / interval triggers exactly once.
+  var _liveWired = false;
+  function wireLiveConfigRefresh() {
+    if (_liveWired) return;
+    _liveWired = true;
+    try {
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') refreshConfigLive();
+      });
+      window.addEventListener('focus', refreshConfigLive);
+      setInterval(function () {
+        if (document.visibilityState === 'visible') refreshConfigLive();
+      }, 20000);
+      console.log('[Fuqah] Live config refresh wired (focus + visibility + 20s poll)');
+    } catch (e) {
+      console.warn('[Fuqah] Failed to wire live config refresh:', e && e.message || e);
+    }
   }
 
   // Visitor id (persists across sessions for grouping conversations)
