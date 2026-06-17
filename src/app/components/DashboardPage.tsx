@@ -295,12 +295,11 @@ export function DashboardPage() {
                 key={classificationAnimationKey}
                 data={classificationData}
                 cx="50%" cy="50%"
-                startAngle={90} endAngle={-270}
                 innerRadius={50} outerRadius={78}
                 dataKey="value" paddingAngle={4} strokeWidth={0}
-                isAnimationActive={true}
-                animationDuration={1200}
-                animationBegin={500}
+                isAnimationActive
+                animationBegin={0}
+                animationDuration={900}
                 animationEasing="ease-out"
               >
                 {classificationData.map((entry, i) => <Cell key={`cls-${i}`} fill={entry.color} />)}
@@ -424,12 +423,11 @@ export function DashboardPage() {
                   key={feedbackAnimationKey}
                   data={feedbackPieData}
                   cx="50%" cy="50%"
-                  startAngle={90} endAngle={-270}
                   innerRadius={50} outerRadius={78}
                   dataKey="value" paddingAngle={4} strokeWidth={0}
-                  isAnimationActive={true}
-                  animationDuration={1200}
-                  animationBegin={600}
+                  isAnimationActive
+                  animationBegin={0}
+                  animationDuration={900}
                   animationEasing="ease-out"
                 >
                   <Cell key="fb-positive" fill="#10b981" />
