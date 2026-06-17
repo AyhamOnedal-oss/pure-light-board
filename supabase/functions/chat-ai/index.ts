@@ -421,7 +421,8 @@ Deno.serve(async (req) => {
             prompt_tokens: usage.prompt_tokens,
             completion_tokens: usage.completion_tokens,
             total_tokens: usage.total_tokens,
-            cost_usd: estimateCost("gpt-4o-mini", usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
+            model: VISION_MODEL,
+            cost_usd: estimateCost(VISION_MODEL, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0),
           });
           let parsed: any = null;
           try { parsed = JSON.parse(raw); } catch { /* leave null */ }
