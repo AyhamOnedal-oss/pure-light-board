@@ -354,6 +354,7 @@ Deno.serve(async (req) => {
     // even when the image is a logo/icon/drawing rather than a real photo.
     if (hasAttachments && OPENAI_API_KEY) {
       try {
+        const VISION_MODEL = "gpt-4o";
         const visionRes = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -361,9 +362,9 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${OPENAI_API_KEY}`,
           },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: VISION_MODEL,
             temperature: 0,
-            max_tokens: 700,
+            max_tokens: 1200,
             response_format: { type: "json_object" },
             messages: [
               {
