@@ -11,6 +11,14 @@ const supabase = createClient(
 );
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
+const N8N_WEBHOOK_URL_ZID = Deno.env.get("N8N_WEBHOOK_URL_ZID") ?? "";
+const N8N_WEBHOOK_URL_SALLA = Deno.env.get("N8N_WEBHOOK_URL_SALLA") ?? "";
+
+function pickN8nUrl(platform: string | null | undefined): string {
+  if (platform === "zid") return N8N_WEBHOOK_URL_ZID || N8N_WEBHOOK_URL;
+  if (platform === "salla") return N8N_WEBHOOK_URL_SALLA || N8N_WEBHOOK_URL;
+  return N8N_WEBHOOK_URL;
+}
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const CLASSIFIER_MODEL = "gpt-4o-mini";
 const CLASSIFIER_TIMEOUT_MS = 3500;
