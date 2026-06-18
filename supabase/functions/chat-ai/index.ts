@@ -969,7 +969,20 @@ Deno.serve(async (req) => {
       });
     }
 
+    const n8nSecretName =
+      resolvedPlatform === "zid" && N8N_WEBHOOK_URL_ZID
+        ? "N8N_WEBHOOK_URL_ZID"
+        : resolvedPlatform === "salla" && N8N_WEBHOOK_URL_SALLA
+          ? "N8N_WEBHOOK_URL_SALLA"
+          : "N8N_WEBHOOK_URL";
+    let n8nPath = "";
+    try {
+      n8nPath = new URL(n8nUrl).pathname;
+    } catch (_) {
+      n8nPath = "invalid-url";
+    }
     console.log("n8n webhook platform=", resolvedPlatform, "kind=", n8nUrl.includes("/webhook-test/") ? "TEST" : n8nUrl.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
+    console.log("n8n route secret=", n8nSecretName, "path=", n8nPath);
 
     const n8nRes = await fetch(n8nUrl, {
       method: "POST",
