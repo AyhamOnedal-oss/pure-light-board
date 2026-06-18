@@ -1,29 +1,48 @@
-## Goal
-Figure out why the Salla n8n workflow doesn't see the merchant prompt, while Zid does.
+## Root cause (confirmed)
 
-## What I already verified
-- `supabase/functions/chat-ai/index.ts` builds the n8n payload symmetrically for both platforms — there is no Salla-specific branch that strips `ai.prompt`. Both platforms get:
-  ```
-  ai: { mode, prompt: mode==='file' ? null : prompt, file_url: ... }
-  ```
-  loaded from `settings_train_ai` by `tenant_id`.
-- The Zid workflow (`docs/n8n/fuqah-zid-workflow-v3.json`) reads `$('Webhook').item.json.body.ai.prompt` in its system message. If the Salla workflow (`get_conversation2`) was built differently, it may simply not reference that field.
+Queried `settings_train_ai` for tenant `1ed650e3-...`:
 
-So the prompt is either (a) empty in the DB for the Salla tenant, or (b) the Salla n8n workflow doesn't bind `body.ai.prompt` into its AI Agent system message.
+```
+mode: prompt, prompt_len: 0, file_url: null
+```
 
-## Plan
+The DB row exists but `prompt` is empty. The dashboard's TrainAI screen shows a hardcoded `DEFAULT_PROMPT` constant client-side, but only writes to the DB when the merchant clicks Save. New tenants get the row from the `create_tenant_default_settings` trigger with an empty `prompt`, so `chat-ai` correctly sends `ai.prompt = null` to n8n.
 
-1. **Add a non-sensitive prompt-presence log in `chat-ai`** (right next to the existing `n8n route` log), to confirm what the edge function actually sent on each request:
-   ```text
-   n8n ai_payload mode= prompt prompt_len= 1843 file_url= null
-   ```
-   No prompt content, just length + mode. This tells us instantly whether the payload is the problem or the n8n workflow is.
+This affects every tenant (Salla and Zid) that never saved Train AI. It just happens to be visible on Salla right now.
 
-2. **Redeploy `chat-ai`** so the new log is live.
+## Fix (two parts)
 
-3. **User sends one Salla test message**, then we read the logs:
-   - If `prompt_len= 0` (or `mode= file`) → the Salla tenant's `settings_train_ai.prompt` is empty / mode is wrong. Fix in the dashboard Train AI screen for that tenant.
-   - If `prompt_len > 0` → the payload is correct. The issue is the Salla n8n workflow (`get_conversation2`) doesn't reference `{{ $('Webhook').item.json.body.ai.prompt }}` in its AI Agent system message. Fix by editing the Salla workflow's System Message node to match the Zid workflow (see `docs/n8n-integration.md` §2 and `docs/n8n/fuqah-zid-workflow-v3.json` for the exact expression).
+### 1. Backfill + new default in the DB
+
+- Add a SQL constant function `public.default_train_ai_prompt()` returning the Arabic default prompt (the same text currently in `src/app/components/settings/TrainAI.tsx`).
+- Migration also:
+  - `UPDATE settings_train_ai SET prompt = public.default_train_ai_prompt() WHERE (prompt IS NULL OR length(btrim(prompt)) = 0) AND mode = 'prompt';`
+  - Update `create_tenant_default_settings()` trigger to insert `prompt = public.default_train_ai_prompt()` for new tenants.
+
+### 2. Server-side safety net in `chat-ai`
+
+In `supabase/functions/chat-ai/index.ts`, when building the n8n payload:
+
+```ts
+const effectivePrompt =
+  training?.mode === "file"
+    ? null
+    : (training?.prompt && training.prompt.trim().length > 0
+        ? training.prompt
+        : DEFAULT_TRAIN_AI_PROMPT);
+```
+
+Define `DEFAULT_TRAIN_AI_PROMPT` at the top of the file with the same text. This guarantees n8n always receives a non-empty `ai.prompt` even if the DB row hasn't been backfilled yet or a merchant clears the field.
+
+### 3. Dashboard parity (small)
+
+`TrainAI.tsx` currently treats an empty DB value as "show default". Leave the UI as is — the migration will populate the DB with the default text, so the textarea will simply show it on load and the merchant can edit/save normally.
 
 ## Scope
-Only `supabase/functions/chat-ai/index.ts` is edited (add one log line). No DB, widget, or behavior changes.
+- New migration (function + UPDATE + trigger replacement).
+- Edit `supabase/functions/chat-ai/index.ts` (add constant + fallback, remove the debug `n8n ai_payload` log added earlier since the diagnosis is done).
+- No widget changes. No UI changes.
+
+## Verification
+- Re-run the Salla test message; the n8n webhook body should now contain `ai.prompt` starting with `أنت مساعد ذكاء اصطناعي...`.
+- `SELECT length(prompt) FROM settings_train_ai WHERE tenant_id = '1ed650e3-...'` should be > 0.
