@@ -4,6 +4,16 @@ Your storefront widget calls `chat-ai`, which forwards every message to your
 n8n webhook. The merchant's saved prompt and file are already inside that
 payload — n8n just needs to bind them to the AI Agent node.
 
+## Per-platform webhook routing
+
+`chat-ai` picks the n8n webhook URL based on the resolved store platform:
+
+- `N8N_WEBHOOK_URL_ZID` — used for Zid stores (webhook A)
+- `N8N_WEBHOOK_URL_SALLA` — used for Salla stores (webhook B)
+- `N8N_WEBHOOK_URL` — fallback for manual/unknown platforms and when a per-platform URL is unset
+
+No widget or dashboard change is needed — the widget already sends `platform`, and routing happens server-side.
+
 ## 1. Payload that arrives at the n8n Webhook node
 
 ```json
