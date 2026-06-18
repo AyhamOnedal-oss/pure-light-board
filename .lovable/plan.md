@@ -1,41 +1,28 @@
-## Goal
-Route Zid stores to one n8n webhook and Salla stores to a different one, from inside `chat-ai`.
+## Diagnosis
 
-## Approach
-Per-platform webhook URLs via secrets, selected at request time using the already-resolved `platform` value. No widget.js or DB changes — the widget already sends `platform`, and `chat-ai` already resolves it (`resolvedPlatform = workspace?.platform ?? platform`).
+The `chat-ai` edge function code is already correct:
 
-## Changes
+- `pickN8nUrl("salla")` returns `N8N_WEBHOOK_URL_SALLA`
+- `pickN8nUrl("zid")` returns `N8N_WEBHOOK_URL_ZID`
+- Log line confirms it: `n8n webhook platform= salla kind= PRODUCTION`
 
-### 1. New secrets
-- `N8N_WEBHOOK_URL_ZID` — Zid workflow URL (webhook A, the current one)
-- `N8N_WEBHOOK_URL_SALLA` — Salla workflow URL (webhook B, new)
-- Keep `N8N_WEBHOOK_URL` as a fallback for unknown/manual platforms and backward compat.
+You confirmed the two n8n workflows have **different** Production URLs. So the request really did go to whatever URL is stored in the `N8N_WEBHOOK_URL_SALLA` secret — and that URL is the Zid workflow's URL, not the Salla one.
 
-I'll prompt for both via `add_secret` at build time.
+In short: the routing logic isn't broken. The secret value is wrong.
 
-### 2. `supabase/functions/chat-ai/index.ts`
-- Read all three env vars at top of file.
-- Add a tiny resolver:
-  ```ts
-  function pickN8nUrl(platform: string | null): string {
-    if (platform === "zid")   return Deno.env.get("N8N_WEBHOOK_URL_ZID")   || N8N_WEBHOOK_URL;
-    if (platform === "salla") return Deno.env.get("N8N_WEBHOOK_URL_SALLA") || N8N_WEBHOOK_URL;
-    return N8N_WEBHOOK_URL;
-  }
-  ```
-- Replace the single `N8N_WEBHOOK_URL` usage (lines ~941, 963, 965) with `const n8nUrl = pickN8nUrl(resolvedPlatform);` and use `n8nUrl` for the empty-check, the log line, and the `fetch()` call.
-- Update the log to show which platform/url kind was chosen, for debugging.
+## Plan
 
-### 3. Docs
-Append a short note to `docs/n8n-integration.md` explaining the two secrets and that routing is automatic by `platform`.
+1. **Update the secret `N8N_WEBHOOK_URL_SALLA`** to the Salla workflow's Production webhook URL (the one you confirmed is different from Zid's). I'll trigger the secure secret-update form for you.
+2. **(Optional) Re-verify `N8N_WEBHOOK_URL_ZID`** at the same time so both are known-good.
+3. **Test from a Salla store** — send a message, then check the n8n executions list. The Salla workflow (webhook B) should fire; the Zid workflow (webhook A) should not.
+4. If anything still looks off after that, pull the latest `chat-ai` logs and confirm the log line still says `platform= salla kind= PRODUCTION` — if yes, the request is definitely leaving Supabase pointed at the URL in that secret.
 
-## Out of scope
-- No changes to widget.js (4.7.33 stays as-is).
-- No changes to `widget-bootstrap`, `widget-resolve`, or the dashboard.
-- No per-tenant webhook override (can be added later by reading a column on `settings_workspace` if needed).
+## No code changes
 
-## Validation
-1. Set both secrets to distinct test webhooks.
-2. Open a Zid storefront → message lands in webhook A only.
-3. Open a Salla storefront → message lands in webhook B only.
-4. Check `chat-ai` logs: `n8n webhook platform=zid|salla url-kind=PRODUCTION`.
+- `supabase/functions/chat-ai/index.ts` — unchanged (already routes correctly).
+- `public/widget-4.7.33-hostinger.js` — unchanged (widget only talks to `chat-ai`; n8n routing is fully server-side).
+- No new migration, no new function.
+
+## Why not edit the widget
+
+The widget never calls n8n directly. It only POSTs to the `chat-ai` edge function with `platform: "salla" | "zid" | …`, and `chat-ai` decides which n8n webhook to forward to. Changing the widget can't fix a wrong secret value.
