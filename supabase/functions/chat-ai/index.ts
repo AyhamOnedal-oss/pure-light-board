@@ -983,15 +983,20 @@ Deno.serve(async (req) => {
     }
     console.log("n8n webhook platform=", resolvedPlatform, "kind=", n8nUrl.includes("/webhook-test/") ? "TEST" : n8nUrl.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
     console.log("n8n route secret=", n8nSecretName, "path=", n8nPath);
+
+    const effectiveAiMode = training?.mode === "file" ? "file" : "prompt";
+    const trimmedPrompt = (training?.prompt ?? "").trim();
+    const effectivePrompt =
+      effectiveAiMode === "file"
+        ? null
+        : (trimmedPrompt.length > 0 ? training!.prompt : DEFAULT_TRAIN_AI_PROMPT);
     console.log(
       "n8n ai_payload mode=",
-      training?.mode ?? "(none)",
+      effectiveAiMode,
       "prompt_len=",
-      (training?.mode === "file" ? 0 : (training?.prompt?.length ?? 0)),
-      "file_url=",
-      training?.mode === "file" ? (training?.file_url ? "set" : "null") : "n/a",
-      "training_row=",
-      training ? "present" : "missing",
+      effectivePrompt?.length ?? 0,
+      "source=",
+      effectiveAiMode === "file" ? "file" : (trimmedPrompt.length > 0 ? "db" : "default"),
     );
 
     const n8nRes = await fetch(n8nUrl, {
@@ -1026,9 +1031,9 @@ Deno.serve(async (req) => {
             }
           : null,
         ai: {
-          mode: training?.mode,
-          prompt: training?.mode === "file" ? null : (training?.prompt ?? null),
-          file_url: training?.mode === "file" ? (training?.file_url ?? null) : null,
+          mode: effectiveAiMode,
+          prompt: effectivePrompt,
+          file_url: effectiveAiMode === "file" ? (training?.file_url ?? null) : null,
         },
       }),
     });
