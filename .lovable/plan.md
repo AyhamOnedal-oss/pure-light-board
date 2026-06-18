@@ -1,47 +1,41 @@
-# Speed up the Hostinger `widget.js` (v4.7.33)
-
-The earlier work optimized the storefront-loader edge function (`widget-loader`), but Hostinger merchants embed a different script: `public/widget-4.7.32-hostinger.js` (served from `https://widget.fuqah.net/widget.js`). That script still does a sequential `widget-resolve` → `widget-config` round-trip with no cache, which is why the bubble takes 4–7s to appear on cold start.
-
 ## Goal
+Route Zid stores to one n8n webhook and Salla stores to a different one, from inside `chat-ai`.
 
-- Bubble visible in <200ms on repeat visits, ~1 round-trip on first visit.
-- Dashboard setting changes apply within seconds (keep existing 20s poll + tab-focus refresh).
-- No regressions in events, inactivity, rating, or chat flow.
+## Approach
+Per-platform webhook URLs via secrets, selected at request time using the already-resolved `platform` value. No widget.js or DB changes — the widget already sends `platform`, and `chat-ai` already resolves it (`resolvedPlatform = workspace?.platform ?? platform`).
 
-## Changes to `public/widget-4.7.32-hostinger.js` → save as `public/widget-4.7.33-hostinger.js`
+## Changes
 
-1. **Bump banner to v4.7.33** with a short note: "instant paint via localStorage cache + single-round-trip `widget-bootstrap`".
-2. **Preconnect**: on script start, inject `<link rel="preconnect" crossorigin>` and `<link rel="dns-prefetch">` for `SUPABASE_URL` so the first fetch reuses a warm TLS connection.
-3. **Cache key**: `fuqah_widget_cache_<platform>_<external_id>` storing `{ tenant_id, cfg, updated_at, ts }`.
-4. **Instant paint path** (inside `boot()` before `fetchConfig`):
-   - Read cache; if present, set `TENANT_ID`, call `applyConfigPayload(cached.cfg)`, then `buildWidget()` immediately.
-   - If no cache, render a default skeleton bubble (black outer / white inner, right side, size 60) so the user always sees a launcher within ~100ms. Track `mountedSkeleton = true`.
-5. **Replace `fetchConfig` round-trip**: swap the `widget-resolve` + `widget-config` chain for a single call to `widget-bootstrap?platform=…&external_id=…` (already deployed). Pass `If-None-Match` from cached ETag (`"<tenant>:<updated_at>"`) so we get a 304 when nothing changed.
-6. **On response**:
-   - If `!tenant_id || !is_active || !cfg`: if a skeleton was mounted, remove it via `cleanupWidgetDom()`.
-   - Else: write fresh cache; only call `buildWidget()` again when `mountedSkeleton`, tenant changed, or `updated_at` moved (covers every visual field — drop the manual diff list eventually, but keep `applyConfigPayload` change-detection as a fallback).
-7. **`refreshConfigLive`** (the 20s poll + focus refresh) keeps using `widget-config?tenant_id=…` — no change needed, it already re-renders only when visuals change and the window is closed.
-8. **Backfill `STORE_ID`/`STORE_UUID`**: `widget-bootstrap` doesn't return these today. Either:
-   - (a) extend `widget-bootstrap` to also return `store_id` / `store_uuid` from `resolveTenant`, OR
-   - (b) keep `widget-resolve` as a one-shot fallback only when the snippet renders neither ID (rare).
-   Prefer (a) — minor edit, no extra request.
-9. Update any reference to `widget-4.7.32-hostinger.js` (docs, snippets) → `widget-4.7.33-hostinger.js` and keep v4.7.32 on disk as a fallback.
+### 1. New secrets
+- `N8N_WEBHOOK_URL_ZID` — Zid workflow URL (webhook A, the current one)
+- `N8N_WEBHOOK_URL_SALLA` — Salla workflow URL (webhook B, new)
+- Keep `N8N_WEBHOOK_URL` as a fallback for unknown/manual platforms and backward compat.
 
-## Technical details
+I'll prompt for both via `add_secret` at build time.
 
-- File: `public/widget-4.7.33-hostinger.js` (new copy, edits per above).
-- Edge function: `supabase/functions/widget-bootstrap/index.ts` — add `store_id` + `store_uuid` from `resolveTenant` to the JSON payload; redeploy.
-- No changes to chat-ai, events, rating, ticketing, inactivity, or DOM building.
-- Cache TTL: rely on `updated_at` ETag; no hard expiry. Optional safety: ignore cache older than 7 days.
+### 2. `supabase/functions/chat-ai/index.ts`
+- Read all three env vars at top of file.
+- Add a tiny resolver:
+  ```ts
+  function pickN8nUrl(platform: string | null): string {
+    if (platform === "zid")   return Deno.env.get("N8N_WEBHOOK_URL_ZID")   || N8N_WEBHOOK_URL;
+    if (platform === "salla") return Deno.env.get("N8N_WEBHOOK_URL_SALLA") || N8N_WEBHOOK_URL;
+    return N8N_WEBHOOK_URL;
+  }
+  ```
+- Replace the single `N8N_WEBHOOK_URL` usage (lines ~941, 963, 965) with `const n8nUrl = pickN8nUrl(resolvedPlatform);` and use `n8nUrl` for the empty-check, the log line, and the `fetch()` call.
+- Update the log to show which platform/url kind was chosen, for debugging.
+
+### 3. Docs
+Append a short note to `docs/n8n-integration.md` explaining the two secrets and that routing is automatic by `platform`.
 
 ## Out of scope
-
-- Bundling the widget into the loader.
-- Service-worker / HTTP/3 / CDN tuning.
-- Changing the embed snippet's `<script>` URL pattern.
+- No changes to widget.js (4.7.33 stays as-is).
+- No changes to `widget-bootstrap`, `widget-resolve`, or the dashboard.
+- No per-tenant webhook override (can be added later by reading a column on `settings_workspace` if needed).
 
 ## Validation
-
-- Hard-reload a Hostinger store with cache cleared → bubble appears immediately (skeleton), real config swaps in once `widget-bootstrap` returns.
-- Reload again → bubble paints from cache in <200ms; network shows a single `widget-bootstrap` call returning 304.
-- Change widget color in dashboard → within ≤20s (poll) or on tab focus, the bubble re-renders with the new color while closed.
+1. Set both secrets to distinct test webhooks.
+2. Open a Zid storefront → message lands in webhook A only.
+3. Open a Salla storefront → message lands in webhook B only.
+4. Check `chat-ai` logs: `n8n webhook platform=zid|salla url-kind=PRODUCTION`.
