@@ -983,6 +983,16 @@ Deno.serve(async (req) => {
     }
     console.log("n8n webhook platform=", resolvedPlatform, "kind=", n8nUrl.includes("/webhook-test/") ? "TEST" : n8nUrl.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
     console.log("n8n route secret=", n8nSecretName, "path=", n8nPath);
+    console.log(
+      "n8n ai_payload mode=",
+      training?.mode ?? "(none)",
+      "prompt_len=",
+      (training?.mode === "file" ? 0 : (training?.prompt?.length ?? 0)),
+      "file_url=",
+      training?.mode === "file" ? (training?.file_url ? "set" : "null") : "n/a",
+      "training_row=",
+      training ? "present" : "missing",
+    );
 
     const n8nRes = await fetch(n8nUrl, {
       method: "POST",
