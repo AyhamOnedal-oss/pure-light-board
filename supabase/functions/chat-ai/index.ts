@@ -11,6 +11,14 @@ const supabase = createClient(
 );
 
 const N8N_WEBHOOK_URL = Deno.env.get("N8N_WEBHOOK_URL") ?? "";
+const N8N_WEBHOOK_URL_ZID = Deno.env.get("N8N_WEBHOOK_URL_ZID") ?? "";
+const N8N_WEBHOOK_URL_SALLA = Deno.env.get("N8N_WEBHOOK_URL_SALLA") ?? "";
+
+function pickN8nUrl(platform: string | null | undefined): string {
+  if (platform === "zid") return N8N_WEBHOOK_URL_ZID || N8N_WEBHOOK_URL;
+  if (platform === "salla") return N8N_WEBHOOK_URL_SALLA || N8N_WEBHOOK_URL;
+  return N8N_WEBHOOK_URL;
+}
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const CLASSIFIER_MODEL = "gpt-4o-mini";
 const CLASSIFIER_TIMEOUT_MS = 3500;
@@ -938,7 +946,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!N8N_WEBHOOK_URL) {
+    const n8nUrl = pickN8nUrl(resolvedPlatform);
+    if (!n8nUrl) {
       return jsonResponse({ error: "n8n_not_configured" }, 503);
     }
 
@@ -960,9 +969,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log("n8n webhook kind:", N8N_WEBHOOK_URL.includes("/webhook-test/") ? "TEST" : N8N_WEBHOOK_URL.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
+    console.log("n8n webhook platform=", resolvedPlatform, "kind=", n8nUrl.includes("/webhook-test/") ? "TEST" : n8nUrl.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
 
-    const n8nRes = await fetch(N8N_WEBHOOK_URL, {
+    const n8nRes = await fetch(n8nUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
