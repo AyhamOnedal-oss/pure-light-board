@@ -946,7 +946,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!N8N_WEBHOOK_URL) {
+    const n8nUrl = pickN8nUrl(resolvedPlatform);
+    if (!n8nUrl) {
       return jsonResponse({ error: "n8n_not_configured" }, 503);
     }
 
@@ -968,9 +969,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log("n8n webhook kind:", N8N_WEBHOOK_URL.includes("/webhook-test/") ? "TEST" : N8N_WEBHOOK_URL.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
+    console.log("n8n webhook platform=", resolvedPlatform, "kind=", n8nUrl.includes("/webhook-test/") ? "TEST" : n8nUrl.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
 
-    const n8nRes = await fetch(N8N_WEBHOOK_URL, {
+    const n8nRes = await fetch(n8nUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
