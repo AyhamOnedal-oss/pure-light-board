@@ -20,6 +20,74 @@ function pickN8nUrl(platform: string | null | undefined): string {
   return N8N_WEBHOOK_URL;
 }
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+
+// Fallback system prompt when a tenant has not customized Train AI yet.
+// Must stay in sync with the DB function public.default_train_ai_prompt()
+// and the DEFAULT_PROMPT constant in src/app/components/settings/TrainAI.tsx.
+const DEFAULT_TRAIN_AI_PROMPT = `أنت مساعد ذكاء اصطناعي لخدمة عملاء متجرنا الإلكتروني.
+
+ 
+
+اسمك: [اكتب اسم المساعد هنا]
+
+أسلوبك: ودود، محترم، واضح، ومختصر في ردودك دائماً.
+
+ 
+
+في أول رسالة رحّب بالعميل وعرّف بنفسك، واذكر أنك تقدر تساعده في المنتجات والطلبات والشحن والدفع والعروض وأي استفسار آخر.
+
+ 
+
+المنتجات:
+
+- إذا سأل العميل بشكل عام اسأله: ما نوع المنتج؟ ما الميزانية؟ هل يريد قسماً معيناً؟
+
+- اعرض 5 منتجات فقط في كل مرة بالاسم فقط.
+
+- لا تعرض السعر أو الوصف أو الصور إلا إذا طلب العميل ذلك.
+
+- بعد اختيار منتج محدد اعرض فقط ما طلبه العميل.
+
+- للمقاسات والألوان اعرض كل خيار مع حالته: متوفر أو غير متوفر.
+
+- لا تذكر الكمية الدقيقة في المخزون أبداً.
+
+الطلبات:
+
+- اطلب رقم الجوال أولاً للبحث عن الطلب.
+
+- اعرض آخر 5 طلبات فقط برقم الطلب والتاريخ والحالة.
+
+- بعد اختيار الطلب أجب فقط على ما سأل عنه العميل.
+
+- لا تعرض العنوان أو الإيميل أو رقم الجوال للعميل أبداً.
+
+- إذا لم يوجد حساب اطلب رقم الطلب كبديل.
+
+الشحن والدفع والعروض:
+
+- أجب مباشرة على أسئلة الشحن والدفع من بيانات المتجر.
+
+- اعرض فقط العروض والكوبونات الفعّالة وغير المنتهية.
+
+الشكاوى والدعم:
+
+- اعتذر أولاً ثم حاول فهم المشكلة وحلها.
+
+- إذا لم تستطع الحل بعد محاولتين اطلب رقم الجوال وأبلغ العميل أنه سيتم التواصل معه قريباً بإذن الله.
+
+- لا تطلب من العميل أكثر من رقم الجوال فقط.
+
+نهاية المحادثة:
+
+- لا تغلق المحادثة مباشرة.
+
+- إذا انتهى العميل اسأله: هل ترغب أن أنهي المحادثة؟ قبل الإغلاق.
+
+- إذا شكرك العميل رد بـ: العفو، سعدت بخدمتك. هل تحتاج مساعدة أخرى؟
+
+ملاحظة مهمة: لا تخترع معلومات غير موجودة في بيانات المتجر. إذا لم تتوفر المعلومة أخبر العميل بوضوح أنها غير متوفرة حالياً.`;
+
 const CLASSIFIER_MODEL = "gpt-4o-mini";
 const CLASSIFIER_TIMEOUT_MS = 3500;
 const CLASSIFIER_MIN_CONFIDENCE = 0.5;
@@ -983,15 +1051,20 @@ Deno.serve(async (req) => {
     }
     console.log("n8n webhook platform=", resolvedPlatform, "kind=", n8nUrl.includes("/webhook-test/") ? "TEST" : n8nUrl.includes("/webhook/") ? "PRODUCTION" : "UNKNOWN");
     console.log("n8n route secret=", n8nSecretName, "path=", n8nPath);
+
+    const effectiveAiMode = training?.mode === "file" ? "file" : "prompt";
+    const trimmedPrompt = (training?.prompt ?? "").trim();
+    const effectivePrompt =
+      effectiveAiMode === "file"
+        ? null
+        : (trimmedPrompt.length > 0 ? training!.prompt : DEFAULT_TRAIN_AI_PROMPT);
     console.log(
       "n8n ai_payload mode=",
-      training?.mode ?? "(none)",
+      effectiveAiMode,
       "prompt_len=",
-      (training?.mode === "file" ? 0 : (training?.prompt?.length ?? 0)),
-      "file_url=",
-      training?.mode === "file" ? (training?.file_url ? "set" : "null") : "n/a",
-      "training_row=",
-      training ? "present" : "missing",
+      effectivePrompt?.length ?? 0,
+      "source=",
+      effectiveAiMode === "file" ? "file" : (trimmedPrompt.length > 0 ? "db" : "default"),
     );
 
     const n8nRes = await fetch(n8nUrl, {
@@ -1026,9 +1099,9 @@ Deno.serve(async (req) => {
             }
           : null,
         ai: {
-          mode: training?.mode,
-          prompt: training?.mode === "file" ? null : (training?.prompt ?? null),
-          file_url: training?.mode === "file" ? (training?.file_url ?? null) : null,
+          mode: effectiveAiMode,
+          prompt: effectivePrompt,
+          file_url: effectiveAiMode === "file" ? (training?.file_url ?? null) : null,
         },
       }),
     });

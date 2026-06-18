@@ -2030,6 +2030,7 @@ export type Database = {
         Args: { _from: string; _tenant: string; _to: string }
         Returns: Json
       }
+      default_train_ai_prompt: { Args: never; Returns: string }
       get_zid_credentials: {
         Args: { p_tenant_id: string }
         Returns: {
