@@ -64,6 +64,22 @@ function formatSeconds(s: number): string {
   return `${Math.round(s)} ث`;
 }
 
+// Animates the leading numeric portion of a string like "42 ث" or "1.5 ث",
+// preserving any trailing Arabic unit suffix.
+function AnimatedSuffixValue({
+  value, duration = 2000, delay = 0, className, style,
+}: { value: string; duration?: number; delay?: number; className?: string; style?: React.CSSProperties }) {
+  const match = /^(-?\d+(?:\.\d+)?)(.*)$/.exec(value.trim());
+  const numStr = match?.[1] ?? '0';
+  const suffix = match?.[2] ?? '';
+  const decimals = numStr.includes('.') ? numStr.split('.')[1].length : 0;
+  const scale = Math.pow(10, decimals);
+  const target = Math.round(parseFloat(numStr) * scale);
+  const animated = useAnimatedNumber(target, duration, delay);
+  const display = decimals > 0 ? (animated / scale).toFixed(decimals) : String(animated);
+  return <span className={className} style={style}>{display}{suffix}</span>;
+}
+
 // Custom tooltip for charts — all white text in dark mode, clean layout
 function ChartTooltip({ active, payload, isDark }: TooltipProps<number, string> & { isDark: boolean }) {
   if (!active || !payload?.length) return null;
