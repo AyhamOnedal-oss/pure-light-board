@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { AnimatedValue } from './AnimatedNumber';
+import { AnimatedValue, useAnimatedNumber } from './AnimatedNumber';
 import {
   MessageSquare, CheckCircle, Ticket, FileText, MousePointerClick,
   Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, X,
@@ -302,7 +302,11 @@ export function DashboardPage() {
             <p className="relative text-[12px] text-muted-foreground mb-1 text-start">{kpi.label}</p>
             <div className="relative flex items-center justify-between">
               {kpi.plain ? (
-                <span className="text-[22px] text-foreground" style={{ fontWeight: 700 }}>{kpi.value}</span>
+                <AnimatedSuffixValue
+                  value={kpi.value}
+                  className="text-[22px] text-foreground"
+                  style={{ fontWeight: 700 }}
+                />
               ) : (
                 <AnimatedValue
                   value={kpi.value}
