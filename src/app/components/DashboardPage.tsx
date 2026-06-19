@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { AnimatedValue } from './AnimatedNumber';
+import { AnimatedValue, useAnimatedNumber } from './AnimatedNumber';
 import {
   MessageSquare, CheckCircle, Ticket, FileText, MousePointerClick,
   Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, X,
@@ -62,6 +62,22 @@ function formatSeconds(s: number): string {
   if (s < 1) return `${Math.round(s * 1000)} مث`;
   if (s < 10) return `${s.toFixed(1)} ث`;
   return `${Math.round(s)} ث`;
+}
+
+// Animates the leading numeric portion of a string like "42 ث" or "1.5 ث",
+// preserving any trailing Arabic unit suffix.
+function AnimatedSuffixValue({
+  value, duration = 2000, delay = 0, className, style,
+}: { value: string; duration?: number; delay?: number; className?: string; style?: React.CSSProperties }) {
+  const match = /^(-?\d+(?:\.\d+)?)(.*)$/.exec(value.trim());
+  const numStr = match?.[1] ?? '0';
+  const suffix = match?.[2] ?? '';
+  const decimals = numStr.includes('.') ? numStr.split('.')[1].length : 0;
+  const scale = Math.pow(10, decimals);
+  const target = Math.round(parseFloat(numStr) * scale);
+  const animated = useAnimatedNumber(target, duration, delay);
+  const display = decimals > 0 ? (animated / scale).toFixed(decimals) : String(animated);
+  return <span className={className} style={style}>{display}{suffix}</span>;
 }
 
 // Custom tooltip for charts — all white text in dark mode, clean layout
@@ -302,7 +318,11 @@ export function DashboardPage() {
             <p className="relative text-[12px] text-muted-foreground mb-1 text-start">{kpi.label}</p>
             <div className="relative flex items-center justify-between">
               {kpi.plain ? (
-                <span className="text-[22px] text-foreground" style={{ fontWeight: 700 }}>{kpi.value}</span>
+                <AnimatedSuffixValue
+                  value={kpi.value}
+                  className="text-[22px] text-foreground"
+                  style={{ fontWeight: 700 }}
+                />
               ) : (
                 <AnimatedValue
                   value={kpi.value}
