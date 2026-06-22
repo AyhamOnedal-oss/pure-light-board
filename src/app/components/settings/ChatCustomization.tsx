@@ -107,21 +107,22 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 }
 
 export function ChatCustomization() {
-  const { t, showToast, tenantId } = useApp();
+  const { t, showToast, tenantId, user } = useApp();
+  const userId = user?.id ?? null;
 
-  const [primaryColor, setPrimaryColor] = useState(persistedSaved.primaryColor);
-  const [widgetOuter, setWidgetOuter] = useState(persistedSaved.widgetOuter);
-  const [widgetInner, setWidgetInner] = useState(persistedSaved.widgetInner);
-  const [position, setPosition] = useState<'right' | 'left'>(persistedSaved.position);
-  const [previewMode, setPreviewMode] = useState<'dark' | 'light'>(persistedSaved.previewMode);
-  const [welcomeBubbleEnabled, setWelcomeBubbleEnabled] = useState<boolean>(persistedSaved.welcomeBubbleEnabled ?? true);
-  const [welcomeBubbleLine1, setWelcomeBubbleLine1] = useState<string>(persistedSaved.welcomeBubbleLine1 ?? 'مرحباً 👋');
-  const [welcomeBubbleLine2, setWelcomeBubbleLine2] = useState<string>(persistedSaved.welcomeBubbleLine2 ?? 'كيف يمكنني مساعدتك؟');
-  const [inactivityEnabled, setInactivityEnabled] = useState<boolean>(persistedSaved.inactivityEnabled ?? true);
-  const [inactivityPromptSeconds, setInactivityPromptSeconds] = useState<number>(persistedSaved.inactivityPromptSeconds ?? DEFAULT_PROMPT);
-  const [inactivityCloseSeconds, setInactivityCloseSeconds] = useState<number>(persistedSaved.inactivityCloseSeconds ?? DEFAULT_CLOSE);
-  const [ratingInactivitySeconds, setRatingInactivitySeconds] = useState<number>(persistedSaved.ratingInactivitySeconds ?? DEFAULT_RATING);
-  const [saved, setSaved] = useState({ ...persistedSaved });
+  const [primaryColor, setPrimaryColor] = useState(DEFAULT_STATE.primaryColor);
+  const [widgetOuter, setWidgetOuter] = useState(DEFAULT_STATE.widgetOuter);
+  const [widgetInner, setWidgetInner] = useState(DEFAULT_STATE.widgetInner);
+  const [position, setPosition] = useState<'right' | 'left'>(DEFAULT_STATE.position);
+  const [previewMode, setPreviewMode] = useState<'dark' | 'light'>(DEFAULT_STATE.previewMode);
+  const [welcomeBubbleEnabled, setWelcomeBubbleEnabled] = useState<boolean>(DEFAULT_STATE.welcomeBubbleEnabled);
+  const [welcomeBubbleLine1, setWelcomeBubbleLine1] = useState<string>(DEFAULT_STATE.welcomeBubbleLine1);
+  const [welcomeBubbleLine2, setWelcomeBubbleLine2] = useState<string>(DEFAULT_STATE.welcomeBubbleLine2);
+  const [inactivityEnabled, setInactivityEnabled] = useState<boolean>(DEFAULT_STATE.inactivityEnabled);
+  const [inactivityPromptSeconds, setInactivityPromptSeconds] = useState<number>(DEFAULT_STATE.inactivityPromptSeconds);
+  const [inactivityCloseSeconds, setInactivityCloseSeconds] = useState<number>(DEFAULT_STATE.inactivityCloseSeconds);
+  const [ratingInactivitySeconds, setRatingInactivitySeconds] = useState<number>(DEFAULT_STATE.ratingInactivitySeconds);
+  const [saved, setSaved] = useState({ ...DEFAULT_STATE });
   const [saving, setSaving] = useState(false);
   const [loadedFromServer, setLoadedFromServer] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
