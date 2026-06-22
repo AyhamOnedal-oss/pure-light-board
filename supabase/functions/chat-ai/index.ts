@@ -1198,15 +1198,25 @@ Deno.serve(async (req) => {
     if (!n8nRes.ok) {
       const text = await n8nRes.text();
       console.error("n8n error", n8nRes.status, text);
+      console.log("n8n_response", {
+        status: n8nRes.status,
+        ok: false,
+        body_excerpt: text.slice(0, 300),
+        had_attachments: hasAttachments,
+      });
       // Soft fallback: never surface a hard error to the widget — return a
       // friendly retry reply with HTTP 200 so the chat stays usable.
+      const softReply = visionFallbackReply
+        ?? "لحظة من فضلك… حصل خلل بسيط، حاول مرة ثانية 🌷";
+      const softPersisted = await persistMessages(message, softReply);
       return jsonResponse({
-        reply: "لحظة من فضلك… حصل خلل بسيط، حاول مرة ثانية 🌷",
+        reply: softReply,
         attachments: [],
         action: { type: "none", reason: "upstream_error" },
         intent: "continue",
         tenant_id,
         conversation_id,
+        ai_message_id: softPersisted.ai_message_id,
       });
     }
 
@@ -1217,8 +1227,22 @@ Deno.serve(async (req) => {
     // failed and the agent emitted free-form text), treat the raw body as the
     // reply with next_action="none" instead of bubbling an error.
     const env = extractEnvelope(aiData);
-    const reply: string = env.reply;
+    let reply: string = env.reply;
     const attachments = env.attachments;
+    console.log("n8n_response", {
+      status: n8nRes.status,
+      ok: true,
+      reply_length: reply?.length ?? 0,
+      body_excerpt: rawText.slice(0, 300),
+      had_attachments: hasAttachments,
+    });
+    // If n8n returned no usable reply but the customer attached an image,
+    // fall back to the vision-derived acknowledgement so the widget never
+    // shows "عذراً، حدث خطأ مؤقت" for a perfectly valid image message.
+    if ((!reply || reply.trim().length === 0) && visionFallbackReply) {
+      console.log("n8n_empty_reply_using_vision_fallback");
+      reply = visionFallbackReply;
+    }
     console.log("n8n envelope:", {
       next_action: env.next_action,
       next_action_reason: env.next_action_reason,
