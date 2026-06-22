@@ -4,28 +4,11 @@ import { Paperclip, ArrowUp, Sun, Moon, Loader2, MessageCircle, Clock, X, AlertT
 import iconImg from '../../../imports/FUQAH-AI-icon-01@2x.png';
 import { supabase } from '../../../integrations/supabase/client';
 
-const CHAT_CUSTOM_KEY = 'fuqah_chat_customization';
-
-function loadChatCustom() {
-  try {
-    const stored = localStorage.getItem(CHAT_CUSTOM_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return {
-    primaryColor: '#000000',
-    widgetOuter: '#000000',
-    widgetInner: '#FFFFFF',
-    position: 'right' as 'right' | 'left',
-    previewMode: 'light' as 'dark' | 'light',
-    welcomeBubbleEnabled: true,
-    welcomeBubbleLine1: 'مرحباً 👋',
-    welcomeBubbleLine2: 'كيف يمكنني مساعدتك؟',
-    inactivityEnabled: true,
-    inactivityPromptSeconds: 90,
-    inactivityCloseSeconds: 60,
-    ratingInactivitySeconds: 900,
-  };
-}
+// Legacy global localStorage key — kept ONLY as a string constant so we can
+// purge stale entries on mount. Never read from it: it was unscoped per
+// (user, tenant) and leaked one merchant's customization preview to the next
+// account signing in on the same browser.
+const LEGACY_CHAT_CUSTOM_KEY = 'fuqah_chat_customization';
 
 const WELCOME_LINE1_MAX = 24;
 const WELCOME_LINE2_MAX = 36;
@@ -39,10 +22,6 @@ function formatSeconds(s: number, t: (en: string, ar: string) => string) {
   const m = s / 60;
   const mStr = Number.isInteger(m) ? `${m}` : m.toFixed(1);
   return `${s} ${t('seconds', 'ثانية')} (${mStr} ${t('min', 'دقيقة')})`;
-}
-
-function saveChatCustom(data: any) {
-  try { localStorage.setItem(CHAT_CUSTOM_KEY, JSON.stringify(data)); } catch {}
 }
 
 async function saveToSupabase(tenantId: string, settings: any) {
