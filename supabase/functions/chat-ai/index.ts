@@ -21,6 +21,49 @@ function pickN8nUrl(platform: string | null | undefined): string {
 }
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 
+// Upload a base64 data: URL to the private chat-attachments bucket and return
+// a signed HTTPS URL (valid for 1h). Returns null on any failure so the caller
+// can decide to skip the attachment instead of failing the whole request.
+async function uploadDataUrlToStorage(
+  dataUrl: string,
+  tenantId: string | null,
+  conversationId: string | null,
+  contentType: string,
+): Promise<string | null> {
+  try {
+    const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) return null;
+    const ct = m[1] || contentType || "image/jpeg";
+    const b64 = m[2];
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const ext = ct === "image/png" ? "png"
+              : ct === "image/webp" ? "webp"
+              : ct === "image/gif" ? "gif"
+              : "jpg";
+    const tenantSeg = tenantId ?? "unknown";
+    const convSeg = conversationId ?? "no-conv";
+    const path = `${tenantSeg}/${convSeg}/${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from("chat-attachments")
+      .upload(path, bin, { contentType: ct, upsert: false });
+    if (upErr) {
+      console.error("attachment_upload_failed", upErr.message);
+      return null;
+    }
+    const { data: signed, error: signErr } = await supabase.storage
+      .from("chat-attachments")
+      .createSignedUrl(path, 60 * 60);
+    if (signErr || !signed?.signedUrl) {
+      console.error("attachment_sign_failed", signErr?.message);
+      return null;
+    }
+    return signed.signedUrl;
+  } catch (e) {
+    console.error("attachment_upload_exception", String((e as any)?.message ?? e));
+    return null;
+  }
+}
+
 // Fallback system prompt when a tenant has not customized Train AI yet.
 // Must stay in sync with the DB function public.default_train_ai_prompt()
 // and the DEFAULT_PROMPT constant in src/app/components/settings/TrainAI.tsx.
@@ -424,6 +467,37 @@ Deno.serve(async (req) => {
     // "yes we have this product" from an icon/emoji/clipart.
     let nonProductShortCircuit: string | null = null;
 
+    // Vision-derived fallback reply, used when n8n returns no usable text but
+    // we still want to acknowledge the customer's image instead of bubbling
+    // up "عذراً، حدث خطأ مؤقت" to the widget.
+    let visionFallbackReply: string | null = null;
+
+    // ── Promote any data: URL attachments to signed Storage URLs ──────────
+    // The n8n workflow (and downstream OpenAI nodes) cannot fetch data: URLs.
+    // Per docs/n8n-integration.md, attachments[].url MUST be a real fetchable
+    // HTTPS URL. We upload the base64 image to the private `chat-attachments`
+    // bucket and replace the URL in place so BOTH the internal vision call
+    // and the n8n forward use the same signed URL.
+    if (hasAttachments) {
+      const incomingConvId = typeof conversation_id === "string" ? conversation_id : null;
+      const incomingTenantId = typeof body.tenant_id === "string" ? body.tenant_id : null;
+      for (const a of attachmentsIn) {
+        if (a.url && a.url.startsWith("data:")) {
+          const signed = await uploadDataUrlToStorage(a.url, incomingTenantId, incomingConvId, a.content_type);
+          if (signed) {
+            a.url = signed;
+          } else {
+            console.error("attachment_upload_skipped_keep_dataurl", { content_type: a.content_type });
+          }
+        }
+      }
+      console.log("attachments_after_upload", {
+        kinds: attachmentsIn.map((a) =>
+          a.url?.startsWith("data:") ? "data" : a.url?.startsWith("http") ? "http" : "other",
+        ),
+      });
+    }
+
     // === Vision pre-processing (image-first analysis) ===
     // Analyze the image BEFORE the n8n text agent runs and EXTRACT every
     // searchable signal (description, visible text, brand/logo, depicted
@@ -599,6 +673,21 @@ Deno.serve(async (req) => {
             const usefulSignal: boolean =
               parsed.has_useful_signal === true ||
               !!(desc || readable || depicted || brand || productGuess || searchQueries.length);
+
+            // Capture a friendly Arabic fallback reply derived from the
+            // vision verdict — used only if the n8n agent later returns an
+            // empty reply, so the customer never sees a generic error.
+            if (productGuess) {
+              visionFallbackReply =
+                `وصلتني صورتك ويبدو لي أنها ${productGuess}. ` +
+                `هل هذا المنتج الذي تبحث عنه؟ أرسل لي اسمه الكامل أو رابطه لأتأكد لك من توفّره 🌷`;
+            } else if (depicted || desc || brand) {
+              const what = [brand, color, depicted || desc].filter(Boolean).join(" ");
+              visionFallbackReply =
+                `وصلتني صورتك (${what}). ` +
+                `أرسل لي اسم المنتج بالضبط أو رابطه لأبحث لك عنه 🌷`;
+            }
+
             // Strong identity gate: only allow catalog search when the image
             // gives us a specific, high-confidence product identity. With weak
             // signals (just a brand logo, just a color, generic category) the
@@ -1109,15 +1198,25 @@ Deno.serve(async (req) => {
     if (!n8nRes.ok) {
       const text = await n8nRes.text();
       console.error("n8n error", n8nRes.status, text);
+      console.log("n8n_response", {
+        status: n8nRes.status,
+        ok: false,
+        body_excerpt: text.slice(0, 300),
+        had_attachments: hasAttachments,
+      });
       // Soft fallback: never surface a hard error to the widget — return a
       // friendly retry reply with HTTP 200 so the chat stays usable.
+      const softReply = visionFallbackReply
+        ?? "لحظة من فضلك… حصل خلل بسيط، حاول مرة ثانية 🌷";
+      const softPersisted = await persistMessages(message, softReply);
       return jsonResponse({
-        reply: "لحظة من فضلك… حصل خلل بسيط، حاول مرة ثانية 🌷",
+        reply: softReply,
         attachments: [],
         action: { type: "none", reason: "upstream_error" },
         intent: "continue",
         tenant_id,
         conversation_id,
+        ai_message_id: softPersisted.ai_message_id,
       });
     }
 
@@ -1128,8 +1227,22 @@ Deno.serve(async (req) => {
     // failed and the agent emitted free-form text), treat the raw body as the
     // reply with next_action="none" instead of bubbling an error.
     const env = extractEnvelope(aiData);
-    const reply: string = env.reply;
+    let reply: string = env.reply;
     const attachments = env.attachments;
+    console.log("n8n_response", {
+      status: n8nRes.status,
+      ok: true,
+      reply_length: reply?.length ?? 0,
+      body_excerpt: rawText.slice(0, 300),
+      had_attachments: hasAttachments,
+    });
+    // If n8n returned no usable reply but the customer attached an image,
+    // fall back to the vision-derived acknowledgement so the widget never
+    // shows "عذراً، حدث خطأ مؤقت" for a perfectly valid image message.
+    if ((!reply || reply.trim().length === 0) && visionFallbackReply) {
+      console.log("n8n_empty_reply_using_vision_fallback");
+      reply = visionFallbackReply;
+    }
     console.log("n8n envelope:", {
       next_action: env.next_action,
       next_action_reason: env.next_action_reason,
