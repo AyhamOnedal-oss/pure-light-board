@@ -37,6 +37,19 @@ const LOADER_JS = `
         if (plat && (sid || suid)) {
           return { platform: plat, store_id: sid || null, store_uuid: suid || null, external_id: sid || suid };
         }
+        // Snippet has an id but forgot data-platform — infer from runtime globals.
+        if (!plat && (sid || suid)) {
+          var inferred = null;
+          try {
+            if (window.salla || window.Salla) inferred = "salla";
+            else if (window.zid) inferred = "zid";
+          } catch (e) {}
+          if (!inferred) {
+            // Last resort: ask the server to resolve by id+domain.
+            inferred = "";
+          }
+          return { platform: inferred, store_id: sid || null, store_uuid: suid || null, external_id: sid || suid };
+        }
       }
     } catch (e) {}
     try {
@@ -256,7 +269,11 @@ const LOADER_JS = `
       } catch (e) {}
     }
 
-    api("/widget-bootstrap?platform=" + ctx.platform + "&external_id=" + encodeURIComponent(ctx.external_id || ""))
+    api(
+      "/widget-bootstrap?platform=" + encodeURIComponent(ctx.platform || "") +
+      "&external_id=" + encodeURIComponent(ctx.external_id || "") +
+      "&domain=" + encodeURIComponent(location.hostname || "")
+    )
       .then(function (res) {
         if (!res || !res.tenant_id || !res.is_active || !res.cfg) {
           // Tenant unknown/inactive — drop the skeleton so we don't show a
