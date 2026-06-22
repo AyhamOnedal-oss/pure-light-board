@@ -1,41 +1,37 @@
 ## Goal
-Make sending an image + text in chat always return a real AI reply instead of "عذراً، حدث خطأ مؤقت".
+Make Test Chat history strictly private per (user, tenant) so a different store account on the same browser never sees another account's test messages, and a team member never sees the owner's test messages.
 
-## Root cause
-The widget sends the attached image to `chat-ai` as a base64 `data:image/...` URL. `chat-ai`:
-1. Uses it directly for an internal OpenAI vision pre-analysis (works).
-2. Forwards the **same `data:` URL** to n8n in `attachments[].url`.
+## Verified root cause
+`src/app/components/settings/TestChat.tsx`:
+- Line 15: `const STORAGE_KEY = 'fuqah_test_chat_messages';` — a single global key.
+- Line 58: `const CONV_KEY = 'fuqah_test_chat_conversation_id';` — same problem.
+- Lines 86–87 read these once on mount; nothing reloads when the logged-in user or `tenantId` changes.
 
-The n8n workflow's OpenAI / HTTP nodes cannot fetch a `data:` URL — the docs explicitly state n8n receives "1-hour signed URLs to a private Supabase Storage bucket". n8n then errors out or returns an empty reply, and the widget falls back to the generic "temporary error" string. Same path for Test Chat. There are also no detailed logs around the n8n response, so the failure mode is invisible today.
+Result: any user that signs into the dashboard on the same browser sees the previous occupant's Test Chat messages and continues their conversation id. Confirmed by the user (Zid account → logout → Salla account on same browser shows the same content; different browser shows different content).
 
-## Changes
+## Fix
 
-### 1. Upload attachments to Supabase Storage inside `chat-ai`
-- Create a private bucket `chat-attachments` (via storage tool) with RLS that only the service role writes.
-- In `supabase/functions/chat-ai/index.ts`, after validating `attachmentsIn`, for any attachment whose `url` starts with `data:`:
-  - Decode base64, upload to `chat-attachments/{tenant_id}/{conversation_id}/{uuid}.{ext}`.
-  - Generate a 1-hour signed URL.
-  - Replace the entry's `url` with the signed URL and remember the original data URL only for the internal vision call.
-- Keep `http(s)://` URLs untouched.
-- Continue passing the data URL (or the signed URL) to the OpenAI vision pre-processing — vision keeps working as today.
+Scope persistence per `(userId, tenantId)` and reset state when either changes.
 
-### 2. Forward only the signed URL to n8n
-- The n8n payload `attachments[].url` will now always be a real fetchable HTTPS URL, matching `docs/n8n-integration.md`.
-- No widget changes required.
-
-### 3. Hard fallback when n8n returns empty / bad reply with an attachment
-- After the n8n call, if `reply` is empty (or `n8nRes` not ok), and vision produced a useful description/product guess, return a friendly Arabic reply built from the vision verdict (e.g. "وصلتني صورة لما يبدو أنه {productGuess} — هل هذا المنتج الذي تبحث عنه؟") instead of leaving `reply` empty.
-- This guarantees the widget never shows "عذراً، حدث خطأ مؤقت" for an image message.
-
-### 4. Better diagnostics
-- Log `n8n_response` with `status`, `reply_length`, and a 300-char body excerpt on both ok and non-ok paths so future regressions are visible in the edge-function logs.
+1. **Read `session` from `useApp()`** alongside `tenantId` to derive a stable `userId = session?.user?.id ?? null`.
+2. **Per-scope storage keys** — when both ids are present, use:
+   - `fuqah_test_chat_messages:v2:{userId}:{tenantId}`
+   - `fuqah_test_chat_conversation_id:v2:{userId}:{tenantId}`
+   When either id is missing, hold state in memory only (no localStorage write/read) so we never persist under a global key again.
+3. **Reload on identity change** — a `useEffect` keyed on `(userId, tenantId)`:
+   - Reads the scoped messages key into state (empty array if missing).
+   - Reads or generates the scoped conversation id and writes it back under the same scoped key.
+4. **One-time cleanup** — on mount, `localStorage.removeItem('fuqah_test_chat_messages')` and `removeItem('fuqah_test_chat_conversation_id')` to purge the legacy unscoped entries so no leftover data can leak after this deploy.
+5. **Persist effect** — the existing "save on messages change" effect writes to the current scoped key (skip the write when ids are not yet known).
+6. **Clear Chat** — `clearChat` removes the scoped messages key and writes a fresh conversation id under the scoped conversation key (no global keys touched).
 
 ## Out of scope
-- No changes to widget UI/UX, image compression, or vision prompt logic.
-- No change to the Salla/Zid default-prompt work or KPI animation from prior turns.
+- No backend, schema, or edge-function changes — Test Chat already sends `tenant_id` and a `test-${tenantId}` visitor id to `chat-ai`, and persisted messages on the server are already tenant-scoped. The leak is purely the local cache.
+- Widget storefront chat is unaffected (different storage, visitor-id based).
 
 ## Verification
-- Send an iPhone image + "هل عندكم هذا المنتج؟" in Test Chat → expect a real product-aware reply.
-- Repeat from the storefront widget (Salla and Zid) → same.
-- Send an image-only message → still works.
-- Check `chat-ai` edge logs for the new `n8n_response` line and a signed `chat-attachments` URL in the payload.
+- Sign in as account A on a fresh browser, send a Test Chat message, sign out.
+- Sign in as account B in the same browser → Test Chat must be empty.
+- Switch back to account A → A's previous messages reappear.
+- Owner sends a Test Chat message; team member of the same tenant signs in on the same browser → team member sees an empty Test Chat (different `userId` in the key).
+- After deploy, confirm `localStorage` no longer contains the old unscoped `fuqah_test_chat_messages` / `fuqah_test_chat_conversation_id` keys.
