@@ -285,17 +285,14 @@ export function ChatCustomization() {
       if (!tenantId) throw new Error('No tenant');
       await saveToSupabase(tenantId, newSaved);
       setSaved(newSaved);
-      Object.assign(persistedSaved, newSaved);
-      saveChatCustom(newSaved);
       showToast(t('Settings saved successfully', 'تم حفظ الإعدادات بنجاح'));
     } catch (err) {
       console.error('Error saving chat settings:', err);
       const msg = (err as any)?.message || String(err);
-      // Keep local cache so the UI does not flicker back, but surface the
-      // real server error instead of pretending the save succeeded.
+      // Surface the real server error. We intentionally do NOT mirror the
+      // failed payload anywhere — the next reload must reflect what the
+      // server actually has for this tenant.
       setSaved(newSaved);
-      Object.assign(persistedSaved, newSaved);
-      saveChatCustom(newSaved);
       showToast(t(`Failed to save: ${msg}`, `فشل الحفظ: ${msg}`));
     } finally {
       setSaving(false);
