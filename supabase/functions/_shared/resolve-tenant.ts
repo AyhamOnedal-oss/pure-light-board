@@ -37,53 +37,90 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
     return { tenant_id: data?.id ?? null, is_active: !!data };
   }
 
-  const domain = (input.domain || "").trim().toLowerCase().replace(/^www\./, "");
+  const domain = (input.domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+  const domainHost = domain.split("/")[0] || "";
+  const platform = (input.platform || "").toLowerCase();
+  const sid = input.store_id != null ? String(input.store_id).trim() : "";
 
-  if (!input.platform || !input.store_id) {
-    // Domain-only fallback path.
-    if (domain) {
-      const { data } = await client()
-        .from("settings_workspace")
-        .select("id")
-        .ilike("domain", domain)
-        .maybeSingle();
-      if (data?.id) return { tenant_id: data.id, is_active: true };
-    }
-    return { tenant_id: null, is_active: false };
-  }
-
-  if (input.platform === "salla") {
-    const merchantId = Number(input.store_id);
-    if (!Number.isFinite(merchantId)) return { tenant_id: null, is_active: false };
+  // Try Salla by merchant_id
+  async function trySalla(): Promise<ResolveResult | null> {
+    if (!sid) return null;
+    const merchantId = Number(sid);
+    if (!Number.isFinite(merchantId)) return null;
     const { data } = await client()
       .from("salla_connections")
       .select("tenant_id, is_active")
       .eq("merchant_id", merchantId)
       .maybeSingle();
     if (data?.tenant_id) return { tenant_id: data.tenant_id, is_active: !!data.is_active };
+    return null;
   }
 
-  if (input.platform === "zid") {
-    const sid = String(input.store_id);
-    // Zid storefronts can pass either the store UUID or the numeric store_id
-    // (the only identifier exposed via {{store.id}} in Zid theme templates).
+  // Try Zid by store_uuid or store_id
+  async function tryZid(): Promise<ResolveResult | null> {
+    if (!sid) return null;
+    // PostgREST .or() values cannot contain commas/parens unsanitized; sid is a token here.
+    const safe = sid.replace(/[(),]/g, "");
     const { data } = await client()
       .from("zid_connections")
       .select("tenant_id, is_active")
-      .or(`store_uuid.eq.${sid},store_id.eq.${sid}`)
+      .or(`store_uuid.eq.${safe},store_id.eq.${safe}`)
       .maybeSingle();
     if (data?.tenant_id) return { tenant_id: data.tenant_id, is_active: !!data.is_active };
+    return null;
   }
 
-  // Final domain fallback for either platform.
-  if (domain) {
-    const { data } = await client()
-      .from("settings_workspace")
-      .select("id")
-      .ilike("domain", domain)
-      .maybeSingle();
-    if (data?.id) return { tenant_id: data.id, is_active: true };
+  // Try domain across salla_connections.store_url, zid_connections.store_url, settings_workspace.domain.
+  async function tryDomain(): Promise<ResolveResult | null> {
+    if (!domainHost) return null;
+    const c = client();
+    const like = `%${domainHost}%`;
+    const [sallaRes, zidRes, wsRes] = await Promise.all([
+      c.from("salla_connections").select("tenant_id, is_active, store_url").ilike("store_url", like).limit(5),
+      c.from("zid_connections").select("tenant_id, is_active, store_url").ilike("store_url", like).limit(5),
+      c.from("settings_workspace").select("id, domain").ilike("domain", `%${domainHost}%`).limit(5),
+    ]);
+    const matchHost = (u: string | null | undefined) => {
+      if (!u) return false;
+      const h = String(u).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "").split("/")[0];
+      return h === domainHost;
+    };
+    const salla = (sallaRes.data || []).find((r) => matchHost(r.store_url));
+    if (salla?.tenant_id) return { tenant_id: salla.tenant_id, is_active: !!salla.is_active };
+    const zid = (zidRes.data || []).find((r) => matchHost(r.store_url));
+    if (zid?.tenant_id) return { tenant_id: zid.tenant_id, is_active: !!zid.is_active };
+    const ws = (wsRes.data || []).find((r) => {
+      const d = String(r.domain || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "").split("/")[0];
+      return d === domainHost;
+    });
+    if (ws?.id) return { tenant_id: ws.id, is_active: true };
+    return null;
   }
+
+  // 1. Try the explicit platform first.
+  if (platform === "salla") {
+    const r = await trySalla();
+    if (r) return r;
+  } else if (platform === "zid") {
+    const r = await tryZid();
+    if (r) return r;
+  }
+
+  // 2. Cross-platform fallback: snippet may have the wrong/missing data-platform.
+  if (sid) {
+    if (platform !== "salla") {
+      const r = await trySalla();
+      if (r) return r;
+    }
+    if (platform !== "zid") {
+      const r = await tryZid();
+      if (r) return r;
+    }
+  }
+
+  // 3. Domain fallback against connection store_url + workspace domain.
+  const d = await tryDomain();
+  if (d) return d;
 
   return { tenant_id: null, is_active: false };
 }
