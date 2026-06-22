@@ -160,10 +160,36 @@ export function ChatCustomization() {
     setRatingInactivitySeconds(DEFAULTS.ratingInactivitySeconds);
   };
 
-  // Load from Supabase on mount
+  // One-time purge of the legacy unscoped localStorage cache. Older builds
+  // mirrored customization payloads into a single global key which leaked
+  // one tenant's preview to whoever signed in next on the same browser.
   useEffect(() => {
-    if (!tenantId) return;
+    try { localStorage.removeItem(LEGACY_CHAT_CUSTOM_KEY); } catch {}
+  }, []);
+
+  // Load from Supabase whenever the (tenant, user) identity changes. We
+  // reset to neutral defaults FIRST so a slow query never leaves the
+  // previous account's colors painted on screen for the new signed-in user.
+  useEffect(() => {
+    if (!tenantId || !userId) return;
+    setPrimaryColor(DEFAULT_STATE.primaryColor);
+    setWidgetOuter(DEFAULT_STATE.widgetOuter);
+    setWidgetInner(DEFAULT_STATE.widgetInner);
+    setPosition(DEFAULT_STATE.position);
+    setPreviewMode(DEFAULT_STATE.previewMode);
+    setWelcomeBubbleEnabled(DEFAULT_STATE.welcomeBubbleEnabled);
+    setWelcomeBubbleLine1(DEFAULT_STATE.welcomeBubbleLine1);
+    setWelcomeBubbleLine2(DEFAULT_STATE.welcomeBubbleLine2);
+    setInactivityEnabled(DEFAULT_STATE.inactivityEnabled);
+    setInactivityPromptSeconds(DEFAULT_STATE.inactivityPromptSeconds);
+    setInactivityCloseSeconds(DEFAULT_STATE.inactivityCloseSeconds);
+    setRatingInactivitySeconds(DEFAULT_STATE.ratingInactivitySeconds);
+    setSaved({ ...DEFAULT_STATE });
+    setLoadedFromServer(false);
+
+    let cancelled = false;
     loadFromSupabase(tenantId).then(settings => {
+      if (cancelled) return;
       if (settings) {
         const s = {
           primaryColor: settings.primaryColor || '#000000',
@@ -192,16 +218,15 @@ export function ChatCustomization() {
         setInactivityCloseSeconds(s.inactivityCloseSeconds);
         setRatingInactivitySeconds(s.ratingInactivitySeconds);
         setSaved(s);
-        Object.assign(persistedSaved, s);
-        saveChatCustom(s);
-        console.log('Chat settings loaded from Supabase');
       }
       setLoadedFromServer(true);
     }).catch(err => {
+      if (cancelled) return;
       console.log('Error loading settings from Supabase:', err);
       setLoadedFromServer(true);
     });
-  }, [tenantId]);
+    return () => { cancelled = true; };
+  }, [tenantId, userId]);
 
   // Load bubble visibility master switch from settings_train_ai and keep it
   // in sync via realtime so toggling it in Train AI updates this preview live.
