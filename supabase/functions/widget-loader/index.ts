@@ -272,7 +272,7 @@ const LOADER_JS = `
     api(
       "/widget-bootstrap?platform=" + encodeURIComponent(ctx.platform || "") +
       "&external_id=" + encodeURIComponent(ctx.external_id || "") +
-      "&domain=" + encodeURIComponent(location.hostname || "")
+      "&domain=" + encodeURIComponent((location.hostname || "") + (location.pathname && location.pathname !== "/" ? location.pathname : ""))
     )
       .then(function (res) {
         if (!res || !res.tenant_id || !res.is_active || !res.cfg) {
