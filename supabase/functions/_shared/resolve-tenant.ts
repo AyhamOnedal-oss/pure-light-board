@@ -37,8 +37,9 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
     return { tenant_id: data?.id ?? null, is_active: !!data };
   }
 
-  const domain = (input.domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
-  const domainHost = domain.split("/")[0] || "";
+  const domainFull = (input.domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+  const domainHost = domainFull.split("/")[0] || "";
+  const domainPath = domainFull.includes("/") ? "/" + domainFull.split("/").slice(1).join("/") : "";
   const platform = (input.platform || "").toLowerCase();
   const sid = input.store_id != null ? String(input.store_id).trim() : "";
 
@@ -80,15 +81,34 @@ export async function resolveTenant(input: ResolveInput): Promise<ResolveResult>
       c.from("zid_connections").select("tenant_id, is_active, store_url").ilike("store_url", like).limit(5),
       c.from("settings_workspace").select("id, domain").ilike("domain", `%${domainHost}%`).limit(5),
     ]);
-    const matchHost = (u: string | null | undefined) => {
-      if (!u) return false;
-      const h = String(u).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "").split("/")[0];
-      return h === domainHost;
+    // Score each candidate: host must match, then prefer longer matching path prefix.
+    type Cand = { tenant_id: string; is_active: boolean; score: number };
+    const score = (u: string | null | undefined): number => {
+      if (!u) return -1;
+      const cleaned = String(u).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+      const [h, ...rest] = cleaned.split("/");
+      if (h !== domainHost) return -1;
+      const p = rest.length ? "/" + rest.join("/") : "";
+      if (!p) return 1; // host-only match
+      // require requested path to start with this connection's path
+      if (domainPath && (domainPath === p || domainPath.startsWith(p + "/"))) return 10 + p.length;
+      return -1;
     };
-    const salla = (sallaRes.data || []).find((r) => matchHost(r.store_url));
-    if (salla?.tenant_id) return { tenant_id: salla.tenant_id, is_active: !!salla.is_active };
-    const zid = (zidRes.data || []).find((r) => matchHost(r.store_url));
-    if (zid?.tenant_id) return { tenant_id: zid.tenant_id, is_active: !!zid.is_active };
+    const pickBest = (rows: Array<{ tenant_id: string | null; is_active: boolean | null; store_url: string | null }>): Cand | null => {
+      let best: Cand | null = null;
+      for (const r of rows) {
+        if (!r.tenant_id) continue;
+        const s = score(r.store_url);
+        if (s < 0) continue;
+        if (!best || s > best.score) best = { tenant_id: r.tenant_id, is_active: !!r.is_active, score: s };
+      }
+      return best;
+    };
+    const salla = pickBest(sallaRes.data || []);
+    const zid = pickBest(zidRes.data || []);
+    // If only one platform has a match, take it. Otherwise prefer the higher score.
+    if (salla && (!zid || salla.score >= zid.score)) return { tenant_id: salla.tenant_id, is_active: salla.is_active };
+    if (zid) return { tenant_id: zid.tenant_id, is_active: zid.is_active };
     const ws = (wsRes.data || []).find((r) => {
       const d = String(r.domain || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "").split("/")[0];
       return d === domainHost;
