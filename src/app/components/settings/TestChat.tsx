@@ -12,7 +12,20 @@ const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS = 4;
 
-const STORAGE_KEY = 'fuqah_test_chat_messages';
+// Legacy unscoped keys (pre-fix). We delete them on mount so old data does
+// not leak between accounts that share a browser.
+const LEGACY_MSGS_KEY = 'fuqah_test_chat_messages';
+const LEGACY_CONV_KEY = 'fuqah_test_chat_conversation_id';
+
+// Per-(user, tenant) scoped keys. Test Chat history must NEVER be shared
+// across accounts on the same browser, and not even across team members of
+// the same tenant.
+function msgsKeyFor(userId: string, tenantId: string): string {
+  return `fuqah_test_chat_messages:v2:${userId}:${tenantId}`;
+}
+function convKeyFor(userId: string, tenantId: string): string {
+  return `fuqah_test_chat_conversation_id:v2:${userId}:${tenantId}`;
+}
 
 // Render text with clickable URLs. Matches http(s)://… and bare www.…
 // Trims trailing punctuation so a link at the end of a sentence doesn't
@@ -55,36 +68,12 @@ function LinkifiedText({ text, variant }: { text: string; variant: 'user' | 'ai'
     </span>
   );
 }
-const CONV_KEY = 'fuqah_test_chat_conversation_id';
-
-function loadConversationId(): string {
-  try {
-    let id = localStorage.getItem(CONV_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem(CONV_KEY, id);
-    }
-    return id;
-  } catch {
-    return crypto.randomUUID();
-  }
-}
-
-function loadMessages(): Msg[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch { return []; }
-}
-
-function saveMessages(msgs: Msg[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs)); } catch {}
-}
 
 export function TestChat() {
-  const { t, language, tenantId } = useApp();
-  const [messages, setMessages] = useState<Msg[]>(loadMessages);
-  const [conversationId, setConversationId] = useState<string>(loadConversationId);
+  const { t, language, tenantId, session } = useApp();
+  const userId = session?.user?.id ?? null;
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
   const [sending, setSending] = useState(false);
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -93,10 +82,51 @@ export function TestChat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Persist messages
+  // One-time cleanup: remove the old unscoped keys so stale data from a
+  // previous account on this browser cannot leak.
   useEffect(() => {
-    saveMessages(messages);
-  }, [messages]);
+    try {
+      localStorage.removeItem(LEGACY_MSGS_KEY);
+      localStorage.removeItem(LEGACY_CONV_KEY);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Reload scoped state whenever the active (user, tenant) changes. This
+  // makes Zid→logout→Salla on the same browser show a fresh chat, and
+  // ensures a team member never sees the owner's test history.
+  useEffect(() => {
+    if (!userId || !tenantId) {
+      setMessages([]);
+      setConversationId(crypto.randomUUID());
+      return;
+    }
+    try {
+      const storedMsgs = localStorage.getItem(msgsKeyFor(userId, tenantId));
+      setMessages(storedMsgs ? (JSON.parse(storedMsgs) as Msg[]) : []);
+    } catch {
+      setMessages([]);
+    }
+    try {
+      const cKey = convKeyFor(userId, tenantId);
+      let cid = localStorage.getItem(cKey);
+      if (!cid) {
+        cid = crypto.randomUUID();
+        localStorage.setItem(cKey, cid);
+      }
+      setConversationId(cid);
+    } catch {
+      setConversationId(crypto.randomUUID());
+    }
+  }, [userId, tenantId]);
+
+  // Persist messages to the current scoped key. Skip writes until we know
+  // the (user, tenant) so we never fall back to a global key.
+  useEffect(() => {
+    if (!userId || !tenantId) return;
+    try {
+      localStorage.setItem(msgsKeyFor(userId, tenantId), JSON.stringify(messages));
+    } catch { /* ignore */ }
+  }, [messages, userId, tenantId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -261,9 +291,13 @@ export function TestChat() {
   const clearChat = () => {
     setMessages([]);
     setPendingFiles([]);
-    localStorage.removeItem(STORAGE_KEY);
     const newId = crypto.randomUUID();
-    try { localStorage.setItem(CONV_KEY, newId); } catch {}
+    if (userId && tenantId) {
+      try {
+        localStorage.removeItem(msgsKeyFor(userId, tenantId));
+        localStorage.setItem(convKeyFor(userId, tenantId), newId);
+      } catch { /* ignore */ }
+    }
     setConversationId(newId);
   };
 
