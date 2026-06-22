@@ -1,57 +1,70 @@
-## What I found (verification)
+## What's actually broken (verified)
 
-Yes — the bug is real. Same root cause as the Test Chat leak we just fixed, in a sibling file I missed earlier. I owe you an apology: I cleared the launch on Test Chat but didn't audit the rest of `src/app/components/settings/` for the same anti-pattern. That was the overlap you're calling out.
+For tenant `d49382a6-4a0a-44e1-a2e0-fa500b1982d4` (Salla, merchant `1163458970`, store `demostore.salla.sa`):
 
-### Root cause for "color changes then snaps back to default" (Salla owner)
+- Saved design in DB is correct: `widget_outer_color = #dbe3f5`, updated 2026-06-22 20:27:08.
+- Supabase `widget-bootstrap?platform=salla&external_id=1163458970` returns the correct tenant + saved cfg.
+- **But the storefront loads the OLD static file** `https://widget.fuqah.net/widget.js?v=1` (Hostinger), with `data-store-id="1163458970"` and **no `data-platform`**. That legacy script calls `widget-bootstrap?platform=zid&external_id=1163458970&domain=demostore.salla.sa` → returns `tenant_id: null` → widget falls back to default black bubble.
 
-`src/app/components/settings/ChatCustomization.tsx` caches the entire customization payload in a **global, non-scoped** browser key:
+This will break for **every Salla store** that has the legacy `widget.fuqah.net/widget.js` snippet installed, not just this one. It will also silently break any future store whose snippet is pasted without `data-platform`.
 
-```ts
-const CHAT_CUSTOM_KEY = 'fuqah_chat_customization';
-const persistedSaved = loadChatCustom();   // module-level, runs once
-```
+## Fix plan (server-side, no merchant action required)
 
-Then every `useState` is seeded from `persistedSaved`, so the initial paint shows **whatever the last account on this browser saved** — not the current tenant's data. Only after the `useEffect` round-trip to `settings_chat_design` does the real per-tenant data overwrite it.
+The goal is: regardless of what snippet a merchant has pasted (old `widget.fuqah.net/widget.js`, new `widget-loader`, missing `data-platform`, wrong platform), the widget must resolve to the right tenant and render that tenant's saved design.
 
-Exact symptom this produces for a Salla merchant who shares a browser with a previous Zid session:
-1. Page opens → preview shows the **previous tenant's colors** (from localStorage).
-2. ~300 ms later `loadFromSupabase(tenantId)` returns the Salla tenant's actual row (still defaults `#000` / `#FFF` because they never saved) → preview "suddenly reverts to default."
-3. If they pick a color and hit save, the upsert is correctly scoped by `tenant_id`, but the global localStorage continues to poison the next account that signs in here.
+### 1. Harden tenant resolution — `supabase/functions/_shared/resolve-tenant.ts`
 
-### Why the storefront bubble can still look default even after saving
+Make `resolveTenant` robust to a wrong/missing `platform`:
 
-`widget-bootstrap` sets `Cache-Control: s-maxage=10, stale-while-revalidate=60` and an ETag. After a save we don't bust that cache, so the storefront keeps serving the stale `cfg` for up to ~70 s. Combined with the symptom above, the merchant thinks the save never took.
+- If `platform` is missing, try BOTH `salla_connections.merchant_id` and `zid_connections.store_id/store_uuid` lookups using `store_id`.
+- If `platform` is provided but the lookup misses, **fall back to the other platform** before giving up.
+- If still no match, fall back to `domain` lookup against:
+  - `settings_workspace.domain` (existing)
+  - **NEW:** `salla_connections.store_url` host match (strip protocol, `www.`, trailing slash; match against `host` and `host + path-prefix` so subpath stores like `demostore.salla.sa/dev-xyz` work).
+- Always return `is_active` from the matched connection row (not just `true`).
 
-### About the chat error + missing conversations on Salla
+This single change fixes the current store and immunizes every future store against the wrong-platform snippet.
 
-That is a **separate** issue from the color leak (n8n returning `reply_length: 0` for Salla, and the storefront not posting events under the right tenant). I am NOT bundling it into this plan — I'll handle it as its own ticket after you confirm the connection state. The plan below fixes only the multi-tenant color/customization leak that you explicitly flagged.
+### 2. Harden `widget-loader` platform detection
 
-## Plan
+In `supabase/functions/widget-loader/index.ts` `detectPlatform()`:
 
-Scope: `src/app/components/settings/ChatCustomization.tsx` only. No schema, no edge-function changes. Save path is already correctly tenant-scoped server-side.
+- If `data-store-id` is present but `data-platform` is missing, probe `window.salla` / `window.Salla` / `window.zid` and infer.
+- If still ambiguous, send `platform=` empty and let the server resolve (which step 1 now supports). Also always include the current `location.hostname` as `domain=...` on the bootstrap call so the domain fallback can kick in.
 
-1. **Remove the global localStorage cache entirely.** Delete `CHAT_CUSTOM_KEY`, `loadChatCustom`, `saveChatCustom`, and the module-level `persistedSaved`. The Supabase row is the source of truth — there is no reason to mirror it into a shared browser key.
+### 3. Harden `widget-bootstrap`
 
-2. **Seed state from `DEFAULTS`, not from localStorage.** Every `useState` initializes to the `DEFAULTS` object that already exists in the file. The preview shows neutral defaults for the ~300 ms before the server load lands, instead of another tenant's colors.
+- Always forward `domain` (from query or `Origin`/`Referer` header) to `resolveTenant`.
+- When `resolveTenant` returns no tenant, log the input (platform, external_id, domain, referer) at `console.warn` level so we can spot any future "no tenant" case immediately in edge logs.
 
-3. **Re-run the loader on identity change.** Change the existing load `useEffect` so its dependency is `[tenantId, userId]` (pull `userId` from `useApp()` alongside `tenantId`). When either changes:
-   - Reset all state back to `DEFAULTS` first (so a slow query doesn't leave the previous tenant's values on screen).
-   - Then call `loadFromSupabase(tenantId)` and apply the row if present.
-   - Drop the `Object.assign(persistedSaved, s)` and `saveChatCustom(s)` calls — they no longer exist.
+### 4. Cache-bust the storefront fallback path
 
-4. **One-time legacy cleanup.** On mount, `localStorage.removeItem('fuqah_chat_customization')` to purge stale data already sitting in browsers that loaded the old build.
+When `widget-bootstrap` returns `tenant_id: null`, return `Cache-Control: no-store` (not `max-age=30`) so a fixed deploy is picked up on the next page load instead of being pinned by the CDN for half a minute per visitor.
 
-5. **Bust the storefront cfg cache after save.** In `handleSave`, after the successful upsert, fire-and-forget a `fetch` to `widget-bootstrap?...&_=Date.now()` for this tenant's `(platform, external_id)` with `cache: 'no-store'`. This is a frontend-only hint; the next storefront request still hits the edge cache, but our own preview iframe (and the merchant's reload-to-verify) sees fresh data immediately.
+### 5. Verification matrix (must all pass before declaring done)
 
-## Verification steps you (or I) will run after the build
+Call `widget-bootstrap` for each row and confirm it returns the right `tenant_id` and the tenant's saved `widget_outer_color`:
 
-1. Sign in as account A on a fresh browser, change widget colors to red, save, sign out.
-2. Sign in as account B in the same browser, open Chat Customization → preview shows **black/white defaults**, not red, before and after the server load. Save blue.
-3. Sign back in as A → preview shows red (from A's saved row), not blue.
-4. Confirm `localStorage` no longer contains `fuqah_chat_customization` after the page has loaded once on the new build.
-5. Open the Salla storefront in an incognito tab → bubble paints with the tenant's saved colors (allow up to ~30 s for the bootstrap edge cache to roll over on the very first save).
+| platform   | external_id          | domain                    | expected |
+|------------|----------------------|---------------------------|----------|
+| salla      | 1163458970           | (none)                    | this tenant |
+| zid        | 1163458970           | demostore.salla.sa        | this tenant (cross-platform fallback) |
+| (missing)  | 1163458970           | demostore.salla.sa        | this tenant (domain fallback) |
+| salla      | 999999999 (bogus)    | demostore.salla.sa        | this tenant (domain fallback) |
+| salla      | <other live merchant>| <other live domain>       | the other tenant (no cross-tenant leakage) |
+| zid        | <live zid store_id>  | (none)                    | the zid tenant |
 
-## Out of scope (handled separately, with your approval)
+Then Playwright-load `https://demostore.salla.sa/dev-q6avnxiucdrzatze` and confirm:
+- `widget-bootstrap` response includes `tenant_id = d49382a6-...` and `widget_outer_color = #dbe3f5`.
+- Bubble paints in `#dbe3f5`, not black.
 
-- "عذراً، حدث خطأ مؤقت" on Salla storefront chat — needs an n8n / `chat-ai` log dive for the Salla webhook URL. I'll come back with a separate plan once you tell me whether the Salla merchant's `salla_connections` row is `is_active = true` and whether `N8N_WEBHOOK_URL_SALLA` is the production endpoint.
-- Conversations not appearing in dashboard for the Salla merchant — same investigation as above (likely tenant_id resolution on `conversations_main` insert from the Salla path).
+### 6. Out of scope (separate ticket, will not be touched here)
+
+- Replacing the legacy `widget.fuqah.net/widget.js` deployment with the Supabase loader URL (Hostinger-side change, not in this repo).
+- The Salla storefront "عذراً، حدث خطأ مؤقت" chat error — investigate after step 5 confirms the tenant is now resolving end-to-end.
+
+### Multi-tenant safety guarantees
+
+- Resolution is keyed on `(platform, external_id)` first and only falls back to `domain` when those miss — a domain match still goes through `salla_connections`/`zid_connections`/`settings_workspace` lookups, never a heuristic.
+- No localStorage, no per-browser caching of tenant identity on the server. Each storefront page load re-resolves.
+- Verification matrix explicitly covers the "wrong platform, different tenant" case to prove no cross-tenant leakage.
