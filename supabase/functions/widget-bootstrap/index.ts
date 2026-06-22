@@ -17,9 +17,17 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const platform = url.searchParams.get("platform");
   const externalId = url.searchParams.get("external_id");
-  const domain = url.searchParams.get("domain");
+  let domain = url.searchParams.get("domain");
+  if (!domain) {
+    // Fallback: derive from Origin/Referer so a snippet that forgot to pass
+    // domain still gets domain-based resolution.
+    const origin = req.headers.get("origin") || req.headers.get("referer") || "";
+    try {
+      if (origin) domain = new URL(origin).hostname;
+    } catch (_e) { /* ignore */ }
+  }
 
-  if (!platform && !domain) {
+  if (!platform && !domain && !externalId) {
     return jsonResponse({ error: "missing_context" }, 400);
   }
 
@@ -31,10 +39,14 @@ Deno.serve(async (req) => {
     });
 
     if (!tenantId) {
+      console.warn("widget-bootstrap: no tenant resolved", {
+        platform, externalId, domain,
+        referer: req.headers.get("referer"),
+      });
       return jsonResponse(
         { tenant_id: null, is_active: false, cfg: null },
         200,
-        { "Cache-Control": "public, max-age=30, stale-while-revalidate=120" },
+        { "Cache-Control": "no-store" },
       );
     }
 
@@ -50,7 +62,7 @@ Deno.serve(async (req) => {
         .select("bubble_visible")
         .eq("tenant_id", tenantId)
         .maybeSingle(),
-      platform === "zid"
+      (platform === "zid" || (!platform && tenantId))
         ? supabase
             .from("zid_connections")
             .select("store_id, store_uuid")
