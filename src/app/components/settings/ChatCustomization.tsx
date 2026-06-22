@@ -67,8 +67,24 @@ async function loadFromSupabase(tenantId: string) {
   };
 }
 
-// Module-level persistent saved state (survives component remounts)
-const persistedSaved = loadChatCustom();
+// Tenant-scoped defaults. The Supabase row keyed by tenant_id is the source
+// of truth — we never cache customization payloads to localStorage because
+// a global key leaks one tenant's settings to the next account that signs
+// in on the same browser.
+const DEFAULT_STATE = {
+  primaryColor: '#000000',
+  widgetOuter: '#000000',
+  widgetInner: '#FFFFFF',
+  position: 'right' as 'right' | 'left',
+  previewMode: 'light' as 'dark' | 'light',
+  welcomeBubbleEnabled: true,
+  welcomeBubbleLine1: 'مرحباً 👋',
+  welcomeBubbleLine2: 'كيف يمكنني مساعدتك؟',
+  inactivityEnabled: true,
+  inactivityPromptSeconds: 90,
+  inactivityCloseSeconds: 60,
+  ratingInactivitySeconds: 900,
+};
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
