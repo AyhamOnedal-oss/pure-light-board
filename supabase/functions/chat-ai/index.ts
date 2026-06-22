@@ -673,6 +673,21 @@ Deno.serve(async (req) => {
             const usefulSignal: boolean =
               parsed.has_useful_signal === true ||
               !!(desc || readable || depicted || brand || productGuess || searchQueries.length);
+
+            // Capture a friendly Arabic fallback reply derived from the
+            // vision verdict — used only if the n8n agent later returns an
+            // empty reply, so the customer never sees a generic error.
+            if (productGuess) {
+              visionFallbackReply =
+                `وصلتني صورتك ويبدو لي أنها ${productGuess}. ` +
+                `هل هذا المنتج الذي تبحث عنه؟ أرسل لي اسمه الكامل أو رابطه لأتأكد لك من توفّره 🌷`;
+            } else if (depicted || desc || brand) {
+              const what = [brand, color, depicted || desc].filter(Boolean).join(" ");
+              visionFallbackReply =
+                `وصلتني صورتك (${what}). ` +
+                `أرسل لي اسم المنتج بالضبط أو رابطه لأبحث لك عنه 🌷`;
+            }
+
             // Strong identity gate: only allow catalog search when the image
             // gives us a specific, high-confidence product identity. With weak
             // signals (just a brand logo, just a color, generic category) the
