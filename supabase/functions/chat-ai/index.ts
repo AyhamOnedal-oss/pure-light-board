@@ -467,6 +467,37 @@ Deno.serve(async (req) => {
     // "yes we have this product" from an icon/emoji/clipart.
     let nonProductShortCircuit: string | null = null;
 
+    // Vision-derived fallback reply, used when n8n returns no usable text but
+    // we still want to acknowledge the customer's image instead of bubbling
+    // up "عذراً، حدث خطأ مؤقت" to the widget.
+    let visionFallbackReply: string | null = null;
+
+    // ── Promote any data: URL attachments to signed Storage URLs ──────────
+    // The n8n workflow (and downstream OpenAI nodes) cannot fetch data: URLs.
+    // Per docs/n8n-integration.md, attachments[].url MUST be a real fetchable
+    // HTTPS URL. We upload the base64 image to the private `chat-attachments`
+    // bucket and replace the URL in place so BOTH the internal vision call
+    // and the n8n forward use the same signed URL.
+    if (hasAttachments) {
+      const incomingConvId = typeof conversation_id === "string" ? conversation_id : null;
+      const incomingTenantId = typeof body.tenant_id === "string" ? body.tenant_id : null;
+      for (const a of attachmentsIn) {
+        if (a.url && a.url.startsWith("data:")) {
+          const signed = await uploadDataUrlToStorage(a.url, incomingTenantId, incomingConvId, a.content_type);
+          if (signed) {
+            a.url = signed;
+          } else {
+            console.error("attachment_upload_skipped_keep_dataurl", { content_type: a.content_type });
+          }
+        }
+      }
+      console.log("attachments_after_upload", {
+        kinds: attachmentsIn.map((a) =>
+          a.url?.startsWith("data:") ? "data" : a.url?.startsWith("http") ? "http" : "other",
+        ),
+      });
+    }
+
     // === Vision pre-processing (image-first analysis) ===
     // Analyze the image BEFORE the n8n text agent runs and EXTRACT every
     // searchable signal (description, visible text, brand/logo, depicted
