@@ -23,7 +23,10 @@ Deno.serve(async (req) => {
     // domain still gets domain-based resolution.
     const origin = req.headers.get("origin") || req.headers.get("referer") || "";
     try {
-      if (origin) domain = new URL(origin).hostname;
+      if (origin) {
+        const u = new URL(origin);
+        domain = u.hostname + (u.pathname && u.pathname !== "/" ? u.pathname : "");
+      }
     } catch (_e) { /* ignore */ }
   }
 
