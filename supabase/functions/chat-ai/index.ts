@@ -21,6 +21,49 @@ function pickN8nUrl(platform: string | null | undefined): string {
 }
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 
+// Upload a base64 data: URL to the private chat-attachments bucket and return
+// a signed HTTPS URL (valid for 1h). Returns null on any failure so the caller
+// can decide to skip the attachment instead of failing the whole request.
+async function uploadDataUrlToStorage(
+  dataUrl: string,
+  tenantId: string | null,
+  conversationId: string | null,
+  contentType: string,
+): Promise<string | null> {
+  try {
+    const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) return null;
+    const ct = m[1] || contentType || "image/jpeg";
+    const b64 = m[2];
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const ext = ct === "image/png" ? "png"
+              : ct === "image/webp" ? "webp"
+              : ct === "image/gif" ? "gif"
+              : "jpg";
+    const tenantSeg = tenantId ?? "unknown";
+    const convSeg = conversationId ?? "no-conv";
+    const path = `${tenantSeg}/${convSeg}/${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from("chat-attachments")
+      .upload(path, bin, { contentType: ct, upsert: false });
+    if (upErr) {
+      console.error("attachment_upload_failed", upErr.message);
+      return null;
+    }
+    const { data: signed, error: signErr } = await supabase.storage
+      .from("chat-attachments")
+      .createSignedUrl(path, 60 * 60);
+    if (signErr || !signed?.signedUrl) {
+      console.error("attachment_sign_failed", signErr?.message);
+      return null;
+    }
+    return signed.signedUrl;
+  } catch (e) {
+    console.error("attachment_upload_exception", String((e as any)?.message ?? e));
+    return null;
+  }
+}
+
 // Fallback system prompt when a tenant has not customized Train AI yet.
 // Must stay in sync with the DB function public.default_train_ai_prompt()
 // and the DEFAULT_PROMPT constant in src/app/components/settings/TrainAI.tsx.
