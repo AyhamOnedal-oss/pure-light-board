@@ -4,28 +4,11 @@ import { Paperclip, ArrowUp, Sun, Moon, Loader2, MessageCircle, Clock, X, AlertT
 import iconImg from '../../../imports/FUQAH-AI-icon-01@2x.png';
 import { supabase } from '../../../integrations/supabase/client';
 
-const CHAT_CUSTOM_KEY = 'fuqah_chat_customization';
-
-function loadChatCustom() {
-  try {
-    const stored = localStorage.getItem(CHAT_CUSTOM_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return {
-    primaryColor: '#000000',
-    widgetOuter: '#000000',
-    widgetInner: '#FFFFFF',
-    position: 'right' as 'right' | 'left',
-    previewMode: 'light' as 'dark' | 'light',
-    welcomeBubbleEnabled: true,
-    welcomeBubbleLine1: 'مرحباً 👋',
-    welcomeBubbleLine2: 'كيف يمكنني مساعدتك؟',
-    inactivityEnabled: true,
-    inactivityPromptSeconds: 90,
-    inactivityCloseSeconds: 60,
-    ratingInactivitySeconds: 900,
-  };
-}
+// Legacy global localStorage key — kept ONLY as a string constant so we can
+// purge stale entries on mount. Never read from it: it was unscoped per
+// (user, tenant) and leaked one merchant's customization preview to the next
+// account signing in on the same browser.
+const LEGACY_CHAT_CUSTOM_KEY = 'fuqah_chat_customization';
 
 const WELCOME_LINE1_MAX = 24;
 const WELCOME_LINE2_MAX = 36;
@@ -39,10 +22,6 @@ function formatSeconds(s: number, t: (en: string, ar: string) => string) {
   const m = s / 60;
   const mStr = Number.isInteger(m) ? `${m}` : m.toFixed(1);
   return `${s} ${t('seconds', 'ثانية')} (${mStr} ${t('min', 'دقيقة')})`;
-}
-
-function saveChatCustom(data: any) {
-  try { localStorage.setItem(CHAT_CUSTOM_KEY, JSON.stringify(data)); } catch {}
 }
 
 async function saveToSupabase(tenantId: string, settings: any) {
@@ -88,8 +67,24 @@ async function loadFromSupabase(tenantId: string) {
   };
 }
 
-// Module-level persistent saved state (survives component remounts)
-const persistedSaved = loadChatCustom();
+// Tenant-scoped defaults. The Supabase row keyed by tenant_id is the source
+// of truth — we never cache customization payloads to localStorage because
+// a global key leaks one tenant's settings to the next account that signs
+// in on the same browser.
+const DEFAULT_STATE = {
+  primaryColor: '#000000',
+  widgetOuter: '#000000',
+  widgetInner: '#FFFFFF',
+  position: 'right' as 'right' | 'left',
+  previewMode: 'light' as 'dark' | 'light',
+  welcomeBubbleEnabled: true,
+  welcomeBubbleLine1: 'مرحباً 👋',
+  welcomeBubbleLine2: 'كيف يمكنني مساعدتك؟',
+  inactivityEnabled: true,
+  inactivityPromptSeconds: 90,
+  inactivityCloseSeconds: 60,
+  ratingInactivitySeconds: 900,
+};
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
@@ -112,21 +107,22 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 }
 
 export function ChatCustomization() {
-  const { t, showToast, tenantId } = useApp();
+  const { t, showToast, tenantId, user } = useApp();
+  const userId = user?.id ?? null;
 
-  const [primaryColor, setPrimaryColor] = useState(persistedSaved.primaryColor);
-  const [widgetOuter, setWidgetOuter] = useState(persistedSaved.widgetOuter);
-  const [widgetInner, setWidgetInner] = useState(persistedSaved.widgetInner);
-  const [position, setPosition] = useState<'right' | 'left'>(persistedSaved.position);
-  const [previewMode, setPreviewMode] = useState<'dark' | 'light'>(persistedSaved.previewMode);
-  const [welcomeBubbleEnabled, setWelcomeBubbleEnabled] = useState<boolean>(persistedSaved.welcomeBubbleEnabled ?? true);
-  const [welcomeBubbleLine1, setWelcomeBubbleLine1] = useState<string>(persistedSaved.welcomeBubbleLine1 ?? 'مرحباً 👋');
-  const [welcomeBubbleLine2, setWelcomeBubbleLine2] = useState<string>(persistedSaved.welcomeBubbleLine2 ?? 'كيف يمكنني مساعدتك؟');
-  const [inactivityEnabled, setInactivityEnabled] = useState<boolean>(persistedSaved.inactivityEnabled ?? true);
-  const [inactivityPromptSeconds, setInactivityPromptSeconds] = useState<number>(persistedSaved.inactivityPromptSeconds ?? DEFAULT_PROMPT);
-  const [inactivityCloseSeconds, setInactivityCloseSeconds] = useState<number>(persistedSaved.inactivityCloseSeconds ?? DEFAULT_CLOSE);
-  const [ratingInactivitySeconds, setRatingInactivitySeconds] = useState<number>(persistedSaved.ratingInactivitySeconds ?? DEFAULT_RATING);
-  const [saved, setSaved] = useState({ ...persistedSaved });
+  const [primaryColor, setPrimaryColor] = useState(DEFAULT_STATE.primaryColor);
+  const [widgetOuter, setWidgetOuter] = useState(DEFAULT_STATE.widgetOuter);
+  const [widgetInner, setWidgetInner] = useState(DEFAULT_STATE.widgetInner);
+  const [position, setPosition] = useState<'right' | 'left'>(DEFAULT_STATE.position);
+  const [previewMode, setPreviewMode] = useState<'dark' | 'light'>(DEFAULT_STATE.previewMode);
+  const [welcomeBubbleEnabled, setWelcomeBubbleEnabled] = useState<boolean>(DEFAULT_STATE.welcomeBubbleEnabled);
+  const [welcomeBubbleLine1, setWelcomeBubbleLine1] = useState<string>(DEFAULT_STATE.welcomeBubbleLine1);
+  const [welcomeBubbleLine2, setWelcomeBubbleLine2] = useState<string>(DEFAULT_STATE.welcomeBubbleLine2);
+  const [inactivityEnabled, setInactivityEnabled] = useState<boolean>(DEFAULT_STATE.inactivityEnabled);
+  const [inactivityPromptSeconds, setInactivityPromptSeconds] = useState<number>(DEFAULT_STATE.inactivityPromptSeconds);
+  const [inactivityCloseSeconds, setInactivityCloseSeconds] = useState<number>(DEFAULT_STATE.inactivityCloseSeconds);
+  const [ratingInactivitySeconds, setRatingInactivitySeconds] = useState<number>(DEFAULT_STATE.ratingInactivitySeconds);
+  const [saved, setSaved] = useState({ ...DEFAULT_STATE });
   const [saving, setSaving] = useState(false);
   const [loadedFromServer, setLoadedFromServer] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
@@ -164,10 +160,36 @@ export function ChatCustomization() {
     setRatingInactivitySeconds(DEFAULTS.ratingInactivitySeconds);
   };
 
-  // Load from Supabase on mount
+  // One-time purge of the legacy unscoped localStorage cache. Older builds
+  // mirrored customization payloads into a single global key which leaked
+  // one tenant's preview to whoever signed in next on the same browser.
   useEffect(() => {
-    if (!tenantId) return;
+    try { localStorage.removeItem(LEGACY_CHAT_CUSTOM_KEY); } catch {}
+  }, []);
+
+  // Load from Supabase whenever the (tenant, user) identity changes. We
+  // reset to neutral defaults FIRST so a slow query never leaves the
+  // previous account's colors painted on screen for the new signed-in user.
+  useEffect(() => {
+    if (!tenantId || !userId) return;
+    setPrimaryColor(DEFAULT_STATE.primaryColor);
+    setWidgetOuter(DEFAULT_STATE.widgetOuter);
+    setWidgetInner(DEFAULT_STATE.widgetInner);
+    setPosition(DEFAULT_STATE.position);
+    setPreviewMode(DEFAULT_STATE.previewMode);
+    setWelcomeBubbleEnabled(DEFAULT_STATE.welcomeBubbleEnabled);
+    setWelcomeBubbleLine1(DEFAULT_STATE.welcomeBubbleLine1);
+    setWelcomeBubbleLine2(DEFAULT_STATE.welcomeBubbleLine2);
+    setInactivityEnabled(DEFAULT_STATE.inactivityEnabled);
+    setInactivityPromptSeconds(DEFAULT_STATE.inactivityPromptSeconds);
+    setInactivityCloseSeconds(DEFAULT_STATE.inactivityCloseSeconds);
+    setRatingInactivitySeconds(DEFAULT_STATE.ratingInactivitySeconds);
+    setSaved({ ...DEFAULT_STATE });
+    setLoadedFromServer(false);
+
+    let cancelled = false;
     loadFromSupabase(tenantId).then(settings => {
+      if (cancelled) return;
       if (settings) {
         const s = {
           primaryColor: settings.primaryColor || '#000000',
@@ -196,16 +218,15 @@ export function ChatCustomization() {
         setInactivityCloseSeconds(s.inactivityCloseSeconds);
         setRatingInactivitySeconds(s.ratingInactivitySeconds);
         setSaved(s);
-        Object.assign(persistedSaved, s);
-        saveChatCustom(s);
-        console.log('Chat settings loaded from Supabase');
       }
       setLoadedFromServer(true);
     }).catch(err => {
+      if (cancelled) return;
       console.log('Error loading settings from Supabase:', err);
       setLoadedFromServer(true);
     });
-  }, [tenantId]);
+    return () => { cancelled = true; };
+  }, [tenantId, userId]);
 
   // Load bubble visibility master switch from settings_train_ai and keep it
   // in sync via realtime so toggling it in Train AI updates this preview live.
@@ -264,17 +285,14 @@ export function ChatCustomization() {
       if (!tenantId) throw new Error('No tenant');
       await saveToSupabase(tenantId, newSaved);
       setSaved(newSaved);
-      Object.assign(persistedSaved, newSaved);
-      saveChatCustom(newSaved);
       showToast(t('Settings saved successfully', 'تم حفظ الإعدادات بنجاح'));
     } catch (err) {
       console.error('Error saving chat settings:', err);
       const msg = (err as any)?.message || String(err);
-      // Keep local cache so the UI does not flicker back, but surface the
-      // real server error instead of pretending the save succeeded.
+      // Surface the real server error. We intentionally do NOT mirror the
+      // failed payload anywhere — the next reload must reflect what the
+      // server actually has for this tenant.
       setSaved(newSaved);
-      Object.assign(persistedSaved, newSaved);
-      saveChatCustom(newSaved);
       showToast(t(`Failed to save: ${msg}`, `فشل الحفظ: ${msg}`));
     } finally {
       setSaving(false);
