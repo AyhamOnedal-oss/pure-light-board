@@ -1,70 +1,47 @@
-## What's actually broken (verified)
+## Two bugs, same file
 
-For tenant `d49382a6-4a0a-44e1-a2e0-fa500b1982d4` (Salla, merchant `1163458970`, store `demostore.salla.sa`):
+Both issues live in the deployed Hostinger widget (`public/widget-4.7.*-hostinger.js`, served from `widget.fuqah.net/widget.js`). The React widget (`widget/src/app/components/RatingScreen.tsx`) already does both things correctly — Hostinger fell out of sync.
 
-- Saved design in DB is correct: `widget_outer_color = #dbe3f5`, updated 2026-06-22 20:27:08.
-- Supabase `widget-bootstrap?platform=salla&external_id=1163458970` returns the correct tenant + saved cfg.
-- **But the storefront loads the OLD static file** `https://widget.fuqah.net/widget.js?v=1` (Hostinger), with `data-store-id="1163458970"` and **no `data-platform`**. That legacy script calls `widget-bootstrap?platform=zid&external_id=1163458970&domain=demostore.salla.sa` → returns `tenant_id: null` → widget falls back to default black bubble.
+### Bug 1 — rating comment never sent
 
-This will break for **every Salla store** that has the legacy `widget.fuqah.net/widget.js` snippet installed, not just this one. It will also silently break any future store whose snippet is pasted without `data-platform`.
+`public/widget-4.7.33-hostinger.js` line 2087:
+```js
+restSubmitRating(state.rating, '');   // hardcoded empty
+```
+Customer text is captured into `state.feedback` (line 2069) but discarded on submit, so `rating_comment` in `conversations_main` is always `NULL` and the dashboard's yellow quote bar (`ConversationsPage.tsx` line 556) never renders.
 
-## Fix plan (server-side, no merchant action required)
+### Bug 2 — missing 115-character counter
 
-The goal is: regardless of what snippet a merchant has pasted (old `widget.fuqah.net/widget.js`, new `widget-loader`, missing `data-platform`, wrong platform), the widget must resolve to the right tenant and render that tenant's saved design.
+The React `RatingScreen` shows a live `feedback.length/115` counter and caps input with `maxLength={115}`. The Hostinger textarea block (lines 2060–2071) has neither.
 
-### 1. Harden tenant resolution — `supabase/functions/_shared/resolve-tenant.ts`
+## Fix
 
-Make `resolveTenant` robust to a wrong/missing `platform`:
+1. Copy `public/widget-4.7.33-hostinger.js` → `public/widget-4.7.34-hostinger.js`.
+2. In the new file, in the textarea block (~lines 2060–2071):
+   - Make `textareaWrap` `position:relative`.
+   - Set `ta.maxLength = 115`, increase `padding-bottom` to ~22px so text doesn't sit under the counter.
+   - Append a counter `<div>` styled `position:absolute;bottom:8px;left:12px;font-size:11px;font-weight:500;opacity:.55;pointer-events:none;font-variant-numeric:tabular-nums;` starting at `0/115`.
+   - Update `oninput` to slice to 115, write back to the textarea, and update the counter (red `#ef4444` at ≥110).
+3. Replace line 2087:
+   ```js
+   var fb = (state.feedback || '').trim();
+   restSubmitRating(state.rating, fb || null);
+   ```
+4. No backend, dashboard, or React-widget changes — all three are already correct.
 
-- If `platform` is missing, try BOTH `salla_connections.merchant_id` and `zid_connections.store_id/store_uuid` lookups using `store_id`.
-- If `platform` is provided but the lookup misses, **fall back to the other platform** before giving up.
-- If still no match, fall back to `domain` lookup against:
-  - `settings_workspace.domain` (existing)
-  - **NEW:** `salla_connections.store_url` host match (strip protocol, `www.`, trailing slash; match against `host` and `host + path-prefix` so subpath stores like `demostore.salla.sa/dev-xyz` work).
-- Always return `is_active` from the matched connection row (not just `true`).
+## Deliverable
 
-This single change fixes the current store and immunizes every future store against the wrong-platform snippet.
+A single new file `public/widget-4.7.34-hostinger.js` ready for the user to upload to Hostinger as `widget.js`. Older versions left untouched for cache continuity.
 
-### 2. Harden `widget-loader` platform detection
+## Verification
 
-In `supabase/functions/widget-loader/index.ts` `detectPlatform()`:
+After Hostinger replaces `widget.js` with v4.7.34:
+- Salla tenant `d49382a6-…`: rate 4★ + comment → `conversations_main.csat_rating=4`, `rating_comment` populated → dashboard shows the quote bar.
+- Zid store: same flow, same result.
+- Typing in the textarea shows live `N/115` counter, turns red at ≥110, blocks input past 115.
+- Empty-comment submit → only `csat_rating` set; no quote bar (unchanged).
 
-- If `data-store-id` is present but `data-platform` is missing, probe `window.salla` / `window.Salla` / `window.zid` and infer.
-- If still ambiguous, send `platform=` empty and let the server resolve (which step 1 now supports). Also always include the current `location.hostname` as `domain=...` on the bootstrap call so the domain fallback can kick in.
+## Out of scope
 
-### 3. Harden `widget-bootstrap`
-
-- Always forward `domain` (from query or `Origin`/`Referer` header) to `resolveTenant`.
-- When `resolveTenant` returns no tenant, log the input (platform, external_id, domain, referer) at `console.warn` level so we can spot any future "no tenant" case immediately in edge logs.
-
-### 4. Cache-bust the storefront fallback path
-
-When `widget-bootstrap` returns `tenant_id: null`, return `Cache-Control: no-store` (not `max-age=30`) so a fixed deploy is picked up on the next page load instead of being pinned by the CDN for half a minute per visitor.
-
-### 5. Verification matrix (must all pass before declaring done)
-
-Call `widget-bootstrap` for each row and confirm it returns the right `tenant_id` and the tenant's saved `widget_outer_color`:
-
-| platform   | external_id          | domain                    | expected |
-|------------|----------------------|---------------------------|----------|
-| salla      | 1163458970           | (none)                    | this tenant |
-| zid        | 1163458970           | demostore.salla.sa        | this tenant (cross-platform fallback) |
-| (missing)  | 1163458970           | demostore.salla.sa        | this tenant (domain fallback) |
-| salla      | 999999999 (bogus)    | demostore.salla.sa        | this tenant (domain fallback) |
-| salla      | <other live merchant>| <other live domain>       | the other tenant (no cross-tenant leakage) |
-| zid        | <live zid store_id>  | (none)                    | the zid tenant |
-
-Then Playwright-load `https://demostore.salla.sa/dev-q6avnxiucdrzatze` and confirm:
-- `widget-bootstrap` response includes `tenant_id = d49382a6-...` and `widget_outer_color = #dbe3f5`.
-- Bubble paints in `#dbe3f5`, not black.
-
-### 6. Out of scope (separate ticket, will not be touched here)
-
-- Replacing the legacy `widget.fuqah.net/widget.js` deployment with the Supabase loader URL (Hostinger-side change, not in this repo).
-- The Salla storefront "عذراً، حدث خطأ مؤقت" chat error — investigate after step 5 confirms the tenant is now resolving end-to-end.
-
-### Multi-tenant safety guarantees
-
-- Resolution is keyed on `(platform, external_id)` first and only falls back to `domain` when those miss — a domain match still goes through `salla_connections`/`zid_connections`/`settings_workspace` lookups, never a heuristic.
-- No localStorage, no per-browser caching of tenant identity on the server. Each storefront page load re-resolves.
-- Verification matrix explicitly covers the "wrong platform, different tenant" case to prove no cross-tenant leakage.
+- Uploading the file to `widget.fuqah.net/widget.js` (manual Hostinger deploy step).
+- Moving Salla storefronts off Hostinger onto the Supabase `widget-loader` (separate prior plan; the proper long-term fix so Salla and Zid share the same React widget and these bugs can't diverge again).
