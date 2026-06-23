@@ -340,6 +340,20 @@ export function ChatCustomization() {
   const sendArrowColor = '#ffffff';
   const borderColor = isDarkPreview ? '#334155' : '#e5e7eb';
 
+  if (!loadedFromServer) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-[24px]" style={{ fontWeight: 700 }}>{t('Chat Customization', 'تخصيص المحادثة')}</h1>
+          <p className="text-muted-foreground text-[14px] mt-1">{t('Customize the look and feel of your chat widget', 'خصص مظهر وأسلوب أداة المحادثة')}</p>
+        </div>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
