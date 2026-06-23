@@ -316,15 +316,27 @@ export function TicketsPage() {
       (n, a) => (a.type === 'note' && new Date(a.timestamp).getTime() > seen ? n + 1 : n),
       0,
     );
-    // A freshly raised ticket whose notes panel has never been opened counts
-    // as 1 on the row and on the Notes button. Clicking the ticket itself
-    // does NOT clear it — only opening ملاحظات does.
-    const ticketUnread = seen === 0 ? 1 : 0;
+    // A ticket counts as "unseen" when its latest open/reopen event is newer
+    // than the per-user seen timestamp. This re-bumps on reopen.
+    const lastOpenedAt = tk.activities.reduce((m, a) => {
+      if (a.type !== 'status') return m;
+      if (a.status !== 'open' && a.status !== 'created') return m;
+      const ts = new Date(a.timestamp).getTime();
+      return ts > m ? ts : m;
+    }, 0);
+    const isOpenNow = tk.status === 'open';
+    const ticketUnread = isOpenNow && lastOpenedAt > seen ? 1 : 0;
     return noteUnread + ticketUnread;
   };
   const isNewTicket = (tk: TicketItem): boolean => {
-    const opened = getTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
-    return opened === 0;
+    const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
+    const lastOpenedAt = tk.activities.reduce((m, a) => {
+      if (a.type !== 'status') return m;
+      if (a.status !== 'open' && a.status !== 'created') return m;
+      const ts = new Date(a.timestamp).getTime();
+      return ts > m ? ts : m;
+    }, 0);
+    return tk.status === 'open' && lastOpenedAt > seen;
   };
 
   const openNotes = () => {
@@ -339,6 +351,10 @@ export function TicketsPage() {
 
   const handleSelect = (tk: TicketItem) => {
     setTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
+    // Clicking the ticket row acknowledges the current open/reopen bump,
+    // so the sidebar badge and row dot clear immediately. Notes-panel open
+    // does the same thing (see openNotes).
+    setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
     setSelected(tk);
     bump();
     window.dispatchEvent(new Event('fuqah:badges-bump'));
