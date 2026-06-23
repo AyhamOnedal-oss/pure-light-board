@@ -2058,16 +2058,29 @@
 
     // Feedback
     var textareaWrap = el('div');
-    textareaWrap.style.cssText = 'width:100%;margin-bottom:16px;';
+    textareaWrap.style.cssText = 'width:100%;margin-bottom:16px;position:relative;';
     var ta = el('textarea');
     ta.placeholder = 'أخبرنا برأيك... (اختياري)';
     ta.rows = 3;
     ta.setAttribute('dir', 'rtl');
-    ta.style.cssText = 'width:100%;padding:14px;border-radius:12px;resize:none;font-size:14px;border:1.5px solid ' + (isDark() ? '#334155' : '#e5e7eb') + ';outline:none;background:' + (isDark() ? '#0f172a' : '#f9fafb') + ';color:' + c.primaryText + ';font-family:inherit;line-height:1.55;';
+    ta.maxLength = 115;
+    ta.style.cssText = 'width:100%;padding:14px;padding-bottom:24px;border-radius:12px;resize:none;font-size:14px;border:1.5px solid ' + (isDark() ? '#334155' : '#e5e7eb') + ';outline:none;background:' + (isDark() ? '#0f172a' : '#f9fafb') + ';color:' + c.primaryText + ';font-family:inherit;line-height:1.55;';
     ta.onfocus = function () { this.style.borderColor = accentColor; };
     ta.onblur = function () { this.style.borderColor = isDark() ? '#334155' : '#e5e7eb'; };
-    ta.oninput = function () { state.feedback = this.value; };
+    var counter = el('div');
+    var counterMutedColor = isDark() ? '#94a3b8' : '#9ca3af';
+    counter.setAttribute('aria-hidden', 'true');
+    counter.style.cssText = 'position:absolute;bottom:8px;left:12px;font-size:11px;font-weight:500;opacity:.55;pointer-events:none;font-variant-numeric:tabular-nums;color:' + counterMutedColor + ';';
+    counter.textContent = '0/115';
+    ta.oninput = function () {
+      var v = (this.value || '').slice(0, 115);
+      if (v !== this.value) this.value = v;
+      state.feedback = v;
+      counter.textContent = v.length + '/115';
+      counter.style.color = v.length >= 110 ? '#ef4444' : counterMutedColor;
+    };
     textareaWrap.appendChild(ta);
+    textareaWrap.appendChild(counter);
     body.appendChild(textareaWrap);
 
     screen.appendChild(body);
@@ -2084,7 +2097,8 @@
     submitBtn.style.color = '#FFFFFF';
     submitBtn.onclick = function () {
       if (state.rating === 0) return;
-      restSubmitRating(state.rating, '');
+      var fb = (state.feedback || '').trim();
+      restSubmitRating(state.rating, fb || null);
       // Show thank you
       clearInner();
       var ty = el('div', 'fq-thankyou');
