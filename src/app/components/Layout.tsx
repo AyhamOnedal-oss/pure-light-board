@@ -149,13 +149,21 @@ export function Layout() {
     if (!tenantId) { setTicketsBadge(0); return; }
     let cancelled = false;
     const load = async () => {
-      const [{ data: ticketRows }, { data: noteRows }] = await Promise.all([
+      const [{ data: ticketRows }, { data: statusRows }, { data: noteRows }] = await Promise.all([
         supabase
           .from('tickets_main')
-          .select('id, created_at')
+          .select('id, status, created_at')
           .eq('tenant_id', tenantId)
           .order('created_at', { ascending: false })
           .limit(2000),
+        supabase
+          .from('tickets_activities')
+          .select('ticket_id, status, created_at')
+          .eq('tenant_id', tenantId)
+          .eq('type', 'status')
+          .in('status', ['created', 'open'])
+          .order('created_at', { ascending: false })
+          .limit(4000),
         supabase
           .from('tickets_activities')
           .select('ticket_id, created_at')
@@ -165,17 +173,32 @@ export function Layout() {
           .limit(2000),
       ]);
       if (cancelled) return;
-      // Sidebar badge = (unopened tickets) + (unread notes across all tickets).
-      // Opening a ticket clears its "1" from the unopened count; opening the
-      // notes panel clears its unread-note contribution. Both are persisted
-      // in localStorage so the dropped count survives refresh.
+      // Sidebar badge = (currently-open tickets whose latest open/reopen event
+      // hasn't been acknowledged by the user) + (unread notes across all tickets).
+      // Closing a ticket removes it from the count; reopening inserts a new
+      // status='open' activity row whose timestamp is fresher than `seen`, so
+      // the ticket re-bumps until the user clicks it (or opens notes).
+      const lastOpenedByTk = new Map<string, number>();
+      for (const r of statusRows || []) {
+        const tid = (r as { ticket_id?: string | null }).ticket_id;
+        const createdAt = (r as { created_at?: string | null }).created_at;
+        if (!tid || !createdAt) continue;
+        const ts = toMs(createdAt);
+        const prev = lastOpenedByTk.get(tid) ?? 0;
+        if (ts > prev) lastOpenedByTk.set(tid, ts);
+      }
       let unread = 0;
       for (const r of ticketRows || []) {
         const tid = (r as { id?: string | null }).id;
         const createdAt = (r as { created_at?: string | null }).created_at;
+        const status = (r as { status?: string | null }).status;
         if (!tid || !createdAt) continue;
+        // Skip tickets that are not currently open — closed/resolved tickets
+        // don't contribute, per the lifecycle rule (raise +1, close -1).
+        if (status === 'closed' || status === 'resolved') continue;
         const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
-        if (seen === 0 || toMs(createdAt) > seen) unread += 1;
+        const lastOpenedAt = lastOpenedByTk.get(tid) ?? toMs(createdAt);
+        if (lastOpenedAt > seen) unread += 1;
       }
       const seenCache = new Map<string, number>();
       for (const r of noteRows || []) {
