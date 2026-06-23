@@ -351,13 +351,8 @@ export function TicketsPage() {
 
   const handleSelect = (tk: TicketItem) => {
     setTs(notifKeys.ticketOpened(CURRENT_USER.id, tk.id));
-    // Clicking the ticket row acknowledges the current open/reopen bump,
-    // so the sidebar badge and row dot clear immediately. Notes-panel open
-    // does the same thing (see openNotes).
-    setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
     setSelected(tk);
     bump();
-    window.dispatchEvent(new Event('fuqah:badges-bump'));
     // Lazy-load attachments for the selected ticket's conversation.
     if (!tk.conversationId) return;
     const convId = tk.conversationId;
