@@ -239,6 +239,8 @@ export function TrainAI() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
