@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Save, Trash2, ToggleLeft, ToggleRight, RotateCcw } from 'lucide-react';
+import { Save, Trash2, ToggleLeft, ToggleRight, RotateCcw, Loader2 } from 'lucide-react';
 import { supabase } from '../../../integrations/supabase/client';
 
 const DEFAULT_PROMPT = `أنت مساعد ذكاء اصطناعي لخدمة عملاء متجرنا الإلكتروني.
@@ -80,10 +80,12 @@ export function TrainAI() {
   const [savedPrompt, setSavedPrompt] = useState(DEFAULT_TRAIN.prompt);
   const [bubbleVisible, setBubbleVisible] = useState(DEFAULT_TRAIN.bubbleVisible);
   const [savedBubbleVisible, setSavedBubbleVisible] = useState(DEFAULT_TRAIN.bubbleVisible);
+  const [loaded, setLoaded] = useState(false);
 
   // Load from Supabase
   useEffect(() => {
     if (!tenantId) return;
+    setLoaded(false);
     let cancelled = false;
     (async () => {
       const { data } = await supabase
@@ -95,6 +97,7 @@ export function TrainAI() {
       const loaded = (data?.prompt && data.prompt.trim().length > 0) ? data.prompt : DEFAULT_PROMPT;
       setPrompt(loaded); setSavedPrompt(loaded);
       setBubbleVisible(data?.bubble_visible ?? true); setSavedBubbleVisible(data?.bubble_visible ?? true);
+      setLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -169,6 +172,12 @@ export function TrainAI() {
         <p className="text-muted-foreground text-[14px] mt-1">{t('Configure how your AI assistant responds to customers', 'تكوين طريقة استجابة مساعد الذكاء الاصطناعي للعملاء')}</p>
       </div>
 
+      {!loaded ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+      <>
       {/* Bubble Toggle */}
       <div className="bg-card rounded-2xl p-5 border border-border shadow-sm">
         <div className="flex items-center justify-between gap-4">
@@ -230,6 +239,8 @@ export function TrainAI() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
