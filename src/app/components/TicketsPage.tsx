@@ -436,9 +436,17 @@ export function TicketsPage() {
       author_name: authorName, author_role: authorRole,
       author_user_id: authorUserId,
     });
+    // Reopening must re-raise the red unread indicator (sidebar badge + row dot)
+    // exactly like a newly-raised ticket. Reset the per-user "seen" timestamp
+    // for this ticket so the new status='open' activity counts as unread,
+    // independent of any client/server clock skew.
+    if (newStatus === 'open') {
+      setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, id), 0);
+    }
     setMenuOpen(null);
     showToast(t('Ticket status updated', 'تم تحديث حالة التذكرة'));
     await loadTickets();
+    window.dispatchEvent(new Event('fuqah:badges-bump'));
   };
 
   const addNote = async (
