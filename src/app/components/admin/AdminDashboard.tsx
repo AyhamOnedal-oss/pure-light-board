@@ -606,7 +606,7 @@ export function AdminDashboard() {
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Server / Service Usage', 'استخدام الخوادم / الخدمات')}</h3>
           <div className="space-y-3">
             {serverUsage.map((s, i) => (
-              <div key={`srv-${i}`}>
+              <div key={`srv-${i}`} title={s.tooltip}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[13px]" style={{ fontWeight: 500 }}>{s.name}</span>
                   <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>{s.usage}%</span>
