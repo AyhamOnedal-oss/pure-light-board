@@ -19,6 +19,9 @@ import {
   fetchServerHealth,
   type AdminKpis,
   type HealthCheck,
+  fetchTokenBreakdown,
+  type TokenBreakdown,
+  type TokenBucketKey,
 } from '../../services/adminDashboard';
 
 const dateFilters = [
@@ -113,9 +116,29 @@ export function AdminDashboard() {
 
   // ---- Live KPI numbers from admin_kpis() ----
   const [liveKpis, setLiveKpis] = useState<AdminKpis | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(true);
   useEffect(() => {
     let alive = true;
-    fetchAdminKpis(range.from, range.to).then(k => { if (alive) setLiveKpis(k); });
+    setKpisLoading(true);
+    fetchAdminKpis(range.from, range.to).then(k => {
+      if (!alive) return;
+      setLiveKpis(k);
+      setKpisLoading(false);
+    });
+    return () => { alive = false; };
+  }, [range.from, range.to]);
+
+  // ---- Live token breakdown (n8n + OpenAI) ----
+  const [tokens, setTokens] = useState<TokenBreakdown | null>(null);
+  const [tokensLoading, setTokensLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    setTokensLoading(true);
+    fetchTokenBreakdown(range.from, range.to).then(b => {
+      if (!alive) return;
+      setTokens(b);
+      setTokensLoading(false);
+    });
     return () => { alive = false; };
   }, [range.from, range.to]);
 
@@ -124,12 +147,12 @@ export function AdminDashboard() {
 
   // KPI cards ← admin_kpis() (with mock fallback for inactive_customers)
   const kpis = useMemo(() => {
-    const totalCustomers = liveKpis?.total_customers ?? data.kpi.total_customers;
-    const inactiveCustomers = data.kpi.inactive_customers; // mock per spec
+    const totalCustomers = liveKpis?.total_customers ?? 0;
+    const inactiveCustomers = liveKpis ? 0 : 0; // shown as "—" until real metric exists
     const activeCustomers = Math.max(0, totalCustomers - inactiveCustomers);
-    const uninstalls = liveKpis?.total_uninstalls ?? data.kpi.total_uninstalls;
-    const clicks = liveKpis?.total_bubble_clicks ?? data.kpi.total_bubble_clicks;
-    const avg = liveKpis?.avg_response_seconds ?? data.kpi.avg_response_seconds;
+    const uninstalls = liveKpis?.total_uninstalls ?? 0;
+    const clicks = liveKpis?.total_bubble_clicks ?? 0;
+    const avg = liveKpis?.avg_response_seconds ?? 0;
 
     const pct = (curr: number, prev: number): { change: number | null; up: boolean } => {
       if (!liveKpis?.has_range) return { change: null, up: true };
@@ -166,11 +189,31 @@ export function AdminDashboard() {
     business:     t('Business', 'أعمال'),
   }[p]);
 
-  // #1 Words Usage  ← admin_dash_words_monthly
-  const wordsData = useMemo(() => {
-    const byMonth = new Map(data.wordsMonthly.map(w => [w.month, w.words]));
-    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
-  }, [data.wordsMonthly, language]);
+  // Token breakdown bucket labels + colors for the new card
+  const tokenBucketLabel = (k: TokenBucketKey): string => ({
+    chat_replies:                t('Chat AI (n8n)', 'ردود الذكاء (n8n)'),
+    vision:                      t('Vision / Images', 'الرؤية / الصور'),
+    user_intent:                 t('User Intent', 'نية المستخدم'),
+    reply_intent:                t('Reply Intent', 'نية الرد'),
+    conversation_classification: t('Conversation Classification', 'تصنيف المحادثات'),
+    ticket_classification:       t('Ticket Classification', 'تصنيف التذاكر'),
+    openai:                      t('OpenAI (other)', 'OpenAI (أخرى)'),
+  }[k]);
+  const TOKEN_COLORS: Record<TokenBucketKey, string> = {
+    chat_replies: '#043CC8',
+    vision: '#8b5cf6',
+    user_intent: '#22c55e',
+    reply_intent: '#0ea5e9',
+    conversation_classification: '#f97316',
+    ticket_classification: '#ec4899',
+    openai: '#94a3b8',
+  };
+  const tokenPieData = useMemo(() => {
+    if (!tokens) return [];
+    return tokens.buckets
+      .filter(b => b.available && b.tokens > 0)
+      .map(b => ({ name: tokenBucketLabel(b.key), value: b.tokens, color: TOKEN_COLORS[b.key] }));
+  }, [tokens, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
@@ -180,6 +223,15 @@ export function AdminDashboard() {
       return { name: planLabel(plan), value: row?.subscribers ?? 0, color: PLAN_COLORS[plan] };
     });
   }, [data.planDistribution, language]);
+
+  // Gate animated donuts so they mount fresh after data resolves and play
+  // their sweep once on real values (no MOCK-flash count-down).
+  const [chartsLoaded, setChartsLoaded] = useState(false);
+  useEffect(() => {
+    setChartsLoaded(false);
+    const id = requestAnimationFrame(() => setChartsLoaded(true));
+    return () => cancelAnimationFrame(id);
+  }, [range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
 
   // #3 Subscriptions by Platform  ← admin_dash_platform_subs
   const platformSubsData = useMemo(() => {
@@ -322,9 +374,11 @@ export function AdminDashboard() {
             <p className={`text-[11px] ${textMuted} mb-1`}>{kpi.label}</p>
             <div className="flex items-center justify-between">
               <p className="text-[22px]" style={{ fontWeight: 700 }}>
-                <AnimatedValue value={kpi.value} />{kpi.suffix || ''}
+                {kpisLoading
+                  ? <span className={textMuted}>—</span>
+                  : <><AnimatedValue value={kpi.value} />{kpi.suffix || ''}</>}
               </p>
-              {kpi.change !== null && (
+              {!kpisLoading && kpi.change !== null && (
                 <div className={`flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-500'}`}>
                   {kpi.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
                   <span className="text-[11px]" style={{ fontWeight: 600 }}>{kpi.change}%</span>
@@ -393,18 +447,73 @@ export function AdminDashboard() {
       {/* #1 Words Usage + Current Customer Plans */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={cardClass}>
-          <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Words / Tokens Usage', 'استخدام الكلمات / التوكنز')}</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
-              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
-              <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
-              <Bar dataKey="words" fill="#043CC8" name={t('Words Used', 'الكلمات المستهلكة')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="flex items-center justify-center gap-6 mt-2">
-            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Words Used', 'الكلمات المستهلكة')}</span></div>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h3 className="text-[14px]" style={{ fontWeight: 600 }}>{t('Token Usage Breakdown', 'توزيع استهلاك التوكنز')}</h3>
+              <p className={`text-[11px] ${textMuted}`}>
+                {tokensLoading
+                  ? t('Loading…', 'جارٍ التحميل…')
+                  : `${(tokens?.total_tokens ?? 0).toLocaleString()} ${t('tokens', 'توكن')} • $${(tokens?.total_cost_usd ?? 0).toFixed(2)}`}
+              </p>
+            </div>
+            {!tokensLoading && tokenPieData.length > 0 && chartsLoaded && (
+              <div style={{ width: 80, height: 80 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={tokenPieData} cx="50%" cy="50%" innerRadius={20} outerRadius={36} paddingAngle={2} dataKey="value" strokeWidth={0}
+                      isAnimationActive animationDuration={1200}>
+                      {tokenPieData.map((e, i) => <Cell key={`tk-${i}`} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip theme={theme} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+          <div className="space-y-2.5">
+            {tokensLoading && (
+              <p className={`text-[12px] ${textMuted} py-6 text-center`}>{t('Loading token usage…', 'جارٍ تحميل استهلاك التوكنز…')}</p>
+            )}
+            {!tokensLoading && (tokens?.buckets ?? []).map((b, i) => {
+              const color = TOKEN_COLORS[b.key];
+              const pct = (tokens?.total_tokens ?? 0) > 0 && b.available
+                ? Math.round((b.tokens / (tokens!.total_tokens)) * 100)
+                : 0;
+              return (
+                <div key={`tkb-${i}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                      <span className="text-[12px] truncate" style={{ fontWeight: 500 }}>{tokenBucketLabel(b.key)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {b.available ? (
+                        <>
+                          <span className="text-[12px]" style={{ fontWeight: 600 }}>{b.tokens.toLocaleString()}</span>
+                          <span className={`text-[10px] ${textMuted}`}>({pct}%)</span>
+                          <span className={`text-[10px] ${textMuted}`}>${b.cost_usd.toFixed(2)}</span>
+                        </>
+                      ) : (
+                        <span className={`text-[10px] ${textMuted}`}>—</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                </div>
+              );
+            })}
+            {!tokensLoading && tokens && !tokens.n8n_available && (
+              <p className={`text-[10px] ${textMuted}`}>
+                {t('Chat AI unavailable: configure N8N_TOKEN_STATS_URL.', 'ردود الذكاء غير متوفرة: قم بضبط N8N_TOKEN_STATS_URL.')}
+              </p>
+            )}
+            {!tokensLoading && tokens && !tokens.openai_available && (
+              <p className={`text-[10px] ${textMuted}`}>
+                {t('OpenAI breakdown unavailable: configure OPENAI_ADMIN_KEY.', 'تفاصيل OpenAI غير متوفرة: قم بضبط OPENAI_ADMIN_KEY.')}
+              </p>
+            )}
           </div>
         </motion.div>
 
@@ -412,10 +521,12 @@ export function AdminDashboard() {
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Current Customer Plans', 'خطط العملاء الحالية')}</h3>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
-              <Pie data={currentPlansData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={4} dataKey="value" strokeWidth={0}
-                isAnimationActive animationDuration={1200}>
-                {currentPlansData.map((entry, i) => <Cell key={`plan-${i}`} fill={entry.color} />)}
-              </Pie>
+              {chartsLoaded && (
+                <Pie data={currentPlansData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={4} dataKey="value" strokeWidth={0}
+                  isAnimationActive animationDuration={1200}>
+                  {currentPlansData.map((entry, i) => <Cell key={`plan-${i}`} fill={entry.color} />)}
+                </Pie>
+              )}
               <Tooltip content={<ChartTooltip theme={theme} />} />
             </PieChart>
           </ResponsiveContainer>
@@ -469,10 +580,12 @@ export function AdminDashboard() {
           <div style={{ aspectRatio: '1/1', maxHeight: 220 }} className="mx-auto">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={firstSubData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={4} dataKey="value" strokeWidth={0}
-                  isAnimationActive animationDuration={1200}>
-                  {firstSubData.map((entry, i) => <Cell key={`fst-${i}`} fill={entry.color} />)}
-                </Pie>
+                {chartsLoaded && (
+                  <Pie data={firstSubData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={4} dataKey="value" strokeWidth={0}
+                    isAnimationActive animationDuration={1200}>
+                    {firstSubData.map((entry, i) => <Cell key={`fst-${i}`} fill={entry.color} />)}
+                  </Pie>
+                )}
                 <Tooltip content={<ChartTooltip theme={theme} />} />
               </PieChart>
             </ResponsiveContainer>
@@ -535,10 +648,12 @@ export function AdminDashboard() {
           <p className={`text-[11px] ${textMuted} -mt-2 mb-3`}>{t('All customers: subscribed, unsubscribed & uninstalled', 'جميع العملاء: مشتركين وغير مشتركين وملغيين')}</p>
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
-              <Pie data={customerSourceData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={5} dataKey="value" strokeWidth={0}
-                isAnimationActive animationDuration={1200}>
-                {customerSourceData.map((entry, i) => <Cell key={`src-${i}`} fill={entry.color} />)}
-              </Pie>
+              {chartsLoaded && (
+                <Pie data={customerSourceData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={5} dataKey="value" strokeWidth={0}
+                  isAnimationActive animationDuration={1200}>
+                  {customerSourceData.map((entry, i) => <Cell key={`src-${i}`} fill={entry.color} />)}
+                </Pie>
+              )}
               <Tooltip content={<ChartTooltip theme={theme} />} />
             </PieChart>
           </ResponsiveContainer>
