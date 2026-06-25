@@ -121,6 +121,16 @@ export function AdminDashboard() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
+  // ---- Live Supabase DB usage (size vs 8 GB Pro-plan included disk) ----
+  const [supaUsage, setSupaUsage] = useState<{ bytes: number; included_bytes: number; percent: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetchSupabaseUsage().then(u => { if (alive) setSupaUsage(u); });
+    load();
+    const id = setInterval(load, 5 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
   // ---- Date range derived from the top-right filter ----
   const range = useMemo<{ from: string | null; to: string | null }>(() => {
     const now = new Date();
