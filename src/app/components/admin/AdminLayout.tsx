@@ -279,6 +279,7 @@ export function AdminLayout() {
             </button>
 
             {/* Send Notification */}
+            {isSuperAdmin && (
             <div className="relative">
               <button onClick={() => setSendNotifOpen(!sendNotifOpen)}
                 className="p-2 rounded-xl hover:bg-muted transition-colors" title={t('Send Notification', 'إرسال إشعار')}>
@@ -306,6 +307,7 @@ export function AdminLayout() {
                 </>
               )}
             </div>
+            )}
 
             {/* Remove notification bell - keep only Send Notification */}
           </div>
