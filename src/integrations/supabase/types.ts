@@ -2056,6 +2056,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_db_usage: { Args: never; Returns: Json }
       admin_kpis: { Args: { _from: string; _to: string }; Returns: Json }
       dashboard_metrics: {
         Args: { _from: string; _tenant: string; _to: string }
