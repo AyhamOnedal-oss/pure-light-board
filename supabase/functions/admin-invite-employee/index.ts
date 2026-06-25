@@ -84,8 +84,8 @@ function inviteEmailHtml(opts: {
           </tr>
           <tr>
             <td style="background:#f7f9fc;border-top:1px solid #e6eaf2;padding:18px 24px;text-align:center;font-size:12px;color:#5a6b85;direction:rtl;">
-              <div style="margin:0 0 6px;">🌐 <a href="https://www.fugah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">www.fugah.ai</a></div>
-              <div>📧 للدعم الفني: <a href="mailto:support@fugah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">support@fugah.ai</a></div>
+              <div style="margin:0 0 6px;">🌐 <a href="https://www.fuqah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">www.fuqah.ai</a></div>
+              <div>📧 للدعم الفني: <a href="mailto:support@fuqah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">support@fuqah.ai</a></div>
             </td>
           </tr>
         </table>
@@ -106,6 +106,31 @@ async function sendResend(to: string, subject: string, html: string) {
   });
   if (!r.ok) return { ok: false, error: `${r.status}: ${(await r.text()).slice(0, 400)}` };
   return { ok: true };
+}
+
+// Strip any merchant-side identity from an internal admin account so the
+// employee is never treated as a tenant user. Removes ALL tenant memberships
+// for the given user and deletes any solo (owner-only) workspaces left
+// behind by the signup trigger.
+async function detachFromTenants(admin: any, userId: string) {
+  const { data: memberships } = await admin
+    .from("auth_tenant_members")
+    .select("tenant_id, role")
+    .eq("user_id", userId);
+  for (const m of memberships ?? []) {
+    const { count } = await admin
+      .from("auth_tenant_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("tenant_id", m.tenant_id);
+    // Drop this user's membership.
+    await admin.from("auth_tenant_members")
+      .delete().eq("tenant_id", m.tenant_id).eq("user_id", userId);
+    // If they were the only member (owner of a personal workspace
+    // auto-provisioned at signup), tear the workspace down too.
+    if ((count ?? 0) <= 1 && m.role === "owner") {
+      await admin.from("settings_workspace").delete().eq("id", m.tenant_id);
+    }
+  }
 }
 
 Deno.serve(async (req) => {
@@ -188,10 +213,12 @@ Deno.serve(async (req) => {
       const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(row.email)}&invite=1`;
       // Ensure the admin role is granted (in case it was missing or revoked).
       if (userId) {
-        await admin.from("auth_user_roles").upsert(
+        const { error: roleErr } = await admin.from("auth_user_roles").upsert(
           { user_id: userId, role: "admin" },
           { onConflict: "user_id,role" },
         );
+        if (roleErr) return json({ error: "grant_role_failed", detail: roleErr.message }, 500);
+        await detachFromTenants(admin, userId);
       }
       const html = inviteEmailHtml({
         employeeName: row.name_ar || row.name || row.email,
@@ -229,6 +256,7 @@ Deno.serve(async (req) => {
               { user_id: uid, role: "admin" },
               { onConflict: "user_id,role" },
             );
+            await detachFromTenants(admin, uid);
           } else {
             await admin.from("auth_user_roles").delete()
               .eq("user_id", uid).eq("role", "admin");
@@ -277,10 +305,12 @@ Deno.serve(async (req) => {
 
     // Grant the 'admin' role so the new employee can access the admin panel.
     if (userId) {
-      await admin.from("auth_user_roles").upsert(
+      const { error: roleErr } = await admin.from("auth_user_roles").upsert(
         { user_id: userId, role: "admin" },
         { onConflict: "user_id,role" },
       );
+      if (roleErr) return json({ error: "grant_role_failed", detail: roleErr.message }, 500);
+      await detachFromTenants(admin, userId);
     }
 
     const now = new Date();
