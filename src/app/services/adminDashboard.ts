@@ -314,3 +314,23 @@ export async function fetchServerHealth(): Promise<HealthCheck[]> {
     return [];
   }
 }
+
+/**
+ * Live Supabase DB size vs Pro-plan included disk (8 GB).
+ * Returns null on error so the UI can fall back to the seeded value.
+ */
+export async function fetchSupabaseUsage(): Promise<{ bytes: number; included_bytes: number; percent: number } | null> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_db_usage');
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      bytes: Number((data as any).bytes ?? 0),
+      included_bytes: Number((data as any).included_bytes ?? 8 * 1024 ** 3),
+      percent: Number((data as any).percent ?? 0),
+    };
+  } catch (err) {
+    console.warn('[adminDashboard] fetchSupabaseUsage failed:', err);
+    return null;
+  }
+}

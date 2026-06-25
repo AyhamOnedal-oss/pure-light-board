@@ -19,6 +19,7 @@ import {
   fetchServerHealth,
   type AdminKpis,
   type HealthCheck,
+  fetchSupabaseUsage,
 } from '../../services/adminDashboard';
 
 type AdminDonutDatum = { name: string; value: number; color: string };
@@ -117,6 +118,16 @@ export function AdminDashboard() {
     const load = () => fetchServerHealth().then(h => { if (alive) setHealth(h); });
     load();
     const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  // ---- Live Supabase DB usage (size vs 8 GB Pro-plan included disk) ----
+  const [supaUsage, setSupaUsage] = useState<{ bytes: number; included_bytes: number; percent: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetchSupabaseUsage().then(u => { if (alive) setSupaUsage(u); });
+    load();
+    const id = setInterval(load, 5 * 60_000);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
@@ -256,9 +267,19 @@ export function AdminDashboard() {
   })), [data.newSubscribers]);
 
   // Server usage bars  ← admin_dash_servers
-  const serverUsage = useMemo(() => data.servers.map(s => ({
-    name: s.name, usage: s.usage_percent, fill: s.color,
-  })), [data.servers]);
+  const serverUsage = useMemo(() => data.servers.map(s => {
+    if (s.name === 'Supabase' && supaUsage) {
+      const usedGb = supaUsage.bytes / (1024 ** 3);
+      const capGb  = supaUsage.included_bytes / (1024 ** 3);
+      return {
+        name: s.name,
+        usage: supaUsage.percent,
+        fill: s.color,
+        tooltip: `${usedGb.toFixed(2)} GB / ${capGb.toFixed(0)} GB`,
+      };
+    }
+    return { name: s.name, usage: s.usage_percent, fill: s.color, tooltip: undefined as string | undefined };
+  }), [data.servers, supaUsage]);
 
   // First Subscription Type pie  ← admin_dash_first_sub_type
   const firstSubData = useMemo(() => {
@@ -585,7 +606,7 @@ export function AdminDashboard() {
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Server / Service Usage', 'استخدام الخوادم / الخدمات')}</h3>
           <div className="space-y-3">
             {serverUsage.map((s, i) => (
-              <div key={`srv-${i}`}>
+              <div key={`srv-${i}`} title={s.tooltip}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[13px]" style={{ fontWeight: 500 }}>{s.name}</span>
                   <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>{s.usage}%</span>
