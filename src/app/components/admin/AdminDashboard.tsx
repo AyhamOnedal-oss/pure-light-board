@@ -15,6 +15,10 @@ import {
   ADMIN_DASHBOARD_MOCK,
   type AdminDashboardData,
   type PlanTier,
+  fetchAdminKpis,
+  fetchServerHealth,
+  type AdminKpis,
+  type HealthCheck,
 } from '../../services/adminDashboard';
 
 const dateFilters = [
@@ -73,18 +77,81 @@ export function AdminDashboard() {
     return () => { alive = false; };
   }, []);
 
+  // ---- Live server health (latest row per provider) ----
+  const [health, setHealth] = useState<HealthCheck[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetchServerHealth().then(h => { if (alive) setHealth(h); });
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  // ---- Date range derived from the top-right filter ----
+  const range = useMemo<{ from: string | null; to: string | null }>(() => {
+    const now = new Date();
+    const startOfMonth = (y: number, m: number) => new Date(Date.UTC(y, m, 1)).toISOString();
+    const endOfMonth   = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 1) - 1 as any).toISOString();
+    const y = now.getUTCFullYear(); const m = now.getUTCMonth();
+    switch (dateFilter) {
+      case 'current_month': return { from: startOfMonth(y, m), to: now.toISOString() };
+      case 'prev_month':    return { from: startOfMonth(y, m - 1), to: endOfMonth(y, m - 1) };
+      case 'last_3':        return { from: startOfMonth(y, m - 2), to: now.toISOString() };
+      case 'last_6':        return { from: startOfMonth(y, m - 5), to: now.toISOString() };
+      case 'current_year':  return { from: new Date(Date.UTC(y, 0, 1)).toISOString(), to: now.toISOString() };
+      case 'custom':
+        if (dateFrom && dateTo) {
+          return {
+            from: new Date(dateFrom + 'T00:00:00Z').toISOString(),
+            to:   new Date(dateTo   + 'T23:59:59Z').toISOString(),
+          };
+        }
+        return { from: null, to: null };
+      default: return { from: null, to: null };
+    }
+  }, [dateFilter, dateFrom, dateTo]);
+
+  // ---- Live KPI numbers from admin_kpis() ----
+  const [liveKpis, setLiveKpis] = useState<AdminKpis | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchAdminKpis(range.from, range.to).then(k => { if (alive) setLiveKpis(k); });
+    return () => { alive = false; };
+  }, [range.from, range.to]);
+
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
-  // KPI cards ← admin_dash_kpi_snapshots
-  const kpis = [
-    { icon: Users,             label: t('Total Customers',     'إجمالي العملاء'),         value: data.kpi.total_customers,       color: '#043CC8', change: data.kpi.total_customers_change,       up: true },
-    { icon: UserX,             label: t('Inactive Customers',  'العملاء غير النشطين'),    value: data.kpi.inactive_customers,    color: '#ff4466', change: data.kpi.inactive_customers_change,    up: true },
-    { icon: Trash2,            label: t('Total Uninstalls',    'إجمالي إلغاء التثبيت'),  value: data.kpi.total_uninstalls,      color: '#f97316', change: data.kpi.total_uninstalls_change,      up: true },
-    { icon: UserCheck,         label: t('Active Customers',    'العملاء النشطون'),         value: data.kpi.active_customers,      color: '#22c55e', change: data.kpi.active_customers_change,      up: true },
-    { icon: MousePointerClick, label: t('Total Bubble Clicks', 'إجمالي نقرات الفقاعة'),  value: data.kpi.total_bubble_clicks,   color: '#a855f7', change: data.kpi.total_bubble_clicks_change,   up: true },
-    { icon: Clock,             label: t('Avg Response Time',   'متوسط وقت الاستجابة'),    value: data.kpi.avg_response_seconds,  color: '#00C9BD', change: data.kpi.avg_response_seconds_change,  up: false, suffix: 's' as string | undefined },
-  ] as Array<{ icon: any; label: string; value: number; color: string; change: number; up: boolean; suffix?: string }>;
+  // KPI cards ← admin_kpis() (with mock fallback for inactive_customers)
+  const kpis = useMemo(() => {
+    const totalCustomers = liveKpis?.total_customers ?? data.kpi.total_customers;
+    const inactiveCustomers = data.kpi.inactive_customers; // mock per spec
+    const activeCustomers = Math.max(0, totalCustomers - inactiveCustomers);
+    const uninstalls = liveKpis?.total_uninstalls ?? data.kpi.total_uninstalls;
+    const clicks = liveKpis?.total_bubble_clicks ?? data.kpi.total_bubble_clicks;
+    const avg = liveKpis?.avg_response_seconds ?? data.kpi.avg_response_seconds;
+
+    const pct = (curr: number, prev: number): { change: number | null; up: boolean } => {
+      if (!liveKpis?.has_range) return { change: null, up: true };
+      if (!prev) return { change: curr > 0 ? 100 : 0, up: curr >= 0 };
+      const diff = ((curr - prev) / prev) * 100;
+      return { change: Math.round(Math.abs(diff) * 10) / 10, up: diff >= 0 };
+    };
+
+    const totalC = pct(totalCustomers, liveKpis?.prev_total_customers ?? 0);
+    const uninC  = pct(uninstalls,     liveKpis?.prev_total_uninstalls ?? 0);
+    const clickC = pct(clicks,         liveKpis?.prev_total_bubble_clicks ?? 0);
+    const avgC   = pct(avg,            liveKpis?.prev_avg_response_seconds ?? 0);
+
+    return [
+      { icon: Users,             label: t('Total Customers',     'إجمالي العملاء'),        value: totalCustomers,    color: '#043CC8', change: totalC.change, up: totalC.up },
+      { icon: UserX,             label: t('Inactive Customers',  'العملاء غير النشطين'),  value: inactiveCustomers, color: '#ff4466', change: null,          up: true },
+      { icon: Trash2,            label: t('Total Uninstalls',    'إجمالي إلغاء التثبيت'), value: uninstalls,        color: '#f97316', change: uninC.change,  up: !uninC.up },
+      { icon: UserCheck,         label: t('Active Customers',    'العملاء النشطون'),       value: activeCustomers,   color: '#22c55e', change: totalC.change, up: totalC.up },
+      { icon: MousePointerClick, label: t('Total Bubble Clicks', 'إجمالي نقرات الفقاعة'), value: clicks,            color: '#a855f7', change: clickC.change, up: clickC.up },
+      { icon: Clock,             label: t('Avg Response Time',   'متوسط وقت الاستجابة'),   value: Math.round(avg * 10) / 10, color: '#00C9BD', change: avgC.change, up: !avgC.up, suffix: 's' as string | undefined },
+    ] as Array<{ icon: any; label: string; value: number; color: string; change: number | null; up: boolean; suffix?: string }>;
+  }, [liveKpis, data.kpi, language]);
 
   // Reusable month label helper for chart x-axes
   const monthNames: Array<[string, string]> = [
@@ -178,8 +245,20 @@ export function AdminDashboard() {
   const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [data.planDistribution, language]);
   const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [data.planDistribution, language]);
 
-  // Server Status grid  ← admin_dash_servers
-  const serverStatus = useMemo(() => data.servers.map(s => ({ name: s.name, status: s.status })), [data.servers]);
+  // Server Status grid ← live admin_health_checks (fallback to seeded list)
+  const serverStatus = useMemo(() => {
+    const ordered = ['Supabase', 'Hostinger', 'Resend', 'OpenAI'];
+    return ordered.map(name => {
+      const h = health.find(x => x.provider === name);
+      return {
+        name,
+        status: (h?.status ?? 'up') as 'up' | 'degraded' | 'down',
+        error: h?.error ?? null,
+        checkedAt: h?.checked_at ?? null,
+        hasData: !!h,
+      };
+    });
+  }, [health]);
 
   // #10 New Subscribers Over Time  ← admin_dash_new_subs_monthly
   const newSubsOverTime = useMemo(() => monthNames.map(([en, ar], i) => ({
@@ -245,10 +324,12 @@ export function AdminDashboard() {
               <p className="text-[22px]" style={{ fontWeight: 700 }}>
                 <AnimatedValue value={kpi.value} />{kpi.suffix || ''}
               </p>
-              <div className={`flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-500'}`}>
-                {kpi.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                <span className="text-[11px]" style={{ fontWeight: 600 }}>{kpi.change}%</span>
-              </div>
+              {kpi.change !== null && (
+                <div className={`flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-500'}`}>
+                  {kpi.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                  <span className="text-[11px]" style={{ fontWeight: 600 }}>{kpi.change}%</span>
+                </div>
+              )}
             </div>
           </motion.div>
         ))}
@@ -260,12 +341,27 @@ export function AdminDashboard() {
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Server Status', 'حالة الخوادم')}</h3>
           <div className="grid grid-cols-2 gap-2">
             {serverStatus.map((s, i) => (
-              <div key={`status-${i}`} className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/30">
-                <div className={`w-2 h-2 rounded-full ${s.status === 'connected' ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
-                <div>
-                  <p className="text-[12px]" style={{ fontWeight: 600 }}>{s.name}</p>
-                  <p className={`text-[10px] ${s.status === 'connected' ? 'text-green-500' : 'text-red-500'}`} style={{ fontWeight: 500 }}>
-                    {s.status === 'connected' ? t('Connected', 'متصل') : t('Disconnected', 'غير متصل')}
+              <div
+                key={`status-${i}`}
+                className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/30"
+                title={[
+                  s.error || '',
+                  s.checkedAt ? `${t('Last checked', 'آخر فحص')}: ${new Date(s.checkedAt).toLocaleString(language === 'ar' ? 'ar' : 'en')}` : '',
+                ].filter(Boolean).join('\n')}
+              >
+                <div className={`w-2 h-2 rounded-full animate-pulse ${
+                  s.status === 'up' ? 'bg-green-500' : s.status === 'degraded' ? 'bg-amber-500' : 'bg-red-500'
+                }`} />
+                <div className="min-w-0">
+                  <p className="text-[12px] truncate" style={{ fontWeight: 600 }}>{s.name}</p>
+                  <p className={`text-[10px] ${
+                    s.status === 'up' ? 'text-green-500' : s.status === 'degraded' ? 'text-amber-500' : 'text-red-500'
+                  }`} style={{ fontWeight: 500 }}>
+                    {s.status === 'up'
+                      ? t('Connected', 'متصل')
+                      : s.status === 'degraded'
+                        ? t('Partially Operational', 'تقريباً متصل')
+                        : t('Disconnected', 'غير متصل')}
                   </p>
                 </div>
               </div>
@@ -276,10 +372,10 @@ export function AdminDashboard() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('New Subscribers Over Time', 'المشتركون الجدد عبر الوقت')}</h3>
           <ResponsiveContainer width="100%" height={140}>
-            <LineChart data={newSubsOverTime}>
+            <LineChart data={newSubsOverTime} margin={{ top: 10, right: 12, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
-              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
+              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={42} tickMargin={6} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Line type="monotone" dataKey="zid" stroke="#043CC8" strokeWidth={2} dot={{ r: 3, fill: '#043CC8' }} activeDot={{ r: 5 }}
                 name={t('Zid', 'زد')} isAnimationActive animationDuration={1500} />

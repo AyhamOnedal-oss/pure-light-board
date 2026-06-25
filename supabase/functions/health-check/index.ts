@@ -22,7 +22,8 @@ async function timeIt<T>(fn: () => Promise<T>): Promise<{ ms: number; value?: T;
 
 async function pingSupabase(): Promise<Outcome> {
   const url = `${Deno.env.get('SUPABASE_URL')}/auth/v1/health`;
-  const r = await timeIt(() => fetch(url));
+  const anon = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const r = await timeIt(() => fetch(url, { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }));
   if (r.err) return { provider: 'Supabase', status: 'down', latency_ms: r.ms, http_code: null, error: r.err.message };
   const resp = r.value!;
   return {

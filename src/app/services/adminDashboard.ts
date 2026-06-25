@@ -62,6 +62,29 @@ export interface ServerRow {
   display_order: number;
 }
 
+// --- Live KPI + health-check types ---
+export interface AdminKpis {
+  total_customers: number;
+  prev_total_customers: number;
+  total_uninstalls: number;
+  prev_total_uninstalls: number;
+  total_bubble_clicks: number;
+  prev_total_bubble_clicks: number;
+  avg_response_seconds: number;
+  prev_avg_response_seconds: number;
+  has_range: boolean;
+}
+
+export type HealthStatus = 'up' | 'degraded' | 'down';
+export interface HealthCheck {
+  provider: string;
+  status: HealthStatus;
+  latency_ms: number | null;
+  http_code: number | null;
+  error: string | null;
+  checked_at: string;
+}
+
 export interface AdminDashboardData {
   kpi: KpiSnapshot;
   wordsMonthly: WordsMonthly[];
@@ -174,5 +197,40 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
   } catch (err) {
     console.warn('[adminDashboard] Falling back to mock data:', err);
     return MOCK;
+  }
+}
+
+/** Live KPI numbers. `from`/`to` null => all time. */
+export async function fetchAdminKpis(
+  from: string | null,
+  to: string | null,
+): Promise<AdminKpis | null> {
+  try {
+    const { data, error } = await supabase.rpc('admin_kpis', { _from: from, _to: to });
+    if (error) throw error;
+    return data as unknown as AdminKpis;
+  } catch (err) {
+    console.warn('[adminDashboard] fetchAdminKpis failed:', err);
+    return null;
+  }
+}
+
+/** Latest health check per provider. */
+export async function fetchServerHealth(): Promise<HealthCheck[]> {
+  try {
+    const { data, error } = await supabase
+      .from('admin_health_checks')
+      .select('provider,status,latency_ms,http_code,error,checked_at')
+      .order('checked_at', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    const latest = new Map<string, HealthCheck>();
+    for (const row of (data ?? []) as HealthCheck[]) {
+      if (!latest.has(row.provider)) latest.set(row.provider, row);
+    }
+    return Array.from(latest.values());
+  } catch (err) {
+    console.warn('[adminDashboard] fetchServerHealth failed:', err);
+    return [];
   }
 }
