@@ -267,9 +267,19 @@ export function AdminDashboard() {
   })), [data.newSubscribers]);
 
   // Server usage bars  ← admin_dash_servers
-  const serverUsage = useMemo(() => data.servers.map(s => ({
-    name: s.name, usage: s.usage_percent, fill: s.color,
-  })), [data.servers]);
+  const serverUsage = useMemo(() => data.servers.map(s => {
+    if (s.name === 'Supabase' && supaUsage) {
+      const usedGb = supaUsage.bytes / (1024 ** 3);
+      const capGb  = supaUsage.included_bytes / (1024 ** 3);
+      return {
+        name: s.name,
+        usage: supaUsage.percent,
+        fill: s.color,
+        tooltip: `${usedGb.toFixed(2)} GB / ${capGb.toFixed(0)} GB`,
+      };
+    }
+    return { name: s.name, usage: s.usage_percent, fill: s.color, tooltip: undefined as string | undefined };
+  }), [data.servers, supaUsage]);
 
   // First Subscription Type pie  ← admin_dash_first_sub_type
   const firstSubData = useMemo(() => {
