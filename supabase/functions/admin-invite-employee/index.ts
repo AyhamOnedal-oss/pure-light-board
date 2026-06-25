@@ -84,8 +84,8 @@ function inviteEmailHtml(opts: {
           </tr>
           <tr>
             <td style="background:#f7f9fc;border-top:1px solid #e6eaf2;padding:18px 24px;text-align:center;font-size:12px;color:#5a6b85;direction:rtl;">
-              <div style="margin:0 0 6px;">🌐 <a href="https://www.fugah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">www.fugah.ai</a></div>
-              <div>📧 للدعم الفني: <a href="mailto:support@fugah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">support@fugah.ai</a></div>
+              <div style="margin:0 0 6px;">🌐 <a href="https://www.fuqah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">www.fuqah.ai</a></div>
+              <div>📧 للدعم الفني: <a href="mailto:support@fuqah.ai" style="color:#1e3a5f;text-decoration:none;" target="_blank" rel="noopener noreferrer nofollow">support@fuqah.ai</a></div>
             </td>
           </tr>
         </table>
