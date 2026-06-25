@@ -316,16 +316,16 @@ export function TicketsPage() {
       (n, a) => (a.type === 'note' && new Date(a.timestamp).getTime() > seen ? n + 1 : n),
       0,
     );
-    // A ticket counts as "unseen" when its latest open/reopen event is newer
-    // than the per-user seen timestamp. This re-bumps on reopen.
-    const lastOpenedAt = tk.activities.reduce((m, a) => {
+    // Status changes (created/open/closed) count as unread note activity until
+    // the user opens the ticket notes drawer. Selecting the ticket itself must
+    // not clear this red indicator.
+    const lastStatusAt = tk.activities.reduce((m, a) => {
       if (a.type !== 'status') return m;
-      if (a.status !== 'open' && a.status !== 'created') return m;
+      if (a.status !== 'open' && a.status !== 'created' && a.status !== 'closed') return m;
       const ts = new Date(a.timestamp).getTime();
       return ts > m ? ts : m;
     }, 0);
-    const isOpenNow = tk.status === 'open';
-    const ticketUnread = isOpenNow && lastOpenedAt > seen ? 1 : 0;
+    const ticketUnread = lastStatusAt > seen ? 1 : 0;
     return noteUnread + ticketUnread;
   };
   const isNewTicket = (tk: TicketItem): boolean => {
