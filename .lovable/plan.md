@@ -1,40 +1,69 @@
-## Current state
+# Separate Admin Employees from Tenant Employees
 
-The Admin → Team page (`AdminTeam.tsx`) is purely local. Add/Edit/Delete/Toggle only mutate React state; nothing is persisted to `admin_team_members` and no email is sent. That's why new admins never "activate" — there's no auth user, no row, no email.
+## Problem
 
-The user-side Team page already has the correct flow via the `invite-employee` edge function: it generates a password, creates an auth user, inserts a `team_members` row, and emails a branded Arabic RTL welcome message with credentials + login link through Resend.
+Employees invited from **Admin Panel → Team Management** are meant to be Fuqah's internal staff (admin panel users). Currently the `admin-invite-employee` edge function:
 
-## Plan
+- Creates an `auth.users` record
+- Inserts a row in `admin_team_members`
+- Sends a welcome email pointing to `/login`
 
-Mirror that flow for the admin panel.
+But it never assigns any role in `auth_user_roles`. So when the invited employee signs in:
 
-### 1. New edge function `admin-invite-employee`
-Based on `invite-employee`, with these differences:
-- Authorization: caller must have `super_admin` role (use `has_role`), not tenant membership.
-- No tenant logic. Writes to `public.admin_team_members` instead of `team_members`.
-- Fields persisted: `name`, `name_ar`, `email`, `phone`, `permissions` (text[]), `status`.
-- Same Resend HTML template (Arabic RTL welcome) but with copy adjusted to "تمت إضافتك كعضو في فريق الأدمن لمنصة فقاعة AI" and the login URL pointing to `/admin`.
-- On edit (when `member_id` is passed): just update the row + permissions, do NOT reset password or resend email.
-- Returns `{ ok, member_id, email_sent }`.
+- `isSuperAdmin` is `false`
+- They have no tenant membership → `AppContext` either marks the account as "deleted" or drops them on `/dashboard` (the user/tenant panel)
+- They appear mixed in with merchant employees, never reach `/admin/*`
 
-### 2. New edge function `admin-delete-employee`
-- Super-admin only. Deletes the `admin_team_members` row by id. (Auth user is left intact since they may be used elsewhere.)
+Tenant-side `team_members` (clients' employees) must stay completely independent of `admin_team_members` (Fuqah's employees).
 
-### 3. Migration
-- Add RLS policies on `admin_team_members` allowing super-admins to select/insert/update/delete (the form needs to read fresh data after invite).
-- Ensure `GRANT SELECT, INSERT, UPDATE, DELETE ON public.admin_team_members TO authenticated` and `GRANT ALL ... TO service_role`.
+## Fix
 
-### 4. `AdminTeam.tsx` rewrites
-- `handleSave`:
-  - If `editId` null → call `supabase.functions.invoke('admin-invite-employee', { body: { name, name_ar, email, phone, permissions, status } })`, then refetch list. Toast: "تمت الإضافة وتم إرسال رسالة الدخول للموظف".
-  - If editing → call same function with `member_id` so it only updates the row (no new password, no email).
-- `handleDelete` → call `admin-delete-employee`, then refetch.
-- `toggleStatus` → update `admin_team_members.status` directly via supabase client, then refetch.
-- "Re-send Password" button (Send icon) → call `admin-invite-employee` with `{ member_id, resend: true }`. The function then regenerates a password, updates the auth user, and re-sends the email. Toast: "تم إرسال كلمة المرور الجديدة عبر البريد".
-- Remove the fallback to `MOCK_TEAM` once the table is reachable.
+### 1. Database — add an `admin` role tier
 
-### 5. Deploy
-Deploy `admin-invite-employee` and `admin-delete-employee` after creating them.
+Migration:
+- Add a new value `'admin'` to whatever enum / check constraint backs `auth_user_roles.role` (alongside the existing `super_admin`). If the column is free-text, no enum change is needed.
+- No table changes for `admin_team_members`; we'll just GRANT/REVOKE roles based on its rows.
 
-## Result
-Adding an admin employee in `/admin/team` will create their auth account, save them to `admin_team_members`, and email them the same branded welcome with login credentials — identical UX to the user-side team invite.
+### 2. Edge function `admin-invite-employee`
+
+After creating/finding the auth user (both Create and Resend flows):
+- `upsert` into `auth_user_roles` with `{ user_id, role: 'admin' }` (unique on user_id+role).
+- On status change to `inactive` (handled in the edit flow): `delete` that role row so the employee can no longer enter `/admin`.
+- Change the email `loginUrl` from `/login?...` to `/admin/login?email=...&invite=1`.
+- Email copy stays the same Arabic welcome template.
+
+### 3. Edge function `admin-delete-employee`
+
+- Also delete the matching `auth_user_roles` row for that user (role = 'admin'). Optionally delete the auth user too (safer: just revoke the role and let the auth account sit dormant — confirm in implementation).
+
+### 4. `AppContext.tsx`
+
+- Expand the role-loading effect to fetch both `super_admin` and `admin` roles in one query and expose `isAdminEmployee` plus the existing `isSuperAdmin`. Add `isAnyAdmin = isSuperAdmin || isAdminEmployee`.
+- In the "no memberships" deletion guard, treat `isAnyAdmin` the same as super_admin (don't force sign-out — admin employees legitimately have no tenant).
+
+### 5. Routing — `RequireAuth.tsx` and `LoginPage.tsx`
+
+- `RequireAuth`: when `requireSuperAdmin` is on, accept either `super_admin` or `admin`. When a user with the `admin` role lands on `/dashboard*`, redirect to `/admin` (same behavior as super_admin today).
+- `LoginPage` post-auth redirect: if `isAnyAdmin`, navigate to `/admin`; otherwise `/dashboard` as today.
+- `AdminLoginPage` post-auth check: after `signIn`, verify the user has `super_admin` OR `admin` role; if not, `signOut` and show "Not an admin account" error (prevents tenant employees from using the admin login page).
+
+### 6. Admin panel permission gating (light touch)
+
+- `AdminLayout` / admin route guards already exist for super_admin via `requireSuperAdmin`. Switch them to "requireAdminAccess" (super_admin OR admin).
+- Within the admin panel, fine-grained access for `admin` role is governed by `admin_team_members.permissions` — that gating already exists in the UI (via `RequirePermission` etc.) and is out of scope for this change.
+
+### 7. AdminTeam.tsx (UI)
+
+- `toggleStatus` already updates `admin_team_members.status`. Also call the edge function (or a new small one) so that flipping to `inactive` revokes the `auth_user_roles` admin row, and flipping back to `active` re-grants it. Keep the UX unchanged.
+
+## Technical notes
+
+- `auth_user_roles` schema: confirm whether `role` is a Postgres enum (`app_role`) or text. If enum, `ALTER TYPE app_role ADD VALUE 'admin'` in its own migration (cannot run inside a transaction with other DDL, so submit as a single statement migration first, then a second migration for grants/policies if needed).
+- Keep `super_admin` reserved for Fuqah founders; `admin` is for staff invited from the Admin Team panel. Both unlock `/admin/*`.
+- Tenant-side flows (`team_members`, `invite-employee`) are untouched — clients' employees continue to be tenant-scoped and never get an `auth_user_roles` row.
+- Existing admin employees already created before this fix will need a one-off backfill: `INSERT INTO auth_user_roles(user_id, role) SELECT u.id, 'admin' FROM auth.users u JOIN admin_team_members m ON lower(u.email)=lower(m.email) WHERE m.status='active' ON CONFLICT DO NOTHING;` — included in the migration.
+
+## Out of scope
+
+- Per-permission enforcement inside the admin panel (already handled by existing `RequirePermission` / permission tree).
+- Changes to the tenant invite flow (`invite-employee`, `team_members`).
