@@ -316,17 +316,17 @@ export function TicketsPage() {
       (n, a) => (a.type === 'note' && new Date(a.timestamp).getTime() > seen ? n + 1 : n),
       0,
     );
-    // Status changes (created/open/closed) count as unread note activity until
-    // the user opens the ticket notes drawer. Selecting the ticket itself must
-    // not clear this red indicator.
-    const lastStatusAt = tk.activities.reduce((m, a) => {
-      if (a.type !== 'status') return m;
-      if (a.status !== 'open' && a.status !== 'created' && a.status !== 'closed') return m;
-      const ts = new Date(a.timestamp).getTime();
-      return ts > m ? ts : m;
+    // Every status event (open / close / reopen / etc.) counts as its own
+    // unread item until the Notes drawer is opened. open → close → open = 3.
+    const statusUnread = tk.activities.reduce((n, a) => {
+      if (a.type !== 'status') return n;
+      if (
+        a.status !== 'open' && a.status !== 'created' && a.status !== 'closed'
+        && a.status !== 'resolved' && a.status !== 'in_progress'
+      ) return n;
+      return new Date(a.timestamp).getTime() > seen ? n + 1 : n;
     }, 0);
-    const ticketUnread = lastStatusAt > seen ? 1 : 0;
-    return noteUnread + ticketUnread;
+    return noteUnread + statusUnread;
   };
   const isNewTicket = (tk: TicketItem): boolean => {
     const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, tk.id));
