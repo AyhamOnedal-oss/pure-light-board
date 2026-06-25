@@ -220,14 +220,55 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
       };
     });
 
+    // --- Live: Customer Source (distinct tenants per platform) ---
+    const zidTenantSet = new Set<string>();
+    const sallaTenantSet = new Set<string>();
+    {
+      const [{ data: zAll }, { data: sAll }] = await Promise.all([
+        supabase.from('zid_connections').select('tenant_id'),
+        supabase.from('salla_connections').select('tenant_id'),
+      ]);
+      (zAll ?? []).forEach((r: any) => r.tenant_id && zidTenantSet.add(r.tenant_id));
+      (sAll ?? []).forEach((r: any) => r.tenant_id && sallaTenantSet.add(r.tenant_id));
+    }
+    const liveCustomerSource: CustomerSource[] = [
+      { platform: 'zid',   count: zidTenantSet.size },
+      { platform: 'salla', count: sallaTenantSet.size },
+    ];
+
+    // --- Live: Plan Distribution per platform (settings_workspace.platform + plan) ---
+    // Tenants currently store plan='free'; tiers (economy/basic/professional/business)
+    // will populate as you add them. Unknown plans collapse to 0 per tier (intentional).
+    const liveplanDist: PlanDistribution[] = [];
+    {
+      const { data: wsRows } = await supabase
+        .from('settings_workspace')
+        .select('platform, plan');
+      const counts = new Map<string, number>(); // key = `${platform}|${plan}`
+      (wsRows ?? []).forEach((r: any) => {
+        const pf = r.platform as string | null;
+        const pl = r.plan as string | null;
+        if (!pf || !pl) return;
+        if (pf !== 'zid' && pf !== 'salla') return;
+        const key = `${pf}|${pl}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      });
+      counts.forEach((subscribers, key) => {
+        const [platform, plan] = key.split('|');
+        liveplanDist.push({ platform: platform as Platform, plan: plan as PlanTier, subscribers });
+      });
+    }
+
     return {
       kpi: (kpiRes.data && kpiRes.data[0]) ? (kpiRes.data[0] as unknown as KpiSnapshot) : MOCK.kpi,
       wordsMonthly: pick(wordsRes.data as WordsMonthly[] | null, MOCK.wordsMonthly),
       newSubsMonthly: pick(subsMonthRes.data as NewSubsMonthly[] | null, MOCK.newSubsMonthly),
-      planDistribution: pick(planRes.data as PlanDistribution[] | null, MOCK.planDistribution),
+      // Real per-platform plan counts from settings_workspace; no mock fallback.
+      planDistribution: liveplanDist,
       platformSubs: pick(platSubsRes.data as PlatformSubs[] | null, MOCK.platformSubs),
       firstSubType: pick(firstRes.data as FirstSubType[] | null, MOCK.firstSubType),
-      customerSource: pick(sourceRes.data as CustomerSource[] | null, MOCK.customerSource),
+      // Real distinct-tenant counts per platform; no mock fallback.
+      customerSource: liveCustomerSource,
       uninstalls: pick(uninstRes.data as Uninstalls[] | null, MOCK.uninstalls),
       // Real new Zid/Salla subscribers in the last 7 days; empty array if none.
       newSubscribers: liveNewSubscribers,
