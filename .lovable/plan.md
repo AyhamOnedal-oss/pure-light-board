@@ -1,40 +1,42 @@
-## Goal
+## What "% usage" means here
 
-Make **خطط العملاء الحالية** (Current Customer Plans) and **نوع الاشتراك الأول** (First Subscription Type) in `/admin` rotate with the exact same sweep animation as **تصنيف المحادثات** and **تقييم الذكاء الاصطناعي** in the user panel.
+Per Supabase Pro pricing, each project ships with **8 GB of provisioned disk included** ($0.125/GB beyond). The actionable headline is therefore:
 
-## Root cause
+```
+percent = pg_database_size(current_database()) / (8 * 1024^3) * 100
+```
 
-The user-panel donuts use a memoized `DashboardDonut` / `UsagePieChart` component that:
-- is mounted **only after** `chartsLoaded` flips true,
-- carries a **`key` derived from the data values** (so any data refresh remounts the chart and replays the sweep),
-- uses `isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"`, `innerRadius={50} outerRadius={78}`, `paddingAngle={4}`, `strokeWidth={0}`.
+`pg_database_size` is the real data size reported by Postgres (same number shown on the Supabase Database Reports page). Disk size (which includes WAL + bloat) isn't queryable from SQL — only Supabase's Management API exposes it — so we use database size as the proxy, capped at 100%.
 
-The admin donuts in `src/app/components/admin/AdminDashboard.tsx` render `<Pie>` inline inside `<PieChart>` with `animationDuration={1200}` and no key derived from data, and the gating uses `{chartsLoaded && <Pie .../>}` inside an already-mounted `<PieChart>`. Recharts often skips the entry animation in that setup, which is why those two donuts appear static.
+Hostinger / Resend / OpenAI stay as their current seeded `usage_percent` values until you decide on a metric for each.
 
-## Changes (frontend only, `src/app/components/admin/AdminDashboard.tsx`)
+## Changes
 
-1. Add a local `AdminDonut` component that mirrors `DashboardDonut` from `DashboardPage.tsx` line-for-line (same `Pie` props: `innerRadius={50}`, `outerRadius={78}`, `paddingAngle={4}`, `strokeWidth={0}`, `isAnimationActive`, `animationBegin={0}`, `animationDuration={900}`, `animationEasing="ease-out"`, same tooltip style).
-   - Accept an optional `innerRadius` / `outerRadius` override so the two cards can keep their current sizes if needed, but default to the user-panel values.
+### 1. Migration — new SECURITY DEFINER RPC
 
-2. Replace the Current Customer Plans donut (around lines 431–440) with:
-   ```tsx
-   {chartsLoaded && (
-     <AdminDonut
-       key={`plan-${currentPlansData.map(d => `${d.name}:${d.value}`).join('|')}`}
-       data={currentPlansData}
-       theme={theme}
-     />
-   )}
-   ```
-   Mounted inside the card div (not inside a pre-mounted `<PieChart>`), so the whole chart mounts fresh and the sweep plays.
+`public.admin_db_usage()` returns:
+```json
+{ "bytes": 12345678, "included_bytes": 8589934592, "percent": 0.14 }
+```
+- Guards with `public.has_role(auth.uid(), 'super_admin')` (same pattern as `admin_kpis`).
+- `included_bytes` hard-coded to `8 * 1024^3` (Pro plan included disk).
+- `percent` rounded to 2 decimals, capped at 100.
+- `GRANT EXECUTE … TO authenticated` (the role check inside enforces super-admin only).
 
-3. Replace the First Subscription Type donut (around lines 490–499) the same way, with `key={`fst-${firstSubData...}`}`.
+### 2. `src/app/services/adminDashboard.ts`
 
-4. Leave Customer Source and any other pies untouched (user only flagged these two), unless they suffer the same issue — in which case apply the identical pattern.
+Add `fetchSupabaseUsage()` that calls `supabase.rpc('admin_db_usage')` and returns `{ bytes, percent } | null` (null on error so the UI falls back to the seeded value).
 
-5. No data, no business-logic, no token/breakdown changes. Strictly the animation wrapper for those two donuts.
+### 3. `src/app/components/admin/AdminDashboard.tsx`
 
-## Verification
+- Add `useState<{ bytes:number; percent:number } | null>` for live Supabase usage; fetch in the existing dashboard `useEffect`.
+- In the `serverUsage` memo, when `s.name === 'Supabase'` and live value exists, override `usage` with the live percent and append a tooltip like `"1.2 GB / 8 GB"` (shown via a `title` attr on the bar row).
+- All other rows unchanged.
 
-- Reload `/admin`, watch خطط العملاء الحالية and نوع الاشتراك الأول sweep in from 0° identical to تصنيف المحادثات in the user panel.
-- Change the date range so the data refreshes; both donuts should remount (because of the data-derived `key`) and replay the sweep, matching user-panel behavior.
+## Out of scope (call out)
+
+- Hostinger live metric — needs a VPS agent or Hostinger API token; not part of this change.
+- Resend live metric — needs Resend API + monthly cap config.
+- OpenAI live metric — needs OpenAI usage API + monthly budget config.
+
+Pick any of these later and I'll wire them the same way.
