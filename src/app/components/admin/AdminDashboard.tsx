@@ -19,6 +19,7 @@ import {
   fetchServerHealth,
   type AdminKpis,
   type HealthCheck,
+  fetchSupabaseUsage,
 } from '../../services/adminDashboard';
 
 type AdminDonutDatum = { name: string; value: number; color: string };
