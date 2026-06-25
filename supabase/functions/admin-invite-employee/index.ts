@@ -108,6 +108,31 @@ async function sendResend(to: string, subject: string, html: string) {
   return { ok: true };
 }
 
+// Strip any merchant-side identity from an internal admin account so the
+// employee is never treated as a tenant user. Removes ALL tenant memberships
+// for the given user and deletes any solo (owner-only) workspaces left
+// behind by the signup trigger.
+async function detachFromTenants(admin: any, userId: string) {
+  const { data: memberships } = await admin
+    .from("auth_tenant_members")
+    .select("tenant_id, role")
+    .eq("user_id", userId);
+  for (const m of memberships ?? []) {
+    const { count } = await admin
+      .from("auth_tenant_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("tenant_id", m.tenant_id);
+    // Drop this user's membership.
+    await admin.from("auth_tenant_members")
+      .delete().eq("tenant_id", m.tenant_id).eq("user_id", userId);
+    // If they were the only member (owner of a personal workspace
+    // auto-provisioned at signup), tear the workspace down too.
+    if ((count ?? 0) <= 1 && m.role === "owner") {
+      await admin.from("settings_workspace").delete().eq("id", m.tenant_id);
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
