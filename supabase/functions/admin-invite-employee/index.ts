@@ -185,7 +185,14 @@ Deno.serve(async (req) => {
       const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
       const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
       const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
-      const loginUrl = `${APP_URL}/login?email=${encodeURIComponent(row.email)}&invite=1`;
+      const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(row.email)}&invite=1`;
+      // Ensure the admin role is granted (in case it was missing or revoked).
+      if (userId) {
+        await admin.from("auth_user_roles").upsert(
+          { user_id: userId, role: "admin" },
+          { onConflict: "user_id,role" },
+        );
+      }
       const html = inviteEmailHtml({
         employeeName: row.name_ar || row.name || row.email,
         email: row.email, password, addDate: fmtDate, addTime: fmtTime, loginUrl,
@@ -200,6 +207,34 @@ Deno.serve(async (req) => {
       if (email) update.email = email;
       const { error: upErr } = await admin.from("admin_team_members").update(update).eq("id", member_id);
       if (upErr) return json({ error: "update_failed", detail: upErr.message }, 500);
+      // Grant or revoke the 'admin' role based on status, so the panel access
+      // tracks the row's active/inactive state.
+      const { data: row } = await admin
+        .from("admin_team_members").select("email").eq("id", member_id).maybeSingle();
+      if (row?.email) {
+        const lookup = await fetch(
+          `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
+          { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
+        );
+        let uid: string | null = null;
+        if (lookup.ok) {
+          const j = await lookup.json();
+          const match = (j?.users ?? []).find((u: any) =>
+            (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
+          if (match?.id) uid = match.id;
+        }
+        if (uid) {
+          if (status === "active") {
+            await admin.from("auth_user_roles").upsert(
+              { user_id: uid, role: "admin" },
+              { onConflict: "user_id,role" },
+            );
+          } else {
+            await admin.from("auth_user_roles").delete()
+              .eq("user_id", uid).eq("role", "admin");
+          }
+        }
+      }
       return json({ ok: true, member_id, email_sent: false });
     }
 
@@ -240,11 +275,19 @@ Deno.serve(async (req) => {
     }).select("id").single();
     if (insErr || !ins) return json({ error: "insert_failed", detail: insErr?.message }, 500);
 
+    // Grant the 'admin' role so the new employee can access the admin panel.
+    if (userId) {
+      await admin.from("auth_user_roles").upsert(
+        { user_id: userId, role: "admin" },
+        { onConflict: "user_id,role" },
+      );
+    }
+
     const now = new Date();
     const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
     const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
     const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
-    const loginUrl = `${APP_URL}/login?email=${encodeURIComponent(email)}&invite=1`;
+    const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(email)}&invite=1`;
     const html = inviteEmailHtml({
       employeeName: name_ar || name, email, password,
       addDate: fmtDate, addTime: fmtTime, loginUrl,
