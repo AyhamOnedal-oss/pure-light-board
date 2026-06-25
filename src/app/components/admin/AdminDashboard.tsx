@@ -245,8 +245,20 @@ export function AdminDashboard() {
   const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [data.planDistribution, language]);
   const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [data.planDistribution, language]);
 
-  // Server Status grid  ← admin_dash_servers
-  const serverStatus = useMemo(() => data.servers.map(s => ({ name: s.name, status: s.status })), [data.servers]);
+  // Server Status grid ← live admin_health_checks (fallback to seeded list)
+  const serverStatus = useMemo(() => {
+    const ordered = ['Supabase', 'Hostinger', 'Resend', 'OpenAI'];
+    return ordered.map(name => {
+      const h = health.find(x => x.provider === name);
+      return {
+        name,
+        status: (h?.status ?? 'up') as 'up' | 'degraded' | 'down',
+        error: h?.error ?? null,
+        checkedAt: h?.checked_at ?? null,
+        hasData: !!h,
+      };
+    });
+  }, [health]);
 
   // #10 New Subscribers Over Time  ← admin_dash_new_subs_monthly
   const newSubsOverTime = useMemo(() => monthNames.map(([en, ar], i) => ({
