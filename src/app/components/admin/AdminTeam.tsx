@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
 import { Users, UserCheck, Plus, Edit, Trash2, Send, Ban, CheckCircle, X } from 'lucide-react';
 import { fetchTeamMembers, MOCK_TEAM, type AdminTeamMember } from '../../services/adminTeam';
+import { ADMIN_PERMISSION_TREE, adminLabel } from '../../utils/adminPermissions';
 
 interface Employee {
   id: string;
@@ -15,56 +16,8 @@ interface Employee {
 }
 
 type PermNode = { key: string; en: string; ar: string; children?: PermNode[] };
-
-const PERMISSION_TREE: PermNode[] = [
-  { key: 'admin_dashboard', en: 'Admin Dashboard', ar: 'لوحة تحكم الأدمين' },
-  { key: 'team_management', en: 'Team Management', ar: 'إدارة الفريق' },
-  {
-    key: 'lists_management', en: 'Lists Management', ar: 'إدارة القوائم',
-    children: [
-      {
-        key: 'customer_management', en: 'Customer Management', ar: 'إدارة العملاء',
-        children: [
-          { key: 'pipeline', en: 'Customer Pipeline', ar: 'سير العميل' },
-          { key: 'customers', en: 'Customers List', ar: 'قائمة العملاء' },
-        ],
-      },
-      {
-        key: 'reports', en: 'Reports', ar: 'التقارير',
-        children: [
-          { key: 'reports_all', en: 'All Reports', ar: 'الكل' },
-          { key: 'reports_zid', en: 'Zid Reports', ar: 'تقارير زد' },
-          { key: 'reports_salla', en: 'Salla Reports', ar: 'تقارير سلة' },
-        ],
-      },
-      {
-        key: 'billing', en: 'Invoices & Payments', ar: 'الفواتير والمدفوعات',
-        children: [
-          { key: 'billing_subscriptions', en: 'Subscription Payments', ar: 'مدفوعات الاشتراكات' },
-          { key: 'billing_servers', en: 'Server Invoices', ar: 'فواتير الخوادم' },
-          { key: 'billing_other', en: 'Other Invoices', ar: 'فواتير أخرى' },
-        ],
-      },
-    ],
-  },
-];
-
-const ALL_PERM_KEYS: string[] = (() => {
-  const out: string[] = [];
-  const walk = (nodes: PermNode[]) => nodes.forEach(n => { out.push(n.key); if (n.children) walk(n.children); });
-  walk(PERMISSION_TREE);
-  return out;
-})();
-
-function flattenLabel(key: string, language: 'en' | 'ar'): string {
-  const walk = (nodes: PermNode[]): string | undefined => {
-    for (const n of nodes) {
-      if (n.key === key) return language === 'ar' ? n.ar : n.en;
-      if (n.children) { const r = walk(n.children); if (r) return r; }
-    }
-  };
-  return walk(PERMISSION_TREE) || key;
-}
+const PERMISSION_TREE: PermNode[] = ADMIN_PERMISSION_TREE as unknown as PermNode[];
+const flattenLabel = adminLabel;
 
 function rowToEmployee(r: AdminTeamMember): Employee {
   return {
@@ -142,11 +95,17 @@ export function AdminTeam() {
 
   const handleDelete = async (id: string) => {
     if (busy) return;
+    // Optimistic remove so the UI feels instant.
+    const snapshot = employees;
+    setEmployees(es => es.filter(e => e.id !== id));
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke('admin-delete-employee', { body: { member_id: id } });
-      if (error || (data as any)?.error) { showToast(t('Delete failed', 'تعذر الحذف')); return; }
-      await reload();
+      if (error || (data as any)?.error) {
+        setEmployees(snapshot);
+        showToast(t('Delete failed', 'تعذر الحذف'));
+        return;
+      }
       showToast(t('Employee deleted', 'تم حذف الموظف'));
     } finally { setBusy(false); }
   };
@@ -155,10 +114,10 @@ export function AdminTeam() {
     const cur = employees.find(e => e.id === id);
     if (!cur || busy) return;
     const next = cur.status === 'active' ? 'inactive' : 'active';
+    // Optimistic toggle.
+    setEmployees(es => es.map(e => e.id === id ? { ...e, status: next } : e));
     setBusy(true);
     try {
-      // Route through the edge function so granting/revoking the
-      // global 'admin' role stays in sync with the row's status.
       const { data, error } = await supabase.functions.invoke('admin-invite-employee', {
         body: {
           member_id: id,
@@ -167,8 +126,12 @@ export function AdminTeam() {
           permissions: cur.permissions, status: next,
         },
       });
-      if (error || (data as any)?.error) { showToast(t('Update failed', 'تعذر التحديث')); return; }
-      await reload();
+      if (error || (data as any)?.error) {
+        // Revert.
+        setEmployees(es => es.map(e => e.id === id ? { ...e, status: cur.status } : e));
+        showToast(t('Update failed', 'تعذر التحديث'));
+        return;
+      }
       showToast(t('Status updated', 'تم تحديث الحالة'));
     } finally { setBusy(false); }
   };
