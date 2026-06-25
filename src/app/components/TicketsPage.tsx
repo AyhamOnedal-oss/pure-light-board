@@ -341,7 +341,11 @@ export function TicketsPage() {
 
   const openNotes = () => {
     if (selected) {
-      setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id));
+      const latest = selected.activities.reduce((m, a) => {
+        const ts = new Date(a.timestamp).getTime();
+        return Number.isFinite(ts) && ts > m ? ts : m;
+      }, 0);
+      setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, selected.id), Math.max(latest, Date.now()) + 1);
       markTicketNotificationRead(selected.id);
       bump();
       window.dispatchEvent(new Event('fuqah:badges-bump'));
@@ -436,10 +440,6 @@ export function TicketsPage() {
       author_name: authorName, author_role: authorRole,
       author_user_id: authorUserId,
     });
-    // Any status change (open ↔ closed) must re-raise the red unread indicator
-    // (sidebar badge + row dot) so the new status activity counts as unread,
-    // independent of any client/server clock skew.
-    setTs(notifKeys.ticketNotesSeen(CURRENT_USER.id, id), 0);
     setMenuOpen(null);
     showToast(t('Ticket status updated', 'تم تحديث حالة التذكرة'));
     await loadTickets();
