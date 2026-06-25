@@ -28,7 +28,8 @@ export async function fetchTeamMembers(): Promise<AdminTeamMember[]> {
       .from('admin_team_members')
       .select('id,name,name_ar,email,phone,permissions,status')
       .order('created_at', { ascending: true });
-    if (error || !data || data.length === 0) return MOCK_TEAM;
+    if (error) return MOCK_TEAM;
+    if (!data) return [];
     return data as AdminTeamMember[];
   } catch {
     return MOCK_TEAM;

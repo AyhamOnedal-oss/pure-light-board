@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '@/integrations/supabase/client';
 import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
 import { Users, UserCheck, Plus, Edit, Trash2, Send, Ban, CheckCircle, X } from 'lucide-react';
@@ -77,15 +78,17 @@ const mockEmployees: Employee[] = MOCK_TEAM.map(rowToEmployee);
 
 export function AdminTeam() {
   const { t, language, showToast } = useApp();
-  const [employees, setEmployees] = useState(mockEmployees);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    fetchTeamMembers()
-      .then(rows => { if (alive) setEmployees(rows.map(rowToEmployee)); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  const reload = async () => {
+    try {
+      const rows = await fetchTeamMembers();
+      setEmployees(rows.map(rowToEmployee));
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { reload(); }, []);
 
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -106,26 +109,69 @@ export function AdminTeam() {
     setShowForm(true);
   };
 
-  const handleSave = () => {
-    if (editId) {
-      setEmployees(prev => prev.map(e => e.id === editId ? { ...e, name: form.name, nameAr: form.nameAr, email: form.email, phone: form.phone, permissions: form.permissions, status: form.status } : e));
-      showToast(t('Employee updated successfully', 'تم تحديث الموظف بنجاح'));
-    } else {
-      const newEmp: Employee = { id: Date.now().toString(), name: form.name, nameAr: form.nameAr, email: form.email, phone: form.phone, permissions: form.permissions, status: form.status };
-      setEmployees(prev => [...prev, newEmp]);
-      showToast(t('Employee added successfully', 'تمت إضافة الموظف بنجاح'));
+  const handleSave = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: form.name, name_ar: form.nameAr, email: form.email,
+        phone: form.phone, permissions: form.permissions, status: form.status,
+      };
+      if (editId) payload.member_id = editId;
+      const { data, error } = await supabase.functions.invoke('admin-invite-employee', { body: payload });
+      if (error || (data as any)?.error) {
+        const code = (data as any)?.error || error?.message || 'error';
+        if (code === 'email_exists') {
+          showToast(t('Email already exists', 'هذا البريد مستخدم بالفعل'));
+        } else {
+          showToast(t('Save failed', 'تعذر الحفظ'));
+        }
+        return;
+      }
+      await reload();
+      if (editId) {
+        showToast(t('Employee updated successfully', 'تم تحديث الموظف بنجاح'));
+      } else {
+        showToast(t('Employee added and login email sent', 'تمت الإضافة وتم إرسال رسالة الدخول للموظف'));
+      }
+      setShowForm(false);
+    } finally {
+      setBusy(false);
     }
-    setShowForm(false);
   };
 
-  const handleDelete = (id: string) => {
-    setEmployees(prev => prev.filter(e => e.id !== id));
-    showToast(t('Employee deleted', 'تم حذف الموظف'));
+  const handleDelete = async (id: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-delete-employee', { body: { member_id: id } });
+      if (error || (data as any)?.error) { showToast(t('Delete failed', 'تعذر الحذف')); return; }
+      await reload();
+      showToast(t('Employee deleted', 'تم حذف الموظف'));
+    } finally { setBusy(false); }
   };
 
-  const toggleStatus = (id: string) => {
-    setEmployees(prev => prev.map(e => e.id === id ? { ...e, status: e.status === 'active' ? 'inactive' : 'active' } : e));
-    showToast(t('Status updated', 'تم تحديث الحالة'));
+  const toggleStatus = async (id: string) => {
+    const cur = employees.find(e => e.id === id);
+    if (!cur || busy) return;
+    const next = cur.status === 'active' ? 'inactive' : 'active';
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('admin_team_members').update({ status: next }).eq('id', id);
+      if (error) { showToast(t('Update failed', 'تعذر التحديث')); return; }
+      await reload();
+      showToast(t('Status updated', 'تم تحديث الحالة'));
+    } finally { setBusy(false); }
+  };
+
+  const resendInvite = async (id: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-invite-employee', { body: { member_id: id, resend: true } });
+      if (error || (data as any)?.error) { showToast(t('Resend failed', 'تعذر إرسال البريد')); return; }
+      showToast(t('New password sent via email', 'تم إرسال كلمة المرور الجديدة عبر البريد'));
+    } finally { setBusy(false); }
   };
 
   const collectDescendantKeys = (node: PermNode): string[] => {
@@ -278,7 +324,7 @@ export function AdminTeam() {
                       <button onClick={() => toggleStatus(emp.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title={t('Toggle Status', 'تغيير الحالة')}>
                         {emp.status === 'active' ? <Ban className="w-3.5 h-3.5 text-yellow-500" /> : <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
                       </button>
-                      <button onClick={() => showToast(t('Password reset link sent', 'تم إرسال رابط إعادة تعيين كلمة المرور'))} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title={t('Re-send Password', 'إعادة إرسال كلمة المرور')}><Send className="w-3.5 h-3.5 text-[#043CC8]" /></button>
+                      <button onClick={() => resendInvite(emp.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title={t('Re-send Password', 'إعادة إرسال كلمة المرور')}><Send className="w-3.5 h-3.5 text-[#043CC8]" /></button>
                       <button onClick={() => handleDelete(emp.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-red-400" title={t('Delete', 'حذف')}><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
