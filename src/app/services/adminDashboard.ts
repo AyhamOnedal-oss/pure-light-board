@@ -166,9 +166,10 @@ function pick<T>(rows: T[] | null | undefined, fallback: T[]): T[] {
 
 export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
   try {
+    const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const [
       kpiRes, wordsRes, subsMonthRes, planRes, platSubsRes,
-      firstRes, sourceRes, uninstRes, newSubsRes, serversRes,
+      firstRes, sourceRes, uninstRes, zidSubsRes, sallaSubsRes, serversRes,
     ] = await Promise.all([
       supabase.from('admin_dash_kpi_snapshots').select('*').order('snapshot_date', { ascending: false }).limit(1),
       supabase.from('admin_dash_words_monthly').select('*').order('month'),
@@ -178,9 +179,46 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
       supabase.from('admin_dash_first_sub_type').select('*'),
       supabase.from('admin_dash_customer_source').select('*'),
       supabase.from('admin_dash_uninstalls').select('*'),
-      supabase.from('admin_dash_new_subscribers').select('*').order('subscribed_on', { ascending: false }),
+      supabase.from('zid_connections').select('tenant_id, store_name, created_at').gte('created_at', weekAgoIso).order('created_at', { ascending: false }),
+      supabase.from('salla_connections').select('tenant_id, store_name, created_at').gte('created_at', weekAgoIso).order('created_at', { ascending: false }),
       supabase.from('admin_dash_servers').select('*').order('display_order'),
     ]);
+
+    // Build live "New Subscribers" list from real zid/salla connections (last 7 days).
+    type ConnRow = { tenant_id: string; store_name: string | null; created_at: string };
+    const zidRows = ((zidSubsRes.data ?? []) as ConnRow[]).map(r => ({ ...r, platform: 'zid' as Platform }));
+    const sallaRows = ((sallaSubsRes.data ?? []) as ConnRow[]).map(r => ({ ...r, platform: 'salla' as Platform }));
+    const allRows = [...zidRows, ...sallaRows].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    const tenantIds = Array.from(new Set(allRows.map(r => r.tenant_id).filter(Boolean)));
+    let plansMap = new Map<string, { used: number; quota: number }>();
+    if (tenantIds.length > 0) {
+      const { data: plansRows } = await supabase
+        .from('settings_plans')
+        .select('tenant_id, monthly_word_quota, monthly_words_used')
+        .in('tenant_id', tenantIds);
+      (plansRows ?? []).forEach((p: any) => {
+        plansMap.set(p.tenant_id, { used: p.monthly_words_used ?? 0, quota: p.monthly_word_quota ?? 0 });
+      });
+    }
+    const initials = (name: string): string => {
+      const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return '—';
+      const first = parts[0]?.[0] ?? '';
+      const second = parts[1]?.[0] ?? '';
+      return (first + second).toUpperCase() || '—';
+    };
+    const liveNewSubscribers: NewSubscriber[] = allRows.map(r => {
+      const p = plansMap.get(r.tenant_id) ?? { used: 0, quota: 0 };
+      const name = r.store_name || (r.platform === 'zid' ? 'Zid Store' : 'Salla Store');
+      return {
+        store_name: name,
+        platform: r.platform,
+        subscribed_on: r.created_at.slice(0, 10),
+        total_tokens: p.quota,
+        used_tokens: p.used,
+        logo_initials: initials(name),
+      };
+    });
 
     return {
       kpi: (kpiRes.data && kpiRes.data[0]) ? (kpiRes.data[0] as unknown as KpiSnapshot) : MOCK.kpi,
@@ -191,7 +229,8 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
       firstSubType: pick(firstRes.data as FirstSubType[] | null, MOCK.firstSubType),
       customerSource: pick(sourceRes.data as CustomerSource[] | null, MOCK.customerSource),
       uninstalls: pick(uninstRes.data as Uninstalls[] | null, MOCK.uninstalls),
-      newSubscribers: pick(newSubsRes.data as NewSubscriber[] | null, MOCK.newSubscribers),
+      // Real new Zid/Salla subscribers in the last 7 days; empty array if none.
+      newSubscribers: liveNewSubscribers,
       servers: pick(serversRes.data as ServerRow[] | null, MOCK.servers),
     };
   } catch (err) {
