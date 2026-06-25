@@ -256,6 +256,7 @@ Deno.serve(async (req) => {
               { user_id: uid, role: "admin" },
               { onConflict: "user_id,role" },
             );
+            await detachFromTenants(admin, uid);
           } else {
             await admin.from("auth_user_roles").delete()
               .eq("user_id", uid).eq("role", "admin");
