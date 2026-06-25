@@ -502,6 +502,36 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_health_checks: {
+        Row: {
+          checked_at: string
+          error: string | null
+          http_code: number | null
+          id: string
+          latency_ms: number | null
+          provider: string
+          status: string
+        }
+        Insert: {
+          checked_at?: string
+          error?: string | null
+          http_code?: number | null
+          id?: string
+          latency_ms?: number | null
+          provider: string
+          status: string
+        }
+        Update: {
+          checked_at?: string
+          error?: string | null
+          http_code?: number | null
+          id?: string
+          latency_ms?: number | null
+          provider?: string
+          status?: string
+        }
+        Relationships: []
+      }
       admin_invoices_other: {
         Row: {
           amount: number
@@ -2026,6 +2056,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_kpis: { Args: { _from: string; _to: string }; Returns: Json }
       dashboard_metrics: {
         Args: { _from: string; _tenant: string; _to: string }
         Returns: Json
