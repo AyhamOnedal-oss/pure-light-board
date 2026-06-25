@@ -215,6 +215,12 @@ export function AdminDashboard() {
       .map(b => ({ name: tokenBucketLabel(b.key), value: b.tokens, color: TOKEN_COLORS[b.key] }));
   }, [tokens, language]);
 
+  // #1 Words/Tokens monthly bars  ← admin_dash_words_monthly (kept)
+  const wordsData = useMemo(() => {
+    const byMonth = new Map(data.wordsMonthly.map(w => [w.month, w.words]));
+    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
+  }, [data.wordsMonthly, language]);
+
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
     const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
