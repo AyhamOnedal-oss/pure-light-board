@@ -85,6 +85,33 @@ export interface HealthCheck {
   checked_at: string;
 }
 
+// --- Token breakdown types ---
+export type TokenBucketKey =
+  | 'chat_replies'
+  | 'vision'
+  | 'user_intent'
+  | 'reply_intent'
+  | 'conversation_classification'
+  | 'ticket_classification'
+  | 'openai';
+
+export interface TokenBucket {
+  key: TokenBucketKey;
+  tokens: number;
+  cost_usd: number;
+  available: boolean;
+}
+
+export interface TokenBreakdown {
+  buckets: TokenBucket[];
+  total_tokens: number;
+  total_cost_usd: number;
+  n8n_available: boolean;
+  openai_available: boolean;
+  openai_reason?: string;
+  n8n_reason?: string;
+}
+
 export interface AdminDashboardData {
   kpi: KpiSnapshot;
   wordsMonthly: WordsMonthly[];
@@ -233,4 +260,52 @@ export async function fetchServerHealth(): Promise<HealthCheck[]> {
     console.warn('[adminDashboard] fetchServerHealth failed:', err);
     return [];
   }
+}
+
+/** Live token-usage breakdown: chat (n8n) + OpenAI direct (admin Usage API). */
+export async function fetchTokenBreakdown(
+  from: string | null,
+  to: string | null,
+): Promise<TokenBreakdown> {
+  const empty = (key: TokenBucketKey, available = false): TokenBucket =>
+    ({ key, tokens: 0, cost_usd: 0, available });
+
+  const [n8nRes, oaRes] = await Promise.all([
+    supabase.functions.invoke('n8n-token-stats', { body: { from, to } }).catch(err => ({ data: null, error: err })),
+    supabase.functions.invoke('openai-usage',    { body: { from, to } }).catch(err => ({ data: null, error: err })),
+  ]);
+
+  const n8nData: any = (n8nRes as any)?.data ?? null;
+  const oaData: any = (oaRes as any)?.data ?? null;
+
+  const n8nAvailable = !!n8nData?.available;
+  const oaAvailable  = !!oaData?.available;
+
+  const chat: TokenBucket = n8nAvailable
+    ? { key: 'chat_replies', tokens: Number(n8nData.tokens ?? 0), cost_usd: Number(n8nData.cost_usd ?? 0), available: true }
+    : empty('chat_replies', false);
+
+  const oaBuckets: TokenBucketKey[] = ['vision', 'user_intent', 'reply_intent', 'conversation_classification', 'ticket_classification', 'openai'];
+  const openai = oaBuckets.map<TokenBucket>(k => {
+    const row = oaData?.buckets?.[k];
+    if (!oaAvailable || !row) return empty(k, false);
+    return { key: k, tokens: Number(row.tokens ?? 0), cost_usd: Number(row.cost_usd ?? 0), available: true };
+  });
+
+  // If OpenAI returned the catch-all "openai" bucket only (no project map), keep it; otherwise drop it when empty.
+  const filteredOpenai = oaData?.has_project_map ? openai.filter(b => b.key !== 'openai' || b.tokens > 0) : openai.filter(b => b.key === 'openai' || b.tokens > 0);
+
+  const buckets = [chat, ...filteredOpenai];
+  const total_tokens = buckets.reduce((s, b) => s + (b.available ? b.tokens : 0), 0);
+  const total_cost_usd = buckets.reduce((s, b) => s + (b.available ? b.cost_usd : 0), 0);
+
+  return {
+    buckets,
+    total_tokens,
+    total_cost_usd,
+    n8n_available: n8nAvailable,
+    openai_available: oaAvailable,
+    n8n_reason: n8nData?.reason,
+    openai_reason: oaData?.reason,
+  };
 }
