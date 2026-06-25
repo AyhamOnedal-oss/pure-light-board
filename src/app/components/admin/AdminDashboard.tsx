@@ -21,6 +21,38 @@ import {
   type HealthCheck,
 } from '../../services/adminDashboard';
 
+type AdminDonutDatum = { name: string; value: number; color: string };
+
+// Mirrors `DashboardDonut` from DashboardPage.tsx so admin donuts replay
+// the exact same counter-clockwise sweep as تصنيف المحادثات / تقييم الذكاء.
+const AdminDonut = React.memo(function AdminDonut({
+  data, theme, innerRadius = 50, outerRadius = 78,
+}: { data: AdminDonutDatum[]; theme: string; innerRadius?: number; outerRadius?: number }) {
+  const tooltipStyle = {
+    backgroundColor: theme === 'dark' ? '#1e2740' : '#ffffff',
+    border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+    borderRadius: '12px',
+    color: theme === 'dark' ? '#ffffff' : '#1a1a2e',
+    fontSize: '13px',
+  };
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%" cy="50%"
+          innerRadius={innerRadius} outerRadius={outerRadius}
+          dataKey="value" paddingAngle={4} strokeWidth={0}
+          isAnimationActive animationBegin={0} animationDuration={900} animationEasing="ease-out"
+        >
+          {data.map((entry, i) => <Cell key={`adm-donut-${i}`} fill={entry.color} />)}
+        </Pie>
+        <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} labelStyle={{ color: tooltipStyle.color }} />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+});
+
 const dateFilters = [
   { key: 'current_month', en: 'Current Month', ar: 'الشهر الحالي' },
   { key: 'prev_month', en: 'Previous Month', ar: 'الشهر السابق' },
