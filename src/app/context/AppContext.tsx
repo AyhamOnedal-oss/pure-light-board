@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../../integrations/supabase/client';
+import type { AdminPermKey } from '../utils/adminPermissions';
+import { ADMIN_ALL_PERM_KEYS } from '../utils/adminPermissions';
 
 type Language = 'en' | 'ar';
 type Theme = 'dark' | 'light';
@@ -45,6 +47,9 @@ interface AppContextType {
   isAdminEmployee: boolean;
   isAnyAdmin: boolean;
   roleLoading: boolean;
+  adminPermissions: AdminPermKey[];
+  adminPermissionsLoading: boolean;
+  adminCan: (key: AdminPermKey) => boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -77,6 +82,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isAdminEmployee, setIsAdminEmployee] = useState(false);
   const [roleLoading, setRoleLoading] = useState(true);
+  const [adminPermissions, setAdminPermissions] = useState<AdminPermKey[]>([]);
+  const [adminPermissionsLoading, setAdminPermissionsLoading] = useState(true);
 
   // Tracks whether the most recent sign-out was initiated by the user
   // (Log Out button) vs. happening involuntarily (e.g. the server-side
@@ -192,6 +199,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     return () => { cancelled = true; };
   }, [session?.user?.id]);
+
+  // Load the per-staff admin permissions for the signed-in user.
+  // - super_admin -> all permissions
+  // - admin (employee) -> permissions array from admin_team_members (active only)
+  // - others -> none
+  useEffect(() => {
+    if (!session?.user) {
+      setAdminPermissions([]); setAdminPermissionsLoading(false); return;
+    }
+    if (roleLoading) return;
+    if (isSuperAdmin) {
+      setAdminPermissions([...ADMIN_ALL_PERM_KEYS]);
+      setAdminPermissionsLoading(false);
+      return;
+    }
+    if (!isAdminEmployee) {
+      setAdminPermissions([]);
+      setAdminPermissionsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAdminPermissionsLoading(true);
+    (async () => {
+      const uid = session.user.id;
+      let perms: string[] = [];
+      // Try by user_id first (fast path after backfill).
+      const { data: byId } = await supabase
+        .from('admin_team_members')
+        .select('permissions, status')
+        .eq('user_id', uid)
+        .maybeSingle();
+      let row: any = byId;
+      if (!row && session.user.email) {
+        const { data: byEmail } = await supabase
+          .from('admin_team_members')
+          .select('permissions, status')
+          .ilike('email', session.user.email)
+          .maybeSingle();
+        row = byEmail;
+      }
+      if (row && row.status === 'active' && Array.isArray(row.permissions)) {
+        perms = row.permissions as string[];
+      }
+      if (!cancelled) {
+        setAdminPermissions(perms as AdminPermKey[]);
+        setAdminPermissionsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.user?.id, isSuperAdmin, isAdminEmployee, roleLoading]);
+
+  const adminCan = useCallback(
+    (key: AdminPermKey) => isSuperAdmin || adminPermissions.includes(key),
+    [isSuperAdmin, adminPermissions],
+  );
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -394,6 +456,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAdminEmployee,
       isAnyAdmin: isSuperAdmin || isAdminEmployee,
       roleLoading,
+      adminPermissions,
+      adminPermissionsLoading,
+      adminCan,
       signIn, signUp, signOut, sendPasswordReset,
     }}>
       {children}
