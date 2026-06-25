@@ -199,3 +199,38 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
     return MOCK;
   }
 }
+
+/** Live KPI numbers. `from`/`to` null => all time. */
+export async function fetchAdminKpis(
+  from: string | null,
+  to: string | null,
+): Promise<AdminKpis | null> {
+  try {
+    const { data, error } = await supabase.rpc('admin_kpis', { _from: from, _to: to });
+    if (error) throw error;
+    return data as unknown as AdminKpis;
+  } catch (err) {
+    console.warn('[adminDashboard] fetchAdminKpis failed:', err);
+    return null;
+  }
+}
+
+/** Latest health check per provider. */
+export async function fetchServerHealth(): Promise<HealthCheck[]> {
+  try {
+    const { data, error } = await supabase
+      .from('admin_health_checks')
+      .select('provider,status,latency_ms,http_code,error,checked_at')
+      .order('checked_at', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    const latest = new Map<string, HealthCheck>();
+    for (const row of (data ?? []) as HealthCheck[]) {
+      if (!latest.has(row.provider)) latest.set(row.provider, row);
+    }
+    return Array.from(latest.values());
+  } catch (err) {
+    console.warn('[adminDashboard] fetchServerHealth failed:', err);
+    return [];
+  }
+}
