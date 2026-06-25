@@ -2136,6 +2136,8 @@ export type Database = {
         | "word_limit_reached"
         | "subscription_renewed"
         | "admin_message"
+        | "ticket_opened"
+        | "ticket_closed"
       app_role: "super_admin" | "support"
       channel_kind:
         | "whatsapp"
@@ -2324,6 +2326,8 @@ export const Constants = {
         "word_limit_reached",
         "subscription_renewed",
         "admin_message",
+        "ticket_opened",
+        "ticket_closed",
       ],
       app_role: ["super_admin", "support"],
       channel_kind: [
