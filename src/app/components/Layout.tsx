@@ -173,16 +173,16 @@ export function Layout() {
           .limit(2000),
       ]);
       if (cancelled) return;
-      // Sidebar badge = (latest status change that hasn't been acknowledged by
-      // opening notes) + unread notes. Opening/selecting the ticket does not clear it.
-      const lastStatusByTk = new Map<string, number>();
+      // Sidebar badge = every status event past `seen` for each ticket + unread notes.
+      // Each open/close/reopen counts separately. Opening/selecting the ticket does not clear it.
+      const statusByTk = new Map<string, number[]>();
       for (const r of statusRows || []) {
         const tid = (r as { ticket_id?: string | null }).ticket_id;
         const createdAt = (r as { created_at?: string | null }).created_at;
         if (!tid || !createdAt) continue;
-        const ts = toMs(createdAt);
-        const prev = lastStatusByTk.get(tid) ?? 0;
-        if (ts > prev) lastStatusByTk.set(tid, ts);
+        const arr = statusByTk.get(tid) ?? [];
+        arr.push(toMs(createdAt));
+        statusByTk.set(tid, arr);
       }
       let unread = 0;
       for (const r of ticketRows || []) {
@@ -191,9 +191,12 @@ export function Layout() {
         const status = (r as { status?: string | null }).status;
         if (!tid || !createdAt) continue;
         const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
-        const fallbackCreatedAt = status === 'closed' || status === 'resolved' ? 0 : toMs(createdAt);
-        const lastStatusAt = lastStatusByTk.get(tid) ?? fallbackCreatedAt;
-        if (lastStatusAt > seen) unread += 1;
+        const stamps = statusByTk.get(tid);
+        if (stamps && stamps.length > 0) {
+          for (const ts of stamps) if (ts > seen) unread += 1;
+        } else if (status !== 'closed' && status !== 'resolved' && toMs(createdAt) > seen) {
+          unread += 1;
+        }
       }
       const seenCache = new Map<string, number>();
       for (const r of noteRows || []) {
