@@ -140,8 +140,8 @@ export function Layout() {
     };
   }, [tenantId, location.pathname, badgeVersion]);
 
-  // Tickets sidebar badge — count unread NOTE activities across all tickets
-  // for the current tenant. A note is "unread" when its created_at is newer
+  // Tickets sidebar badge — count unread note/status activities across all tickets
+  // for the current tenant. An item is "unread" when its created_at is newer
   // than the last time the user opened that ticket's notes panel
   // (tracked via localStorage notifKeys.ticketNotesSeen).
   const [ticketsBadge, setTicketsBadge] = useState(0);
@@ -161,7 +161,7 @@ export function Layout() {
           .select('ticket_id, status, created_at')
           .eq('tenant_id', tenantId)
           .eq('type', 'status')
-          .in('status', ['created', 'open'])
+          .in('status', ['created', 'open', 'closed'])
           .order('created_at', { ascending: false })
           .limit(4000),
         supabase
@@ -173,19 +173,16 @@ export function Layout() {
           .limit(2000),
       ]);
       if (cancelled) return;
-      // Sidebar badge = (currently-open tickets whose latest open/reopen event
-      // hasn't been acknowledged by the user) + (unread notes across all tickets).
-      // Closing a ticket removes it from the count; reopening inserts a new
-      // status='open' activity row whose timestamp is fresher than `seen`, so
-      // the ticket re-bumps until the user clicks it (or opens notes).
-      const lastOpenedByTk = new Map<string, number>();
+      // Sidebar badge = (latest status change that hasn't been acknowledged by
+      // opening notes) + unread notes. Opening/selecting the ticket does not clear it.
+      const lastStatusByTk = new Map<string, number>();
       for (const r of statusRows || []) {
         const tid = (r as { ticket_id?: string | null }).ticket_id;
         const createdAt = (r as { created_at?: string | null }).created_at;
         if (!tid || !createdAt) continue;
         const ts = toMs(createdAt);
-        const prev = lastOpenedByTk.get(tid) ?? 0;
-        if (ts > prev) lastOpenedByTk.set(tid, ts);
+        const prev = lastStatusByTk.get(tid) ?? 0;
+        if (ts > prev) lastStatusByTk.set(tid, ts);
       }
       let unread = 0;
       for (const r of ticketRows || []) {
@@ -193,12 +190,10 @@ export function Layout() {
         const createdAt = (r as { created_at?: string | null }).created_at;
         const status = (r as { status?: string | null }).status;
         if (!tid || !createdAt) continue;
-        // Skip tickets that are not currently open — closed/resolved tickets
-        // don't contribute, per the lifecycle rule (raise +1, close -1).
-        if (status === 'closed' || status === 'resolved') continue;
         const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
-        const lastOpenedAt = lastOpenedByTk.get(tid) ?? toMs(createdAt);
-        if (lastOpenedAt > seen) unread += 1;
+        const fallbackCreatedAt = status === 'closed' || status === 'resolved' ? 0 : toMs(createdAt);
+        const lastStatusAt = lastStatusByTk.get(tid) ?? fallbackCreatedAt;
+        if (lastStatusAt > seen) unread += 1;
       }
       const seenCache = new Map<string, number>();
       for (const r of noteRows || []) {
