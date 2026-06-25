@@ -341,12 +341,27 @@ export function AdminDashboard() {
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Server Status', 'حالة الخوادم')}</h3>
           <div className="grid grid-cols-2 gap-2">
             {serverStatus.map((s, i) => (
-              <div key={`status-${i}`} className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/30">
-                <div className={`w-2 h-2 rounded-full ${s.status === 'connected' ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
-                <div>
-                  <p className="text-[12px]" style={{ fontWeight: 600 }}>{s.name}</p>
-                  <p className={`text-[10px] ${s.status === 'connected' ? 'text-green-500' : 'text-red-500'}`} style={{ fontWeight: 500 }}>
-                    {s.status === 'connected' ? t('Connected', 'متصل') : t('Disconnected', 'غير متصل')}
+              <div
+                key={`status-${i}`}
+                className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/30"
+                title={[
+                  s.error || '',
+                  s.checkedAt ? `${t('Last checked', 'آخر فحص')}: ${new Date(s.checkedAt).toLocaleString(language === 'ar' ? 'ar' : 'en')}` : '',
+                ].filter(Boolean).join('\n')}
+              >
+                <div className={`w-2 h-2 rounded-full animate-pulse ${
+                  s.status === 'up' ? 'bg-green-500' : s.status === 'degraded' ? 'bg-amber-500' : 'bg-red-500'
+                }`} />
+                <div className="min-w-0">
+                  <p className="text-[12px] truncate" style={{ fontWeight: 600 }}>{s.name}</p>
+                  <p className={`text-[10px] ${
+                    s.status === 'up' ? 'text-green-500' : s.status === 'degraded' ? 'text-amber-500' : 'text-red-500'
+                  }`} style={{ fontWeight: 500 }}>
+                    {s.status === 'up'
+                      ? t('Connected', 'متصل')
+                      : s.status === 'degraded'
+                        ? t('Partially Operational', 'تقريباً متصل')
+                        : t('Disconnected', 'غير متصل')}
                   </p>
                 </div>
               </div>
@@ -357,10 +372,10 @@ export function AdminDashboard() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('New Subscribers Over Time', 'المشتركون الجدد عبر الوقت')}</h3>
           <ResponsiveContainer width="100%" height={140}>
-            <LineChart data={newSubsOverTime}>
+            <LineChart data={newSubsOverTime} margin={{ top: 10, right: 12, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
-              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
+              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={42} tickMargin={6} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Line type="monotone" dataKey="zid" stroke="#043CC8" strokeWidth={2} dot={{ r: 3, fill: '#043CC8' }} activeDot={{ r: 5 }}
                 name={t('Zid', 'زد')} isAnimationActive animationDuration={1500} />
