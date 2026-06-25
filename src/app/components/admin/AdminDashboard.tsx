@@ -580,10 +580,12 @@ export function AdminDashboard() {
           <div style={{ aspectRatio: '1/1', maxHeight: 220 }} className="mx-auto">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={firstSubData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={4} dataKey="value" strokeWidth={0}
-                  isAnimationActive animationDuration={1200}>
-                  {firstSubData.map((entry, i) => <Cell key={`fst-${i}`} fill={entry.color} />)}
-                </Pie>
+                {chartsLoaded && (
+                  <Pie data={firstSubData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={4} dataKey="value" strokeWidth={0}
+                    isAnimationActive animationDuration={1200}>
+                    {firstSubData.map((entry, i) => <Cell key={`fst-${i}`} fill={entry.color} />)}
+                  </Pie>
+                )}
                 <Tooltip content={<ChartTooltip theme={theme} />} />
               </PieChart>
             </ResponsiveContainer>
@@ -646,10 +648,12 @@ export function AdminDashboard() {
           <p className={`text-[11px] ${textMuted} -mt-2 mb-3`}>{t('All customers: subscribed, unsubscribed & uninstalled', 'جميع العملاء: مشتركين وغير مشتركين وملغيين')}</p>
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
-              <Pie data={customerSourceData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={5} dataKey="value" strokeWidth={0}
-                isAnimationActive animationDuration={1200}>
-                {customerSourceData.map((entry, i) => <Cell key={`src-${i}`} fill={entry.color} />)}
-              </Pie>
+              {chartsLoaded && (
+                <Pie data={customerSourceData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={5} dataKey="value" strokeWidth={0}
+                  isAnimationActive animationDuration={1200}>
+                  {customerSourceData.map((entry, i) => <Cell key={`src-${i}`} fill={entry.color} />)}
+                </Pie>
+              )}
               <Tooltip content={<ChartTooltip theme={theme} />} />
             </PieChart>
           </ResponsiveContainer>
