@@ -29,6 +29,7 @@ import { AdAutomationPage } from './components/admin/AdAutomationPage';
 import { AdAutomationDetailPage } from './components/admin/AdAutomationDetailPage';
 import { AdminPipelinePage } from './components/admin/AdminPipelinePage';
 import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailPage';
+import { RequireAdminPermission } from './components/admin/RequireAdminPermission';
 import { WidgetChatPage } from './components/WidgetChatPage';
 
 function RootEntry() {
@@ -111,16 +112,16 @@ export const router = createBrowserRouter([
     path: '/admin',
     element: <RequireAuth requireSuperAdmin><AdminLayout /></RequireAuth>,
     children: [
-      { index: true, element: <AdminDashboard /> },
-      { path: 'reports/:platform', element: <AdminReports /> },
-      { path: 'customers', element: <AdminCustomers /> },
-      { path: 'customers/:id', element: <AdminCustomerDetails /> },
-      { path: 'invoices/:type', element: <AdminInvoices /> },
-      { path: 'team', element: <AdminTeam /> },
-      { path: 'pipeline', element: <AdminPipelinePage /> },
-      { path: 'pipeline/:id', element: <AdminPipelineDetailPage /> },
-      { path: 'ad-automation', element: <AdAutomationPage /> },
-      { path: 'ad-automation/:platformRowId', element: <AdAutomationDetailPage /> },
+      { index: true, element: <RequireAdminPermission perm="admin_dashboard"><AdminDashboard /></RequireAdminPermission> },
+      { path: 'reports/:platform', element: <RequireAdminPermission perm={['reports_all','reports_zid','reports_salla']}><AdminReports /></RequireAdminPermission> },
+      { path: 'customers', element: <RequireAdminPermission perm="customers"><AdminCustomers /></RequireAdminPermission> },
+      { path: 'customers/:id', element: <RequireAdminPermission perm="customers"><AdminCustomerDetails /></RequireAdminPermission> },
+      { path: 'invoices/:type', element: <RequireAdminPermission perm={['billing_subscriptions','billing_servers','billing_other']}><AdminInvoices /></RequireAdminPermission> },
+      { path: 'team', element: <RequireAdminPermission perm="team_management"><AdminTeam /></RequireAdminPermission> },
+      { path: 'pipeline', element: <RequireAdminPermission perm="pipeline"><AdminPipelinePage /></RequireAdminPermission> },
+      { path: 'pipeline/:id', element: <RequireAdminPermission perm="pipeline"><AdminPipelineDetailPage /></RequireAdminPermission> },
+      { path: 'ad-automation', element: <RequireAdminPermission perm="ad_automation"><AdAutomationPage /></RequireAdminPermission> },
+      { path: 'ad-automation/:platformRowId', element: <RequireAdminPermission perm="ad_automation"><AdAutomationDetailPage /></RequireAdminPermission> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },
