@@ -312,10 +312,12 @@ export function AdminDashboard() {
               <p className="text-[22px]" style={{ fontWeight: 700 }}>
                 <AnimatedValue value={kpi.value} />{kpi.suffix || ''}
               </p>
-              <div className={`flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-500'}`}>
-                {kpi.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                <span className="text-[11px]" style={{ fontWeight: 600 }}>{kpi.change}%</span>
-              </div>
+              {kpi.change !== null && (
+                <div className={`flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-500'}`}>
+                  {kpi.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                  <span className="text-[11px]" style={{ fontWeight: 600 }}>{kpi.change}%</span>
+                </div>
+              )}
             </div>
           </motion.div>
         ))}
