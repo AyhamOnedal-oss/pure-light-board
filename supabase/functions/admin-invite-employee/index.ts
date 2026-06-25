@@ -108,6 +108,17 @@ async function sendResend(to: string, subject: string, html: string) {
   return { ok: true };
 }
 
+// Fire-and-forget email send. EdgeRuntime.waitUntil keeps the request alive
+// for the network call without blocking the HTTP response, so the admin UI
+// gets an immediate ok instead of waiting on Resend latency.
+function sendResendBackground(to: string, subject: string, html: string) {
+  const p = sendResend(to, subject, html).catch((e) => ({ ok: false, error: String(e) }));
+  try {
+    // @ts-ignore - EdgeRuntime is available in Supabase edge runtime
+    (globalThis as any).EdgeRuntime?.waitUntil?.(p);
+  } catch { /* ignore */ }
+}
+
 // Strip any merchant-side identity from an internal admin account so the
 // employee is never treated as a tenant user. Removes ALL tenant memberships
 // for the given user and deletes any solo (owner-only) workspaces left
@@ -224,8 +235,12 @@ Deno.serve(async (req) => {
         employeeName: row.name_ar || row.name || row.email,
         email: row.email, password, addDate: fmtDate, addTime: fmtTime, loginUrl,
       });
-      const sent = await sendResend(row.email, `إعادة إرسال بيانات الدخول — فقاعة AI`, html);
-      return json({ ok: true, member_id, email_sent: sent.ok, email_error: sent.error });
+      sendResendBackground(row.email, `إعادة إرسال بيانات الدخول — فقاعة AI`, html);
+      // Persist the auth user_id on the team row for fast lookup later.
+      if (userId) {
+        await admin.from("admin_team_members").update({ user_id: userId }).eq("id", member_id);
+      }
+      return json({ ok: true, member_id, email_queued: true });
     }
 
     // Edit flow: only update fields, no auth/email
@@ -235,22 +250,26 @@ Deno.serve(async (req) => {
       const { error: upErr } = await admin.from("admin_team_members").update(update).eq("id", member_id);
       if (upErr) return json({ error: "update_failed", detail: upErr.message }, 500);
       // Grant or revoke the 'admin' role based on status, so the panel access
-      // tracks the row's active/inactive state.
+      // tracks the row's active/inactive state. Use cached user_id for speed.
       const { data: row } = await admin
-        .from("admin_team_members").select("email").eq("id", member_id).maybeSingle();
-      if (row?.email) {
+        .from("admin_team_members").select("email, user_id").eq("id", member_id).maybeSingle();
+      let uid: string | null = (row as any)?.user_id ?? null;
+      if (!uid && row?.email) {
         const lookup = await fetch(
           `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
           { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
         );
-        let uid: string | null = null;
         if (lookup.ok) {
           const j = await lookup.json();
           const match = (j?.users ?? []).find((u: any) =>
             (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
-          if (match?.id) uid = match.id;
+          if (match?.id) {
+            uid = match.id;
+            await admin.from("admin_team_members").update({ user_id: uid }).eq("id", member_id);
+          }
         }
-        if (uid) {
+      }
+      if (uid) {
           if (status === "active") {
             await admin.from("auth_user_roles").upsert(
               { user_id: uid, role: "admin" },
@@ -261,7 +280,6 @@ Deno.serve(async (req) => {
             await admin.from("auth_user_roles").delete()
               .eq("user_id", uid).eq("role", "admin");
           }
-        }
       }
       return json({ ok: true, member_id, email_sent: false });
     }
@@ -299,7 +317,7 @@ Deno.serve(async (req) => {
     }
 
     const { data: ins, error: insErr } = await admin.from("admin_team_members").insert({
-      name, name_ar, email, phone, permissions, status,
+      name, name_ar, email, phone, permissions, status, user_id: userId,
     }).select("id").single();
     if (insErr || !ins) return json({ error: "insert_failed", detail: insErr?.message }, 500);
 
@@ -322,9 +340,9 @@ Deno.serve(async (req) => {
       employeeName: name_ar || name, email, password,
       addDate: fmtDate, addTime: fmtTime, loginUrl,
     });
-    const sent = await sendResend(email, `مرحبًا بك في فريق إدارة فقاعة AI`, html);
+    sendResendBackground(email, `مرحبًا بك في فريق إدارة فقاعة AI`, html);
 
-    return json({ ok: true, member_id: ins.id, email_sent: sent.ok, email_error: sent.error });
+    return json({ ok: true, member_id: ins.id, email_queued: true });
   } catch (e) {
     return json({ error: "internal", detail: String(e) }, 500);
   }

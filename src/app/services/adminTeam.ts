@@ -26,7 +26,7 @@ export async function fetchTeamMembers(): Promise<AdminTeamMember[]> {
   try {
     const { data, error } = await supabase
       .from('admin_team_members')
-      .select('id,name,name_ar,email,phone,permissions,status')
+      .select('id,name,name_ar,email,phone,permissions,status,user_id')
       .order('created_at', { ascending: true });
     if (error) return MOCK_TEAM;
     if (!data) return [];

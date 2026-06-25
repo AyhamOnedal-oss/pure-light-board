@@ -29,12 +29,14 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const member_id = String(body?.member_id ?? "").trim();
     if (!member_id) return json({ error: "invalid_input" }, 400);
-    // Look up email before deletion so we can revoke the admin role too.
+    // Look up email + cached user_id before deletion so we can revoke the
+    // admin role without a slow auth admin-users round trip.
     const { data: row } = await admin
-      .from("admin_team_members").select("email").eq("id", member_id).maybeSingle();
+      .from("admin_team_members").select("email, user_id").eq("id", member_id).maybeSingle();
     const { error } = await admin.from("admin_team_members").delete().eq("id", member_id);
     if (error) return json({ error: "delete_failed", detail: error.message }, 500);
-    if (row?.email) {
+    let uid: string | null = (row as any)?.user_id ?? null;
+    if (!uid && row?.email) {
       const lookup = await fetch(
         `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
         { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
@@ -43,11 +45,12 @@ Deno.serve(async (req) => {
         const j = await lookup.json();
         const match = (j?.users ?? []).find((u: any) =>
           (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
-        if (match?.id) {
-          await admin.from("auth_user_roles").delete()
-            .eq("user_id", match.id).eq("role", "admin");
-        }
+        if (match?.id) uid = match.id;
       }
+    }
+    if (uid) {
+      await admin.from("auth_user_roles").delete()
+        .eq("user_id", uid).eq("role", "admin");
     }
     return json({ ok: true });
   } catch (e) {

@@ -40,7 +40,10 @@ function PlatformBadge({ id, size = 32 }: { id: PlatformId; size?: number }) {
 }
 
 export function AdAutomationPage() {
-  const { t, language, dir, showToast } = useApp();
+  const { t, language, dir, showToast, adminCan } = useApp();
+  const canAdd    = adminCan('ad_automation_add');
+  const canDelete = adminCan('ad_automation_delete');
+  const canSync   = adminCan('ad_automation_sync');
   const navigate = useNavigate();
   const [platforms, setPlatforms] = useState<Platform[]>(loadPlatforms());
   const [campaigns, setCampaigns] = useState<Campaign[]>(loadCampaigns());
@@ -252,17 +255,19 @@ export function AdAutomationPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleSyncAll}
-            disabled={syncing || platforms.length === 0}
+            disabled={syncing || platforms.length === 0 || !canSync}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[14px] transition-all ${
-              syncing || platforms.length === 0
+              syncing || platforms.length === 0 || !canSync
                 ? 'border-border text-muted-foreground/50 cursor-not-allowed'
                 : 'border-border hover:bg-muted'
             }`}
             style={{ fontWeight: 500 }}
+            title={!canSync ? t('Permission required', 'صلاحية مطلوبة') : undefined}
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
             {t('Sync Now', 'مزامنة الآن')}
           </button>
+          {canAdd && (
           <button
             onClick={() => { setShowAdd(true); setAddSelection(null); }}
             disabled={availablePlatforms.length === 0}
@@ -273,6 +278,7 @@ export function AdAutomationPage() {
           >
             <Plus className="w-4 h-4" /> {t('Connect Platform', 'ربط منصة')}
           </button>
+          )}
         </div>
       </div>
 
@@ -307,7 +313,7 @@ export function AdAutomationPage() {
             <span className="text-[13px] text-[#043CC8]" style={{ fontWeight: 600 }}>
               {selected.size} {t('selected', 'محدد')}
             </span>
-            <button onClick={bulkDelete} className="text-[12px] px-2.5 py-1 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors" style={{ fontWeight: 600 }}>
+            <button onClick={bulkDelete} disabled={!canDelete} className="text-[12px] px-2.5 py-1 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ fontWeight: 600 }}>
               {t('Disconnect', 'فصل')}
             </button>
           </div>
