@@ -188,9 +188,11 @@ export function Layout() {
       for (const r of ticketRows || []) {
         const tid = (r as { id?: string | null }).id;
         const createdAt = (r as { created_at?: string | null }).created_at;
+        const status = (r as { status?: string | null }).status;
         if (!tid || !createdAt) continue;
         const seen = getTs(notifKeys.ticketNotesSeen(CURRENT_USER_ID, tid));
-        const lastStatusAt = lastStatusByTk.get(tid) ?? toMs(createdAt);
+        const fallbackCreatedAt = status === 'closed' || status === 'resolved' ? 0 : toMs(createdAt);
+        const lastStatusAt = lastStatusByTk.get(tid) ?? fallbackCreatedAt;
         if (lastStatusAt > seen) unread += 1;
       }
       const seenCache = new Map<string, number>();
