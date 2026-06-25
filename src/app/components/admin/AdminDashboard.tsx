@@ -103,9 +103,10 @@ export function AdminDashboard() {
   // Live data from Supabase (admin_dash_* tables). Falls back to the same
   // mock numbers shipped with the dashboard if Supabase is empty/unreachable.
   const [data, setData] = useState<AdminDashboardData>(ADMIN_DASHBOARD_MOCK);
+  const [dataLoaded, setDataLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetchAdminDashboard().then(d => { if (alive) setData(d); });
+    fetchAdminDashboard().then(d => { if (alive) { setData(d); setDataLoaded(true); } });
     return () => { alive = false; };
   }, []);
 
@@ -224,10 +225,11 @@ export function AdminDashboard() {
   // their sweep once on real values (no MOCK-flash count-down).
   const [chartsLoaded, setChartsLoaded] = useState(false);
   useEffect(() => {
+    if (!dataLoaded) return;
     setChartsLoaded(false);
     const id = requestAnimationFrame(() => setChartsLoaded(true));
     return () => cancelAnimationFrame(id);
-  }, [range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
+  }, [dataLoaded, range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
 
   // #3 Subscriptions by Platform  ← admin_dash_platform_subs
   const platformSubsData = useMemo(() => {
