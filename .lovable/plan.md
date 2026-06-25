@@ -1,46 +1,49 @@
-## What's wrong today
-- The admin invite email points to `www.fugah.ai` and `support@fugah.ai` (typo of `fuqah.ai`). The merchant invite has the same typo too, so both need correcting.
-- The admin invite already uses `/admin/login?email=...&invite=1`, which is correct — but I'll also align the email layout/wording with the merchant invite so the experience is consistent (just rebranded for "Admin Panel").
-- The invite still leaves an auto-created personal merchant workspace on the new account (covered by the previous plan), which is what makes admin employees look like merchant users.
+Root cause to fix:
+- Internal Fuqah staff are currently identified with a broad `admin` role, but their saved `admin_team_members.permissions` are not used by the admin routes/sidebar/actions.
+- Most `admin_*` database policies and `admin_kpis()` still allow only `super_admin`, so admin employees can enter `/admin` but cannot read real stats/data, which causes empty/zero states.
+- Invite/edit/delete does repeated auth lookups by email and blocks on email sending, so staff actions feel slow.
 
-## Recommended labeling pattern (industry standard)
-Most SaaS apps separate "internal staff" from "tenant users" with three layers:
+Plan:
+1. Add a real internal-staff identity link
+   - Add `user_id` to `admin_team_members` with indexes for `user_id`, `email`, and `status`.
+   - Keep roles separate: `super_admin` = owner (`admin@fuqah.ai`), `admin` = Fuqah internal employee, tenant employees remain only in tenant/team tables.
+   - Backfill/maintain `user_id` through the admin invite function whenever creating, editing, resending, or activating staff.
 
-1. **Identity layer (auth.users)** — one shared user table. Don't fork it.
-2. **Role layer (`auth_user_roles`)** — global roles like `super_admin`, `admin` (= internal Fuqah staff), `support`. We already have this.
-3. **Membership layer (`auth_tenant_members` + `team_members`)** — only merchants and merchant employees get rows here. Internal staff get **zero** tenant memberships.
+2. Create admin-staff permission enforcement
+   - Add a database helper like `admin_has_permission(user_id, permission_key)`.
+   - It returns full access for `super_admin`, and checks active `admin_team_members.permissions` for internal `admin` employees.
+   - Update admin dashboard/stat policies and RPCs so staff with the right permission can read real data instead of zeros.
 
-On top of that, add **two visual/UX signals** so the two populations never get confused:
-- A separate, branded login page (`/admin/login`) — already exists.
-- An `is_internal: true` flag (or simply: "has `admin`/`super_admin` role and no tenant membership") used by the UI to badge them as "Fuqah Staff" in lists, hide them from merchant analytics ("All clients" KPI already excludes `super_admin`; we'll also exclude `admin`), and route them straight to `/admin`.
+3. Wire admin permissions into the frontend
+   - Extend `AppContext` with `adminPermissions`, `adminPermissionsLoading`, and `adminCan(key)`.
+   - Super admin gets all permissions.
+   - Admin employees get only their saved `admin_team_members.permissions`.
+   - If an employee has no permission for `/admin`, route them to their first allowed admin page, not `/dashboard`.
 
-This is exactly how Linear, Intercom, Stripe Dashboard, and Vercel handle staff vs customer accounts: one auth table, a global role enum, no tenant membership for staff, and a distinct admin entry point.
+4. Gate the admin UI by permission
+   - Filter Admin sidebar items by permission:
+     - Dashboard → `admin_dashboard`
+     - Team Management → `team_management`
+     - Customer Pipeline/List → `pipeline`, `customers`
+     - Reports → `reports_*`
+     - Billing → `billing_*`
+     - Ad Automation → `ad_automation`
+   - Add action-level permissions for automation, e.g. `ad_automation_add`, `ad_automation_delete`, `ad_automation_sync`, so “Add Automation” is clickable only when granted.
+   - Hide/disable restricted buttons and protect direct URL access with an admin route guard.
 
-## Plan
+5. Fix zero stats for admin employees
+   - Allow real reads for dashboard/admin data only when the employee has the corresponding permission.
+   - Update `admin_kpis()` and `admin_db_usage()` to allow `super_admin` or staff with `admin_dashboard`.
+   - Remove misleading mock/zero fallback where it hides permission failures; show a proper restricted/no-access state instead.
 
-1. **Fix the invite email content (`admin-invite-employee`)**
-   - Replace every `fugah.ai` with `fuqah.ai` in the footer and support mailto.
-   - Keep the login button pointing at `${APP_URL}/admin/login?email=...&invite=1`.
-   - Mirror the merchant invite layout (header gradient, login box, footer) but keep the red "Admin Panel" badge + "فريق إدارة فقاعة AI" wording so the recipient knows it's the internal panel.
-   - Same fix in the resend flow.
+6. Speed up invite/edit/delete/render
+   - Stop repeated auth-user lookup by email where `user_id` is already known.
+   - Make delete/status/edit use `user_id` directly for role revoke/grant.
+   - Do optimistic UI updates in `AdminTeam` and reload quietly afterward.
+   - Make email sending non-blocking after the account/role/team row succeeds, so the UI does not wait on Resend latency.
+   - Add proper loading states instead of mock fallbacks while the team list loads.
 
-2. **Fix the merchant invite email typo (`invite-employee`)**
-   - Same `fugah.ai` → `fuqah.ai` correction in the footer and support address.
-
-3. **Stop creating a merchant workspace for internal admins (`admin-invite-employee`)**
-   - After `createUser`, immediately remove the auto-provisioned personal workspace and tenant membership for that user (same cleanup `invite-employee` already does for invitees).
-   - Hard-fail the request if granting `auth_user_roles.role = 'admin'` fails, instead of silently continuing.
-
-4. **Backfill the existing affected account**
-   - Delete the leftover "A's Workspace" tenant + membership for `ayhamwork34@gmail.com` so the account stops looking like a merchant user.
-
-5. **Tighten KPI + routing separation**
-   - Update `admin_kpis` so "All clients" excludes both `super_admin` **and** `admin` (today it only excludes super_admin), so internal staff don't inflate client counts.
-   - Route status toggles in `AdminTeam` through `admin-invite-employee` so activate/deactivate grants/revokes the `admin` role atomically.
-
-6. **Verify**
-   - Send a fresh invite from `/admin/team`, confirm the email reads `fuqah.ai`, the button opens `/admin/login`, login lands on `/admin`, and the account has no tenant membership and no personal workspace.
-
-## Technical notes
-- Files touched: `supabase/functions/admin-invite-employee/index.ts`, `supabase/functions/invite-employee/index.ts`, `src/app/components/admin/AdminTeam.tsx`, one DB migration for `admin_kpis`, one data cleanup for the existing account.
-- No schema changes — `auth_user_roles.admin` already exists from the previous round.
+7. Verify
+   - Test as super admin: full stats, full sidebar, full team actions.
+   - Test as restricted admin employee: `/admin` opens, real allowed stats/data show, restricted menu/actions are hidden/blocked, no `/dashboard` redirect.
+   - Test invite/add/delete performance and confirm the email link points to `fuqah.ai/admin/login`.
