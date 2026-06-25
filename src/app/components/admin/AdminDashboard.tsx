@@ -246,7 +246,6 @@ export function AdminDashboard() {
   const platformSubsData = useMemo(() => {
     const statuses: Array<['active'|'inactive'|'cancelled', string]> = [
       ['active',    t('Active', 'نشط')],
-      ['inactive',  t('Inactive', 'غير نشط')],
       ['cancelled', t('Cancelled', 'ملغي')],
     ];
     return statuses.map(([s, label]) => ({
