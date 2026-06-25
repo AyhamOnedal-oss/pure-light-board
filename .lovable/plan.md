@@ -1,36 +1,56 @@
-## Goal
+# Final plan — KPI cards + server health + chart fix
 
-Revert the "click ticket row clears badge" behavior. The red ticket badge should only decrease when the user actually opens the **Notes panel** of that ticket — not when they click the ticket row from the list. Reopen-after-close must still re-add +1.
+Click **Implement plan** to apply.
 
-## Current behavior (after last change)
+## A. KPI cards on `/admin` wired to real data
 
-In `src/app/components/TicketsPage.tsx`, `handleSelect` was updated to call `setTs(notifKeys.ticketNotesSeen(...))` + dispatch `fuqah:badges-bump` on every row click. That makes the badge drop immediately on row click, which the user does not want.
+Date filter at the top-right drives the range (all-time when none chosen). Backed by new SQL function `admin_kpis(_from, _to)` (super-admin only).
 
-## Fix
+| Card | Source |
+|---|---|
+| Total Customers | `settings_workspace` where `platform IN ('zid','salla')`, by `created_at` |
+| Inactive Customers | mock (deferred) |
+| Total Uninstalls | `zid_connections + salla_connections` where `is_active=false`, by `updated_at` |
+| Active Customers | `Total − Inactive` |
+| Total Bubble Clicks | `sum(dashboard_usage_daily.clicks)` |
+| Avg Response Time | `avg(first_response_at − created_at)` on `conversations_main` |
 
-### 1. `src/app/components/TicketsPage.tsx` — `handleSelect`
+% chip compares to the previous window of equal length; hidden in all-time.
 
-Remove the two lines that mark the ticket as seen and dispatch the badge bump on row click. Row click should only select the ticket and open its detail view — no `seen` write.
+## B. حالة الخوادم — real uptime tracking
 
-The existing logic that marks notes as seen when the user actually opens/views the **Notes panel** (the `NotesActivityPanel` open handler that already calls `setTs(notifKeys.ticketNotesSeen(...))`) stays untouched. That remains the only place the badge for a given ticket clears.
+- New table `admin_health_checks` (provider, status `up`/`degraded`/`down`, latency_ms, http_code, error, checked_at).
+- New edge function `health-check`, scheduled every 5 min via `pg_cron`, that probes:
+  - **Supabase** → `/auth/v1/health` (HTTP 200 = up, else down)
+  - **OpenAI** → `status.openai.com/api/v2/status.json`
+  - **Resend** → `resend-status.com/api/v2/status.json`
+  - **Hostinger** → HTTP GET on the configured domain
 
-### 2. Keep the reopen lifecycle intact
+Statuspage indicator mapping (no AI; deterministic):
 
-No changes to `src/app/components/Layout.tsx`. The `lastOpenedAt > seen` logic already handles:
-- New ticket raised → +1
-- Notes opened → seen advances → −1
-- Closed → excluded by status filter
-- Reopened → new `status='open'` activity row with fresh `created_at` > `seen` → +1 again
+| `status.indicator` | UI |
+|---|---|
+| `none` | 🟢 up |
+| `minor` / `maintenance` | 🟡 degraded |
+| `major` / `critical` | 🔴 down |
 
-### 3. Per-row indicator (`unreadCount` / `isNewTicket`)
+Server cards read the latest row per provider. Three-state pill:
 
-Keep them using `lastOpenedAt > seen` so the row dot mirrors the sidebar badge exactly — appears on new/reopened, clears only when notes are viewed.
+| State | EN | AR |
+|---|---|---|
+| up | Connected | متصل |
+| degraded | Partially Operational | تقريباً متصل |
+| down | Disconnected | غير متصل |
 
-## Verification
+Tooltip shows `status.description` (e.g. "Partial System Degradation") plus `last checked Xm ago`. When a provider flips to `down`, insert one `app_notifications` row (`kind='server_down'`).
 
-1. Raise ticket → sidebar +1, row dot on.
-2. Click the ticket row (do NOT open notes) → badge stays, dot stays. ✅ (this is what's broken now)
-3. Open the Notes panel → badge −1, dot clears.
-4. Close the ticket → badge stays 0.
-5. Reopen → badge +1, dot returns.
-6. Open notes again → back to 0.
+## C. Chart fix — New Subscribers Over Time
+
+`YAxis width 30 → 42`, add `tickMargin={6}` and `margin={{ top: 10, right: 12, bottom: 0, left: 8 }}` on the `<LineChart>` so axis labels stop overlapping the line.
+
+## Files
+- Migration (already approved & run): `admin_kpis` function + `admin_health_checks` table.
+- New edge function `supabase/functions/health-check/index.ts` (verify_jwt=false; cron-driven).
+- `cron.schedule('health-check-5min', '*/5 * * * *', …)` inserted via the data tool (uses project URL + anon key).
+- `src/app/services/adminDashboard.ts`: add `fetchAdminKpis(from, to)` + `fetchServerHealth()`.
+- `src/app/components/admin/AdminDashboard.tsx`: KPI cards bound to live data; server-status grid uses 3-state pill + tooltip; YAxis width bumped.
