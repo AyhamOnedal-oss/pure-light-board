@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Eye, EyeOff, Globe, Moon, Sun, AlertCircle, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
@@ -7,7 +8,7 @@ import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 import { normalizeEmail, normalizePassword } from '../../utils/authInput';
 
 export function AdminLoginPage() {
-  const { t, theme, setTheme, language, setLanguage, signIn } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signOut } = useApp();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,12 +30,31 @@ export function AdminLoginPage() {
 
     setLoading(true);
     const { error } = await signIn(normEmail, normPassword);
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setErrors({ general: t('Invalid admin credentials', 'بيانات الأدمن غير صحيحة') });
       return;
     }
-    // RequireAuth + LoginPage effect will route super_admin users to /admin.
+    // Verify this account actually has admin access (super_admin or admin
+    // employee). Tenant users must not be allowed in via the admin login page.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      setErrors({ general: t('Invalid admin credentials', 'بيانات الأدمن غير صحيحة') });
+      return;
+    }
+    const { data: roles } = await supabase
+      .from('auth_user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .in('role', ['super_admin', 'admin']);
+    if (!roles || roles.length === 0) {
+      await signOut();
+      setLoading(false);
+      setErrors({ general: t('This account is not authorized for the admin panel', 'هذا الحساب غير مصرّح له بالدخول إلى لوحة الأدمن') });
+      return;
+    }
+    setLoading(false);
     navigate('/admin', { replace: true });
   };
 

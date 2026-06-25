@@ -59,7 +59,7 @@ function ResendResetLink({
 }
 
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, roleLoading, signOut } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, isAnyAdmin, roleLoading, signOut } = useApp();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   // Pre-fill email when arriving from Zid/Salla install flow.
@@ -144,7 +144,7 @@ export function LoginPage() {
     if (!authLoading && !roleLoading && session) {
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
-      const dest = isSuperAdmin
+      const dest = isAnyAdmin
         ? '/admin'
         : (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//') && !redirectParam.startsWith('/admin')
             ? redirectParam
@@ -153,7 +153,7 @@ export function LoginPage() {
             : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail, forgotParam, view]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, isAnyAdmin, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail, forgotParam, view]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

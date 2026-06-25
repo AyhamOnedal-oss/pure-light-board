@@ -391,6 +391,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       session, user: session?.user ?? null, authLoading,
       tenantId, tenantLoading,
       isSuperAdmin,
+      isAdminEmployee,
+      isAnyAdmin: isSuperAdmin || isAdminEmployee,
       roleLoading,
       signIn, signUp, signOut, sendPasswordReset,
     }}>

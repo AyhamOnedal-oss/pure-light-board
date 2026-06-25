@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router';
 import { useApp } from '../context/AppContext';
 
 export function RequireAuth({ children, requireSuperAdmin = false }: { children: React.ReactNode; requireSuperAdmin?: boolean }) {
-  const { session, authLoading, isSuperAdmin, roleLoading } = useApp();
+  const { session, authLoading, isSuperAdmin, isAnyAdmin, roleLoading } = useApp();
   const location = useLocation();
 
   if (authLoading || roleLoading) {
@@ -18,12 +18,15 @@ export function RequireAuth({ children, requireSuperAdmin = false }: { children:
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
 
-  if (requireSuperAdmin && !isSuperAdmin) {
+  // `requireSuperAdmin` actually gates the whole admin panel — accept both
+  // super_admin (Fuqah founders) and admin (invited Fuqah employees).
+  if (requireSuperAdmin && !isAnyAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // If a super admin lands on a user route, send them to the admin panel.
-  if (!requireSuperAdmin && isSuperAdmin && location.pathname.startsWith('/dashboard')) {
+  // If an admin (super_admin or admin-employee) lands on a user route, send
+  // them to the admin panel — these accounts have no tenant.
+  if (!requireSuperAdmin && isAnyAdmin && location.pathname.startsWith('/dashboard')) {
     return <Navigate to="/admin" replace />;
   }
 
