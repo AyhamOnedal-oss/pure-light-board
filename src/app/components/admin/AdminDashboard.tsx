@@ -215,6 +215,12 @@ export function AdminDashboard() {
       .map(b => ({ name: tokenBucketLabel(b.key), value: b.tokens, color: TOKEN_COLORS[b.key] }));
   }, [tokens, language]);
 
+  // #1 Words/Tokens monthly bars  ← admin_dash_words_monthly (kept)
+  const wordsData = useMemo(() => {
+    const byMonth = new Map(data.wordsMonthly.map(w => [w.month, w.words]));
+    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
+  }, [data.wordsMonthly, language]);
+
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
     const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
@@ -447,32 +453,48 @@ export function AdminDashboard() {
       {/* #1 Words Usage + Current Customer Plans */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={cardClass}>
-          <div className="flex items-start justify-between mb-3">
+          <div className="flex items-start justify-between mb-2">
             <div>
-              <h3 className="text-[14px]" style={{ fontWeight: 600 }}>{t('Token Usage Breakdown', 'توزيع استهلاك التوكنز')}</h3>
+              <h3 className="text-[14px]" style={{ fontWeight: 600 }}>{t('Words / Tokens Usage', 'استخدام الكلمات / التوكنز')}</h3>
               <p className={`text-[11px] ${textMuted}`}>
                 {tokensLoading
                   ? t('Loading…', 'جارٍ التحميل…')
                   : `${(tokens?.total_tokens ?? 0).toLocaleString()} ${t('tokens', 'توكن')} • $${(tokens?.total_cost_usd ?? 0).toFixed(2)}`}
               </p>
             </div>
-            {!tokensLoading && tokenPieData.length > 0 && chartsLoaded && (
-              <div style={{ width: 80, height: 80 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={tokenPieData} cx="50%" cy="50%" innerRadius={20} outerRadius={36} paddingAngle={2} dataKey="value" strokeWidth={0}
-                      isAnimationActive animationDuration={1200}>
-                      {tokenPieData.map((e, i) => <Cell key={`tk-${i}`} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip content={<ChartTooltip theme={theme} />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
           </div>
-          <div className="space-y-2.5">
+          {/* Monthly bar chart (restored) */}
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 6, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
+              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={36} />
+              <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
+              <Bar dataKey="words" fill="#043CC8" name={t('Words Used', 'الكلمات المستهلكة')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
+            </BarChart>
+          </ResponsiveContainer>
+          {/* Breakdown built on top of the chart */}
+          <div className="mt-3 pt-3 border-t border-border space-y-2.5">
+            <div className="flex items-center justify-between">
+              <p className={`text-[11px] ${textMuted}`} style={{ fontWeight: 600 }}>
+                {t('Breakdown for selected range', 'التفصيل للفترة المحددة')}
+              </p>
+              {!tokensLoading && tokenPieData.length > 0 && chartsLoaded && (
+                <div style={{ width: 56, height: 56 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={tokenPieData} cx="50%" cy="50%" innerRadius={14} outerRadius={26} paddingAngle={2} dataKey="value" strokeWidth={0}
+                        isAnimationActive animationDuration={1200}>
+                        {tokenPieData.map((e, i) => <Cell key={`tk-${i}`} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip content={<ChartTooltip theme={theme} />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
             {tokensLoading && (
-              <p className={`text-[12px] ${textMuted} py-6 text-center`}>{t('Loading token usage…', 'جارٍ تحميل استهلاك التوكنز…')}</p>
+              <p className={`text-[12px] ${textMuted} py-2 text-center`}>{t('Loading token usage…', 'جارٍ تحميل استهلاك التوكنز…')}</p>
             )}
             {!tokensLoading && (tokens?.buckets ?? []).map((b, i) => {
               const color = TOKEN_COLORS[b.key];
