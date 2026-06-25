@@ -460,17 +460,17 @@ export function AdminDashboard() {
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Current Customer Plans', 'خطط العملاء الحالية')}</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              {chartsLoaded && (
-                <Pie data={currentPlansData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={4} dataKey="value" strokeWidth={0}
-                  isAnimationActive animationDuration={1200}>
-                  {currentPlansData.map((entry, i) => <Cell key={`plan-${i}`} fill={entry.color} />)}
-                </Pie>
-              )}
-              <Tooltip content={<ChartTooltip theme={theme} />} />
-            </PieChart>
-          </ResponsiveContainer>
+          <div style={{ height: 180 }}>
+            {chartsLoaded && (
+              <AdminDonut
+                key={`plan-${currentPlansData.map(d => `${d.name}:${d.value}`).join('|')}`}
+                data={currentPlansData}
+                theme={theme}
+                innerRadius={45}
+                outerRadius={70}
+              />
+            )}
+          </div>
           <div className="flex items-center justify-center gap-4 mt-1 flex-wrap">
             {currentPlansData.map((d, i) => (
               <div key={`plan-leg-${i}`} className="flex items-center gap-2">
@@ -519,17 +519,15 @@ export function AdminDashboard() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('First Subscription Type', 'نوع الاشتراك الأول')}</h3>
           <div style={{ aspectRatio: '1/1', maxHeight: 220 }} className="mx-auto">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                {chartsLoaded && (
-                  <Pie data={firstSubData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={4} dataKey="value" strokeWidth={0}
-                    isAnimationActive animationDuration={1200}>
-                    {firstSubData.map((entry, i) => <Cell key={`fst-${i}`} fill={entry.color} />)}
-                  </Pie>
-                )}
-                <Tooltip content={<ChartTooltip theme={theme} />} />
-              </PieChart>
-            </ResponsiveContainer>
+            {chartsLoaded && (
+              <AdminDonut
+                key={`fst-${firstSubData.map(d => `${d.name}:${d.value}`).join('|')}`}
+                data={firstSubData}
+                theme={theme}
+                innerRadius={40}
+                outerRadius={65}
+              />
+            )}
           </div>
           <div className="flex items-center justify-center gap-3 mt-1 flex-wrap">
             {firstSubData.map((d, i) => (
