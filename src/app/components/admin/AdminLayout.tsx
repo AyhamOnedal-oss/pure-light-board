@@ -12,7 +12,10 @@ import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 
 export function AdminLayout() {
-  const { t, theme, setTheme, language, setLanguage, dir, showToast, pushNotification, signOut, user } = useApp();
+  const {
+    t, theme, setTheme, language, setLanguage, dir, showToast, pushNotification, signOut, user,
+    adminCan, adminPermissionsLoading, isSuperAdmin,
+  } = useApp();
   const [reportsOpen, setReportsOpen] = useState(false);
   const [invoicesOpen, setInvoicesOpen] = useState(false);
   const [customersOpen, setCustomersOpen] = useState(false);
@@ -71,27 +74,31 @@ export function AdminLayout() {
   };
 
   const navItems = [
-    { to: '/admin', icon: LayoutDashboard, label: t('Admin Dashboard', 'لوحة تحكم الأدمن'), end: true },
-    { to: '/admin/team', icon: UserCog, label: t('Team Management', 'إدارة الفريق') },
-    { to: '/admin/ad-automation', icon: Megaphone, label: t('Ad Automation', 'أتمتة الإعلانات') },
-  ];
+    { to: '/admin', icon: LayoutDashboard, label: t('Admin Dashboard', 'لوحة تحكم الأدمن'), end: true, perm: 'admin_dashboard' as const },
+    { to: '/admin/team', icon: UserCog, label: t('Team Management', 'إدارة الفريق'), perm: 'team_management' as const },
+    { to: '/admin/ad-automation', icon: Megaphone, label: t('Ad Automation', 'أتمتة الإعلانات'), perm: 'ad_automation' as const },
+  ].filter(i => adminCan(i.perm));
 
   const customersItems = [
-    { to: '/admin/pipeline', label: t('Customer Pipeline', 'سير العملاء'), icon: GitBranch, showBadge: true },
-    { to: '/admin/customers', label: t('Customers', 'العملاء'), icon: Users, showBadge: false },
-  ];
+    { to: '/admin/pipeline',  label: t('Customer Pipeline', 'سير العملاء'), icon: GitBranch, showBadge: true,  perm: 'pipeline' as const },
+    { to: '/admin/customers', label: t('Customers',         'العملاء'),     icon: Users,     showBadge: false, perm: 'customers' as const },
+  ].filter(i => adminCan(i.perm));
 
   const reportsItems = [
-    { to: '/admin/reports/all', label: t('All', 'الكل') },
-    { to: '/admin/reports/zid', label: t('Zid', 'زد') },
-    { to: '/admin/reports/salla', label: t('Salla', 'سلة') },
-  ];
+    { to: '/admin/reports/all',   label: t('All',   'الكل'),  perm: 'reports_all' as const },
+    { to: '/admin/reports/zid',   label: t('Zid',   'زد'),    perm: 'reports_zid' as const },
+    { to: '/admin/reports/salla', label: t('Salla', 'سلة'),   perm: 'reports_salla' as const },
+  ].filter(i => adminCan(i.perm));
 
   const invoicesItems = [
-    { to: '/admin/invoices/subscriptions', label: t('Subscription Payments', 'مدفوعات الاشتراكات') },
-    { to: '/admin/invoices/server', label: t('Server Invoices', 'فواتير الخوادم') },
-    { to: '/admin/invoices/other', label: t('Other Invoices', 'فواتير أخرى') },
-  ];
+    { to: '/admin/invoices/subscriptions', label: t('Subscription Payments', 'مدفوعات الاشتراكات'), perm: 'billing_subscriptions' as const },
+    { to: '/admin/invoices/server',        label: t('Server Invoices',       'فواتير الخوادم'),      perm: 'billing_servers' as const },
+    { to: '/admin/invoices/other',         label: t('Other Invoices',        'فواتير أخرى'),         perm: 'billing_other' as const },
+  ].filter(i => adminCan(i.perm));
+
+  const showCustomersGroup = customersItems.length > 0;
+  const showReportsGroup   = reportsItems.length > 0;
+  const showInvoicesGroup  = invoicesItems.length > 0;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -116,6 +123,8 @@ export function AdminLayout() {
         ))}
 
         {/* Customer Management (collapsible: Pipeline + Customers) */}
+        {showCustomersGroup && (
+        <>
         <button onClick={() => setCustomersOpen(!customersOpen)}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
             isCustomers ? 'bg-[#043CC8] text-white shadow-lg shadow-[#043CC8]/20' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
@@ -150,8 +159,12 @@ export function AdminLayout() {
             ))}
           </div>
         )}
+        </>
+        )}
 
         {/* Reports */}
+        {showReportsGroup && (
+        <>
         <button onClick={() => setReportsOpen(!reportsOpen)}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
             isReports ? 'bg-[#043CC8] text-white shadow-lg shadow-[#043CC8]/20' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
@@ -175,8 +188,12 @@ export function AdminLayout() {
             ))}
           </div>
         )}
+        </>
+        )}
 
         {/* Invoices */}
+        {showInvoicesGroup && (
+        <>
         <button onClick={() => setInvoicesOpen(!invoicesOpen)}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
             isInvoices ? 'bg-[#043CC8] text-white shadow-lg shadow-[#043CC8]/20' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
@@ -200,6 +217,8 @@ export function AdminLayout() {
             ))}
           </div>
         )}
+        </>
+        )}
       </nav>
 
       <div className="p-3 border-t border-sidebar-border relative" ref={userMenuRef}>
@@ -207,7 +226,9 @@ export function AdminLayout() {
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-sidebar-accent transition-colors">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-[12px] shrink-0" style={{ fontWeight: 700 }}>SA</div>
           <div className="flex-1 min-w-0 text-start">
-            <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>{t('Super Admin', 'المشرف العام')}</p>
+            <p className="text-[13px] truncate" style={{ fontWeight: 600 }}>
+              {isSuperAdmin ? t('Super Admin', 'المشرف العام') : t('Admin Employee', 'موظف الأدمن')}
+            </p>
             <p className="text-[11px] text-sidebar-foreground/50 truncate">{user?.email ?? ''}</p>
           </div>
           <ChevronUp className={`w-4 h-4 text-sidebar-foreground/40 transition-transform ${userMenuOpen ? '' : 'rotate-180'}`} />
