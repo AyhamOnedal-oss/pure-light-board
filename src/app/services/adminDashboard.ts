@@ -62,6 +62,29 @@ export interface ServerRow {
   display_order: number;
 }
 
+// --- Live KPI + health-check types ---
+export interface AdminKpis {
+  total_customers: number;
+  prev_total_customers: number;
+  total_uninstalls: number;
+  prev_total_uninstalls: number;
+  total_bubble_clicks: number;
+  prev_total_bubble_clicks: number;
+  avg_response_seconds: number;
+  prev_avg_response_seconds: number;
+  has_range: boolean;
+}
+
+export type HealthStatus = 'up' | 'degraded' | 'down';
+export interface HealthCheck {
+  provider: string;
+  status: HealthStatus;
+  latency_ms: number | null;
+  http_code: number | null;
+  error: string | null;
+  checked_at: string;
+}
+
 export interface AdminDashboardData {
   kpi: KpiSnapshot;
   wordsMonthly: WordsMonthly[];
