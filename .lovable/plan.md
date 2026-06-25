@@ -1,69 +1,46 @@
-# Separate Admin Employees from Tenant Employees
+## What's wrong today
+- The admin invite email points to `www.fugah.ai` and `support@fugah.ai` (typo of `fuqah.ai`). The merchant invite has the same typo too, so both need correcting.
+- The admin invite already uses `/admin/login?email=...&invite=1`, which is correct — but I'll also align the email layout/wording with the merchant invite so the experience is consistent (just rebranded for "Admin Panel").
+- The invite still leaves an auto-created personal merchant workspace on the new account (covered by the previous plan), which is what makes admin employees look like merchant users.
 
-## Problem
+## Recommended labeling pattern (industry standard)
+Most SaaS apps separate "internal staff" from "tenant users" with three layers:
 
-Employees invited from **Admin Panel → Team Management** are meant to be Fuqah's internal staff (admin panel users). Currently the `admin-invite-employee` edge function:
+1. **Identity layer (auth.users)** — one shared user table. Don't fork it.
+2. **Role layer (`auth_user_roles`)** — global roles like `super_admin`, `admin` (= internal Fuqah staff), `support`. We already have this.
+3. **Membership layer (`auth_tenant_members` + `team_members`)** — only merchants and merchant employees get rows here. Internal staff get **zero** tenant memberships.
 
-- Creates an `auth.users` record
-- Inserts a row in `admin_team_members`
-- Sends a welcome email pointing to `/login`
+On top of that, add **two visual/UX signals** so the two populations never get confused:
+- A separate, branded login page (`/admin/login`) — already exists.
+- An `is_internal: true` flag (or simply: "has `admin`/`super_admin` role and no tenant membership") used by the UI to badge them as "Fuqah Staff" in lists, hide them from merchant analytics ("All clients" KPI already excludes `super_admin`; we'll also exclude `admin`), and route them straight to `/admin`.
 
-But it never assigns any role in `auth_user_roles`. So when the invited employee signs in:
+This is exactly how Linear, Intercom, Stripe Dashboard, and Vercel handle staff vs customer accounts: one auth table, a global role enum, no tenant membership for staff, and a distinct admin entry point.
 
-- `isSuperAdmin` is `false`
-- They have no tenant membership → `AppContext` either marks the account as "deleted" or drops them on `/dashboard` (the user/tenant panel)
-- They appear mixed in with merchant employees, never reach `/admin/*`
+## Plan
 
-Tenant-side `team_members` (clients' employees) must stay completely independent of `admin_team_members` (Fuqah's employees).
+1. **Fix the invite email content (`admin-invite-employee`)**
+   - Replace every `fugah.ai` with `fuqah.ai` in the footer and support mailto.
+   - Keep the login button pointing at `${APP_URL}/admin/login?email=...&invite=1`.
+   - Mirror the merchant invite layout (header gradient, login box, footer) but keep the red "Admin Panel" badge + "فريق إدارة فقاعة AI" wording so the recipient knows it's the internal panel.
+   - Same fix in the resend flow.
 
-## Fix
+2. **Fix the merchant invite email typo (`invite-employee`)**
+   - Same `fugah.ai` → `fuqah.ai` correction in the footer and support address.
 
-### 1. Database — add an `admin` role tier
+3. **Stop creating a merchant workspace for internal admins (`admin-invite-employee`)**
+   - After `createUser`, immediately remove the auto-provisioned personal workspace and tenant membership for that user (same cleanup `invite-employee` already does for invitees).
+   - Hard-fail the request if granting `auth_user_roles.role = 'admin'` fails, instead of silently continuing.
 
-Migration:
-- Add a new value `'admin'` to whatever enum / check constraint backs `auth_user_roles.role` (alongside the existing `super_admin`). If the column is free-text, no enum change is needed.
-- No table changes for `admin_team_members`; we'll just GRANT/REVOKE roles based on its rows.
+4. **Backfill the existing affected account**
+   - Delete the leftover "A's Workspace" tenant + membership for `ayhamwork34@gmail.com` so the account stops looking like a merchant user.
 
-### 2. Edge function `admin-invite-employee`
+5. **Tighten KPI + routing separation**
+   - Update `admin_kpis` so "All clients" excludes both `super_admin` **and** `admin` (today it only excludes super_admin), so internal staff don't inflate client counts.
+   - Route status toggles in `AdminTeam` through `admin-invite-employee` so activate/deactivate grants/revokes the `admin` role atomically.
 
-After creating/finding the auth user (both Create and Resend flows):
-- `upsert` into `auth_user_roles` with `{ user_id, role: 'admin' }` (unique on user_id+role).
-- On status change to `inactive` (handled in the edit flow): `delete` that role row so the employee can no longer enter `/admin`.
-- Change the email `loginUrl` from `/login?...` to `/admin/login?email=...&invite=1`.
-- Email copy stays the same Arabic welcome template.
-
-### 3. Edge function `admin-delete-employee`
-
-- Also delete the matching `auth_user_roles` row for that user (role = 'admin'). Optionally delete the auth user too (safer: just revoke the role and let the auth account sit dormant — confirm in implementation).
-
-### 4. `AppContext.tsx`
-
-- Expand the role-loading effect to fetch both `super_admin` and `admin` roles in one query and expose `isAdminEmployee` plus the existing `isSuperAdmin`. Add `isAnyAdmin = isSuperAdmin || isAdminEmployee`.
-- In the "no memberships" deletion guard, treat `isAnyAdmin` the same as super_admin (don't force sign-out — admin employees legitimately have no tenant).
-
-### 5. Routing — `RequireAuth.tsx` and `LoginPage.tsx`
-
-- `RequireAuth`: when `requireSuperAdmin` is on, accept either `super_admin` or `admin`. When a user with the `admin` role lands on `/dashboard*`, redirect to `/admin` (same behavior as super_admin today).
-- `LoginPage` post-auth redirect: if `isAnyAdmin`, navigate to `/admin`; otherwise `/dashboard` as today.
-- `AdminLoginPage` post-auth check: after `signIn`, verify the user has `super_admin` OR `admin` role; if not, `signOut` and show "Not an admin account" error (prevents tenant employees from using the admin login page).
-
-### 6. Admin panel permission gating (light touch)
-
-- `AdminLayout` / admin route guards already exist for super_admin via `requireSuperAdmin`. Switch them to "requireAdminAccess" (super_admin OR admin).
-- Within the admin panel, fine-grained access for `admin` role is governed by `admin_team_members.permissions` — that gating already exists in the UI (via `RequirePermission` etc.) and is out of scope for this change.
-
-### 7. AdminTeam.tsx (UI)
-
-- `toggleStatus` already updates `admin_team_members.status`. Also call the edge function (or a new small one) so that flipping to `inactive` revokes the `auth_user_roles` admin row, and flipping back to `active` re-grants it. Keep the UX unchanged.
+6. **Verify**
+   - Send a fresh invite from `/admin/team`, confirm the email reads `fuqah.ai`, the button opens `/admin/login`, login lands on `/admin`, and the account has no tenant membership and no personal workspace.
 
 ## Technical notes
-
-- `auth_user_roles` schema: confirm whether `role` is a Postgres enum (`app_role`) or text. If enum, `ALTER TYPE app_role ADD VALUE 'admin'` in its own migration (cannot run inside a transaction with other DDL, so submit as a single statement migration first, then a second migration for grants/policies if needed).
-- Keep `super_admin` reserved for Fuqah founders; `admin` is for staff invited from the Admin Team panel. Both unlock `/admin/*`.
-- Tenant-side flows (`team_members`, `invite-employee`) are untouched — clients' employees continue to be tenant-scoped and never get an `auth_user_roles` row.
-- Existing admin employees already created before this fix will need a one-off backfill: `INSERT INTO auth_user_roles(user_id, role) SELECT u.id, 'admin' FROM auth.users u JOIN admin_team_members m ON lower(u.email)=lower(m.email) WHERE m.status='active' ON CONFLICT DO NOTHING;` — included in the migration.
-
-## Out of scope
-
-- Per-permission enforcement inside the admin panel (already handled by existing `RequirePermission` / permission tree).
-- Changes to the tenant invite flow (`invite-employee`, `team_members`).
+- Files touched: `supabase/functions/admin-invite-employee/index.ts`, `supabase/functions/invite-employee/index.ts`, `src/app/components/admin/AdminTeam.tsx`, one DB migration for `admin_kpis`, one data cleanup for the existing account.
+- No schema changes — `auth_user_roles.admin` already exists from the previous round.
