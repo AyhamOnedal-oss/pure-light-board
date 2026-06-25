@@ -213,10 +213,12 @@ Deno.serve(async (req) => {
       const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(row.email)}&invite=1`;
       // Ensure the admin role is granted (in case it was missing or revoked).
       if (userId) {
-        await admin.from("auth_user_roles").upsert(
+        const { error: roleErr } = await admin.from("auth_user_roles").upsert(
           { user_id: userId, role: "admin" },
           { onConflict: "user_id,role" },
         );
+        if (roleErr) return json({ error: "grant_role_failed", detail: roleErr.message }, 500);
+        await detachFromTenants(admin, userId);
       }
       const html = inviteEmailHtml({
         employeeName: row.name_ar || row.name || row.email,
@@ -302,10 +304,12 @@ Deno.serve(async (req) => {
 
     // Grant the 'admin' role so the new employee can access the admin panel.
     if (userId) {
-      await admin.from("auth_user_roles").upsert(
+      const { error: roleErr } = await admin.from("auth_user_roles").upsert(
         { user_id: userId, role: "admin" },
         { onConflict: "user_id,role" },
       );
+      if (roleErr) return json({ error: "grant_role_failed", detail: roleErr.message }, 500);
+      await detachFromTenants(admin, userId);
     }
 
     const now = new Date();
