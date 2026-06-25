@@ -103,9 +103,10 @@ export function AdminDashboard() {
   // Live data from Supabase (admin_dash_* tables). Falls back to the same
   // mock numbers shipped with the dashboard if Supabase is empty/unreachable.
   const [data, setData] = useState<AdminDashboardData>(ADMIN_DASHBOARD_MOCK);
+  const [dataLoaded, setDataLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetchAdminDashboard().then(d => { if (alive) setData(d); });
+    fetchAdminDashboard().then(d => { if (alive) { setData(d); setDataLoaded(true); } });
     return () => { alive = false; };
   }, []);
 
@@ -224,10 +225,11 @@ export function AdminDashboard() {
   // their sweep once on real values (no MOCK-flash count-down).
   const [chartsLoaded, setChartsLoaded] = useState(false);
   useEffect(() => {
+    if (!dataLoaded) return;
     setChartsLoaded(false);
     const id = requestAnimationFrame(() => setChartsLoaded(true));
     return () => cancelAnimationFrame(id);
-  }, [range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
+  }, [dataLoaded, range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
 
   // #3 Subscriptions by Platform  ← admin_dash_platform_subs
   const platformSubsData = useMemo(() => {
@@ -421,7 +423,9 @@ export function AdminDashboard() {
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('New Subscribers Over Time', 'المشتركون الجدد عبر الوقت')}</h3>
-          <ResponsiveContainer width="100%" height={140}>
+          <div style={{ height: 140 }}>
+          {chartsLoaded && (
+          <ResponsiveContainer width="100%" height="100%" key={`nsot-${newSubsOverTime.length}`}>
             <LineChart data={newSubsOverTime} margin={{ top: 10, right: 12, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
@@ -433,6 +437,8 @@ export function AdminDashboard() {
                 name={t('Salla', 'سلة')} isAnimationActive animationDuration={1500} animationBegin={300} />
             </LineChart>
           </ResponsiveContainer>
+          )}
+          </div>
           <div className="flex items-center justify-center gap-6 mt-2">
             <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Zid', 'زد')}</span></div>
             <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#22c55e]" /><span className="text-[11px]">{t('Salla', 'سلة')}</span></div>
@@ -444,7 +450,9 @@ export function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Words / Tokens Usage', 'استخدام الكلمات / التوكنز')}</h3>
-          <ResponsiveContainer width="100%" height={200}>
+          <div style={{ height: 200 }}>
+          {chartsLoaded && (
+          <ResponsiveContainer width="100%" height="100%" key={`words-${wordsData.length}`}>
             <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
@@ -453,6 +461,8 @@ export function AdminDashboard() {
               <Bar dataKey="words" fill="#043CC8" name={t('Words Used', 'الكلمات المستهلكة')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
             </BarChart>
           </ResponsiveContainer>
+          )}
+          </div>
           <div className="flex items-center justify-center gap-6 mt-2">
             <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Words Used', 'الكلمات المستهلكة')}</span></div>
           </div>
@@ -486,7 +496,9 @@ export function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className={cardClass}>
           <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Subscriptions by Platform', 'الاشتراكات حسب المنصة')}</h3>
-          <ResponsiveContainer width="100%" height={220}>
+          <div style={{ height: 220 }}>
+          {chartsLoaded && (
+          <ResponsiveContainer width="100%" height="100%" key={`plat-${platformSubsData.length}`}>
             <BarChart data={platformSubsData} barGap={6} barCategoryGap="35%" margin={{ left: 5, right: 10, top: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" axisLine={false} tickLine={false}
@@ -509,6 +521,8 @@ export function AdminDashboard() {
               <Bar dataKey="salla" fill="#22c55e" name={t('Salla', 'سلة')} radius={[4, 4, 0, 0]} barSize={24} isAnimationActive animationDuration={1200} animationBegin={200} />
             </BarChart>
           </ResponsiveContainer>
+          )}
+          </div>
           <div className="flex items-center justify-center gap-6 mt-2">
             <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Zid', 'زد')}</span></div>
             <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#22c55e]" /><span className="text-[11px]">{t('Salla', 'سلة')}</span></div>
