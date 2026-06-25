@@ -157,8 +157,17 @@ export function AdminTeam() {
     const next = cur.status === 'active' ? 'inactive' : 'active';
     setBusy(true);
     try {
-      const { error } = await supabase.from('admin_team_members').update({ status: next }).eq('id', id);
-      if (error) { showToast(t('Update failed', 'تعذر التحديث')); return; }
+      // Route through the edge function so granting/revoking the
+      // global 'admin' role stays in sync with the row's status.
+      const { data, error } = await supabase.functions.invoke('admin-invite-employee', {
+        body: {
+          member_id: id,
+          name: cur.name, name_ar: cur.nameAr,
+          email: cur.email, phone: cur.phone,
+          permissions: cur.permissions, status: next,
+        },
+      });
+      if (error || (data as any)?.error) { showToast(t('Update failed', 'تعذر التحديث')); return; }
       await reload();
       showToast(t('Status updated', 'تم تحديث الحالة'));
     } finally { setBusy(false); }
