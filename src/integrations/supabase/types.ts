@@ -756,6 +756,7 @@ export type Database = {
           phone: string | null
           status: Database["public"]["Enums"]["admin_team_status"]
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -767,6 +768,7 @@ export type Database = {
           phone?: string | null
           status?: Database["public"]["Enums"]["admin_team_status"]
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -778,6 +780,7 @@ export type Database = {
           phone?: string | null
           status?: Database["public"]["Enums"]["admin_team_status"]
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -2057,6 +2060,11 @@ export type Database = {
     }
     Functions: {
       admin_db_usage: { Args: never; Returns: Json }
+      admin_has_any_access: { Args: { _user_id: string }; Returns: boolean }
+      admin_has_permission: {
+        Args: { _key: string; _user_id: string }
+        Returns: boolean
+      }
       admin_kpis: { Args: { _from: string; _to: string }; Returns: Json }
       dashboard_metrics: {
         Args: { _from: string; _tenant: string; _to: string }
