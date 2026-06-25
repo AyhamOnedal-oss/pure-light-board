@@ -453,89 +453,18 @@ export function AdminDashboard() {
       {/* #1 Words Usage + Current Customer Plans */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={cardClass}>
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <h3 className="text-[14px]" style={{ fontWeight: 600 }}>{t('Words / Tokens Usage', 'استخدام الكلمات / التوكنز')}</h3>
-              <p className={`text-[11px] ${textMuted}`}>
-                {tokensLoading
-                  ? t('Loading…', 'جارٍ التحميل…')
-                  : `${(tokens?.total_tokens ?? 0).toLocaleString()} ${t('tokens', 'توكن')} • $${(tokens?.total_cost_usd ?? 0).toFixed(2)}`}
-              </p>
-            </div>
-          </div>
-          {/* Monthly bar chart (restored) */}
-          <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 6, bottom: 0 }}>
+          <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Words / Tokens Usage', 'استخدام الكلمات / التوكنز')}</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
-              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={36} />
+              <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Bar dataKey="words" fill="#043CC8" name={t('Words Used', 'الكلمات المستهلكة')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
             </BarChart>
           </ResponsiveContainer>
-          {/* Breakdown built on top of the chart */}
-          <div className="mt-3 pt-3 border-t border-border space-y-2.5">
-            <div className="flex items-center justify-between">
-              <p className={`text-[11px] ${textMuted}`} style={{ fontWeight: 600 }}>
-                {t('Breakdown for selected range', 'التفصيل للفترة المحددة')}
-              </p>
-              {!tokensLoading && tokenPieData.length > 0 && chartsLoaded && (
-                <div style={{ width: 56, height: 56 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={tokenPieData} cx="50%" cy="50%" innerRadius={14} outerRadius={26} paddingAngle={2} dataKey="value" strokeWidth={0}
-                        isAnimationActive animationDuration={1200}>
-                        {tokenPieData.map((e, i) => <Cell key={`tk-${i}`} fill={e.color} />)}
-                      </Pie>
-                      <Tooltip content={<ChartTooltip theme={theme} />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-            {tokensLoading && (
-              <p className={`text-[12px] ${textMuted} py-2 text-center`}>{t('Loading token usage…', 'جارٍ تحميل استهلاك التوكنز…')}</p>
-            )}
-            {!tokensLoading && (tokens?.buckets ?? []).map((b, i) => {
-              const color = TOKEN_COLORS[b.key];
-              const pct = (tokens?.total_tokens ?? 0) > 0 && b.available
-                ? Math.round((b.tokens / (tokens!.total_tokens)) * 100)
-                : 0;
-              return (
-                <div key={`tkb-${i}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
-                      <span className="text-[12px] truncate" style={{ fontWeight: 500 }}>{tokenBucketLabel(b.key)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {b.available ? (
-                        <>
-                          <span className="text-[12px]" style={{ fontWeight: 600 }}>{b.tokens.toLocaleString()}</span>
-                          <span className={`text-[10px] ${textMuted}`}>({pct}%)</span>
-                          <span className={`text-[10px] ${textMuted}`}>${b.cost_usd.toFixed(2)}</span>
-                        </>
-                      ) : (
-                        <span className={`text-[10px] ${textMuted}`}>—</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
-                  </div>
-                </div>
-              );
-            })}
-            {!tokensLoading && tokens && !tokens.n8n_available && (
-              <p className={`text-[10px] ${textMuted}`}>
-                {t('Chat AI unavailable: configure N8N_TOKEN_STATS_URL.', 'ردود الذكاء غير متوفرة: قم بضبط N8N_TOKEN_STATS_URL.')}
-              </p>
-            )}
-            {!tokensLoading && tokens && !tokens.openai_available && (
-              <p className={`text-[10px] ${textMuted}`}>
-                {t('OpenAI breakdown unavailable: configure OPENAI_ADMIN_KEY.', 'تفاصيل OpenAI غير متوفرة: قم بضبط OPENAI_ADMIN_KEY.')}
-              </p>
-            )}
+          <div className="flex items-center justify-center gap-6 mt-2">
+            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Words Used', 'الكلمات المستهلكة')}</span></div>
           </div>
         </motion.div>
 
