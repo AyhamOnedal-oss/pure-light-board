@@ -29,8 +29,26 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const member_id = String(body?.member_id ?? "").trim();
     if (!member_id) return json({ error: "invalid_input" }, 400);
+    // Look up email before deletion so we can revoke the admin role too.
+    const { data: row } = await admin
+      .from("admin_team_members").select("email").eq("id", member_id).maybeSingle();
     const { error } = await admin.from("admin_team_members").delete().eq("id", member_id);
     if (error) return json({ error: "delete_failed", detail: error.message }, 500);
+    if (row?.email) {
+      const lookup = await fetch(
+        `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
+        { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
+      );
+      if (lookup.ok) {
+        const j = await lookup.json();
+        const match = (j?.users ?? []).find((u: any) =>
+          (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
+        if (match?.id) {
+          await admin.from("auth_user_roles").delete()
+            .eq("user_id", match.id).eq("role", "admin");
+        }
+      }
+    }
     return json({ ok: true });
   } catch (e) {
     return json({ error: "internal", detail: String(e) }, 500);

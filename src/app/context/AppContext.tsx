@@ -42,6 +42,8 @@ interface AppContextType {
   tenantId: string | null;
   tenantLoading: boolean;
   isSuperAdmin: boolean;
+  isAdminEmployee: boolean;
+  isAnyAdmin: boolean;
   roleLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
@@ -73,6 +75,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [tenantLoading, setTenantLoading] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isAdminEmployee, setIsAdminEmployee] = useState(false);
   const [roleLoading, setRoleLoading] = useState(true);
 
   // Tracks whether the most recent sign-out was initiated by the user
@@ -144,7 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .from('auth_user_roles')
           .select('role')
           .eq('user_id', uid)
-          .eq('role', 'super_admin')
+          .in('role', ['super_admin', 'admin'])
           .maybeSingle();
         if (!roleRow) {
           await supabase.auth.signOut();
@@ -168,19 +171,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [session?.user?.id]);
 
-  // Resolve super_admin role for the current user
+  // Resolve admin roles (super_admin and admin-employee) for the current user
   useEffect(() => {
-    if (!session?.user) { setIsSuperAdmin(false); setRoleLoading(false); return; }
+    if (!session?.user) {
+      setIsSuperAdmin(false); setIsAdminEmployee(false); setRoleLoading(false); return;
+    }
     let cancelled = false;
     setRoleLoading(true);
     supabase
       .from('auth_user_roles')
       .select('role')
       .eq('user_id', session.user.id)
-      .eq('role', 'super_admin')
-      .maybeSingle()
+      .in('role', ['super_admin', 'admin'])
       .then(({ data }) => {
-        if (!cancelled) { setIsSuperAdmin(!!data); setRoleLoading(false); }
+        if (cancelled) return;
+        const roles = (data ?? []).map((r: any) => r.role);
+        setIsSuperAdmin(roles.includes('super_admin'));
+        setIsAdminEmployee(roles.includes('admin'));
+        setRoleLoading(false);
       });
     return () => { cancelled = true; };
   }, [session?.user?.id]);
