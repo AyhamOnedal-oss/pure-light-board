@@ -1,42 +1,39 @@
-## What "% usage" means here
 
-Per Supabase Pro pricing, each project ships with **8 GB of provisioned disk included** ($0.125/GB beyond). The actionable headline is therefore:
+## Correction
 
+Got it — the notification lives **inside the ticket's Notes drawer** (the red `1` on the "ملاحظات" button). I misread it as the bell. Fully reverting the DB work and fixing the badge only.
+
+## 1. Roll back the database changes I made
+
+Single migration:
+
+```sql
+DROP TRIGGER IF EXISTS trg_notify_ticket_status_event ON public.tickets_activities;
+DROP FUNCTION IF EXISTS public.notify_ticket_status_event();
 ```
-percent = pg_database_size(current_database()) / (8 * 1024^3) * 100
-```
 
-`pg_database_size` is the real data size reported by Postgres (same number shown on the Supabase Database Reports page). Disk size (which includes WAL + bloat) isn't queryable from SQL — only Supabase's Management API exposes it — so we use database size as the proxy, capped at 100%.
+Also restore `public.admin_kpis` to its previous version (counting non-admin auth users) so the Total Customers KPI returns to what it was before. Enum values `ticket_opened` / `ticket_closed` stay (Postgres can't drop enum values without rebuilding the type) — they're unused and harmless.
 
-Hostinger / Resend / OpenAI stay as their current seeded `usage_percent` values until you decide on a metric for each.
+No `app_notifications` rows were inserted by the trigger yet (you only tested open/close after the fact), so nothing to clean up there. If any did slip in, the migration will also `DELETE FROM public.app_notifications WHERE kind IN ('ticket_opened','ticket_closed')`.
 
-## Changes
+## 2. Fix the ticket Notes badge — frontend only
 
-### 1. Migration — new SECURITY DEFINER RPC
+**File:** `src/app/components/TicketsPage.tsx`, function `unreadCount(tk)`
 
-`public.admin_db_usage()` returns:
-```json
-{ "bytes": 12345678, "included_bytes": 8589934592, "percent": 0.14 }
-```
-- Guards with `public.has_role(auth.uid(), 'super_admin')` (same pattern as `admin_kpis`).
-- `included_bytes` hard-coded to `8 * 1024^3` (Pro plan included disk).
-- `percent` rounded to 2 decimals, capped at 100.
-- `GRANT EXECUTE … TO authenticated` (the role check inside enforces super-admin only).
+Today: `ticketUnread = lastStatusAt > seen ? 1 : 0` — caps at 1.
 
-### 2. `src/app/services/adminDashboard.ts`
+Change: count **every** `tk.activities` entry where `type === 'status'` and `status ∈ {open, closed, created, resolved, in_progress}` and `timestamp > seen`. Add that to the existing note count. Result: open → close → open shows `3`; open → close → open → close → open shows `5`.
 
-Add `fetchSupabaseUsage()` that calls `supabase.rpc('admin_db_usage')` and returns `{ bytes, percent } | null` (null on error so the UI falls back to the seeded value).
+**File:** `src/app/components/Layout.tsx` — sidebar Tickets badge
 
-### 3. `src/app/components/admin/AdminDashboard.tsx`
+Mirror the same logic: sum every status row newer than the ticket's `seen` timestamp instead of `+1` per ticket. Notes loop stays unchanged.
 
-- Add `useState<{ bytes:number; percent:number } | null>` for live Supabase usage; fetch in the existing dashboard `useEffect`.
-- In the `serverUsage` memo, when `s.name === 'Supabase'` and live value exists, override `usage` with the live percent and append a tooltip like `"1.2 GB / 8 GB"` (shown via a `title` attr on the bar row).
-- All other rows unchanged.
+## Acknowledge rule (unchanged)
 
-## Out of scope (call out)
+Opening the Notes drawer sets `notifKeys.ticketNotesSeen = now`, clearing the badge. Selecting the ticket does **not** clear it. Same as today.
 
-- Hostinger live metric — needs a VPS agent or Hostinger API token; not part of this change.
-- Resend live metric — needs Resend API + monthly cap config.
-- OpenAI live metric — needs OpenAI usage API + monthly budget config.
+## Out of scope
 
-Pick any of these later and I'll wire them the same way.
+- No DB schema changes for the badge logic — uses existing `tickets_activities` rows.
+- Admin panel untouched.
+- Bell dropdown untouched.
