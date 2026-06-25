@@ -19,6 +19,9 @@ import {
   fetchServerHealth,
   type AdminKpis,
   type HealthCheck,
+  fetchTokenBreakdown,
+  type TokenBreakdown,
+  type TokenBucketKey,
 } from '../../services/adminDashboard';
 
 const dateFilters = [
@@ -113,9 +116,29 @@ export function AdminDashboard() {
 
   // ---- Live KPI numbers from admin_kpis() ----
   const [liveKpis, setLiveKpis] = useState<AdminKpis | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(true);
   useEffect(() => {
     let alive = true;
-    fetchAdminKpis(range.from, range.to).then(k => { if (alive) setLiveKpis(k); });
+    setKpisLoading(true);
+    fetchAdminKpis(range.from, range.to).then(k => {
+      if (!alive) return;
+      setLiveKpis(k);
+      setKpisLoading(false);
+    });
+    return () => { alive = false; };
+  }, [range.from, range.to]);
+
+  // ---- Live token breakdown (n8n + OpenAI) ----
+  const [tokens, setTokens] = useState<TokenBreakdown | null>(null);
+  const [tokensLoading, setTokensLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    setTokensLoading(true);
+    fetchTokenBreakdown(range.from, range.to).then(b => {
+      if (!alive) return;
+      setTokens(b);
+      setTokensLoading(false);
+    });
     return () => { alive = false; };
   }, [range.from, range.to]);
 
@@ -124,12 +147,12 @@ export function AdminDashboard() {
 
   // KPI cards ← admin_kpis() (with mock fallback for inactive_customers)
   const kpis = useMemo(() => {
-    const totalCustomers = liveKpis?.total_customers ?? data.kpi.total_customers;
-    const inactiveCustomers = data.kpi.inactive_customers; // mock per spec
+    const totalCustomers = liveKpis?.total_customers ?? 0;
+    const inactiveCustomers = liveKpis ? 0 : 0; // shown as "—" until real metric exists
     const activeCustomers = Math.max(0, totalCustomers - inactiveCustomers);
-    const uninstalls = liveKpis?.total_uninstalls ?? data.kpi.total_uninstalls;
-    const clicks = liveKpis?.total_bubble_clicks ?? data.kpi.total_bubble_clicks;
-    const avg = liveKpis?.avg_response_seconds ?? data.kpi.avg_response_seconds;
+    const uninstalls = liveKpis?.total_uninstalls ?? 0;
+    const clicks = liveKpis?.total_bubble_clicks ?? 0;
+    const avg = liveKpis?.avg_response_seconds ?? 0;
 
     const pct = (curr: number, prev: number): { change: number | null; up: boolean } => {
       if (!liveKpis?.has_range) return { change: null, up: true };
@@ -166,11 +189,31 @@ export function AdminDashboard() {
     business:     t('Business', 'أعمال'),
   }[p]);
 
-  // #1 Words Usage  ← admin_dash_words_monthly
-  const wordsData = useMemo(() => {
-    const byMonth = new Map(data.wordsMonthly.map(w => [w.month, w.words]));
-    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
-  }, [data.wordsMonthly, language]);
+  // Token breakdown bucket labels + colors for the new card
+  const tokenBucketLabel = (k: TokenBucketKey): string => ({
+    chat_replies:                t('Chat AI (n8n)', 'ردود الذكاء (n8n)'),
+    vision:                      t('Vision / Images', 'الرؤية / الصور'),
+    user_intent:                 t('User Intent', 'نية المستخدم'),
+    reply_intent:                t('Reply Intent', 'نية الرد'),
+    conversation_classification: t('Conversation Classification', 'تصنيف المحادثات'),
+    ticket_classification:       t('Ticket Classification', 'تصنيف التذاكر'),
+    openai:                      t('OpenAI (other)', 'OpenAI (أخرى)'),
+  }[k]);
+  const TOKEN_COLORS: Record<TokenBucketKey, string> = {
+    chat_replies: '#043CC8',
+    vision: '#8b5cf6',
+    user_intent: '#22c55e',
+    reply_intent: '#0ea5e9',
+    conversation_classification: '#f97316',
+    ticket_classification: '#ec4899',
+    openai: '#94a3b8',
+  };
+  const tokenPieData = useMemo(() => {
+    if (!tokens) return [];
+    return tokens.buckets
+      .filter(b => b.available && b.tokens > 0)
+      .map(b => ({ name: tokenBucketLabel(b.key), value: b.tokens, color: TOKEN_COLORS[b.key] }));
+  }, [tokens, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
@@ -180,6 +223,15 @@ export function AdminDashboard() {
       return { name: planLabel(plan), value: row?.subscribers ?? 0, color: PLAN_COLORS[plan] };
     });
   }, [data.planDistribution, language]);
+
+  // Gate animated donuts so they mount fresh after data resolves and play
+  // their sweep once on real values (no MOCK-flash count-down).
+  const [chartsLoaded, setChartsLoaded] = useState(false);
+  useEffect(() => {
+    setChartsLoaded(false);
+    const id = requestAnimationFrame(() => setChartsLoaded(true));
+    return () => cancelAnimationFrame(id);
+  }, [range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
 
   // #3 Subscriptions by Platform  ← admin_dash_platform_subs
   const platformSubsData = useMemo(() => {
