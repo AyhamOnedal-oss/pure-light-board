@@ -2138,7 +2138,7 @@ export type Database = {
         | "admin_message"
         | "ticket_opened"
         | "ticket_closed"
-      app_role: "super_admin" | "support"
+      app_role: "super_admin" | "support" | "admin"
       channel_kind:
         | "whatsapp"
         | "instagram"
@@ -2329,7 +2329,7 @@ export const Constants = {
         "ticket_opened",
         "ticket_closed",
       ],
-      app_role: ["super_admin", "support"],
+      app_role: ["super_admin", "support", "admin"],
       channel_kind: [
         "whatsapp",
         "instagram",
