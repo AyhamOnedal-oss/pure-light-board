@@ -19,9 +19,6 @@ import {
   fetchServerHealth,
   type AdminKpis,
   type HealthCheck,
-  fetchTokenBreakdown,
-  type TokenBreakdown,
-  type TokenBucketKey,
 } from '../../services/adminDashboard';
 
 const dateFilters = [
@@ -128,19 +125,6 @@ export function AdminDashboard() {
     return () => { alive = false; };
   }, [range.from, range.to]);
 
-  // ---- Live token breakdown (n8n + OpenAI) ----
-  const [tokens, setTokens] = useState<TokenBreakdown | null>(null);
-  const [tokensLoading, setTokensLoading] = useState(true);
-  useEffect(() => {
-    let alive = true;
-    setTokensLoading(true);
-    fetchTokenBreakdown(range.from, range.to).then(b => {
-      if (!alive) return;
-      setTokens(b);
-      setTokensLoading(false);
-    });
-    return () => { alive = false; };
-  }, [range.from, range.to]);
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -188,32 +172,6 @@ export function AdminDashboard() {
     professional: t('Professional', 'احترافي'),
     business:     t('Business', 'أعمال'),
   }[p]);
-
-  // Token breakdown bucket labels + colors for the new card
-  const tokenBucketLabel = (k: TokenBucketKey): string => ({
-    chat_replies:                t('Chat AI (n8n)', 'ردود الذكاء (n8n)'),
-    vision:                      t('Vision / Images', 'الرؤية / الصور'),
-    user_intent:                 t('User Intent', 'نية المستخدم'),
-    reply_intent:                t('Reply Intent', 'نية الرد'),
-    conversation_classification: t('Conversation Classification', 'تصنيف المحادثات'),
-    ticket_classification:       t('Ticket Classification', 'تصنيف التذاكر'),
-    openai:                      t('OpenAI (other)', 'OpenAI (أخرى)'),
-  }[k]);
-  const TOKEN_COLORS: Record<TokenBucketKey, string> = {
-    chat_replies: '#043CC8',
-    vision: '#8b5cf6',
-    user_intent: '#22c55e',
-    reply_intent: '#0ea5e9',
-    conversation_classification: '#f97316',
-    ticket_classification: '#ec4899',
-    openai: '#94a3b8',
-  };
-  const tokenPieData = useMemo(() => {
-    if (!tokens) return [];
-    return tokens.buckets
-      .filter(b => b.available && b.tokens > 0)
-      .map(b => ({ name: tokenBucketLabel(b.key), value: b.tokens, color: TOKEN_COLORS[b.key] }));
-  }, [tokens, language]);
 
   // #1 Words/Tokens monthly bars  ← admin_dash_words_monthly (kept)
   const wordsData = useMemo(() => {
