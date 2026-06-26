@@ -29,6 +29,7 @@ import { AdAutomationPage } from './components/admin/AdAutomationPage';
 import { AdAutomationDetailPage } from './components/admin/AdAutomationDetailPage';
 import { AdminPipelinePage } from './components/admin/AdminPipelinePage';
 import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailPage';
+import { AdminLandingLeadDetailPage } from './components/admin/AdminLandingLeadDetailPage';
 import { RequireAdminPermission } from './components/admin/RequireAdminPermission';
 import { WidgetChatPage } from './components/WidgetChatPage';
 
@@ -119,6 +120,7 @@ export const router = createBrowserRouter([
       { path: 'invoices/:type', element: <RequireAdminPermission perm={['billing_subscriptions','billing_servers','billing_other']}><AdminInvoices /></RequireAdminPermission> },
       { path: 'team', element: <RequireAdminPermission perm="team_management"><AdminTeam /></RequireAdminPermission> },
       { path: 'pipeline', element: <RequireAdminPermission perm="pipeline"><AdminPipelinePage /></RequireAdminPermission> },
+      { path: 'pipeline/landing/:id', element: <RequireAdminPermission perm="pipeline"><AdminLandingLeadDetailPage /></RequireAdminPermission> },
       { path: 'pipeline/:id', element: <RequireAdminPermission perm="pipeline"><AdminPipelineDetailPage /></RequireAdminPermission> },
       { path: 'ad-automation', element: <RequireAdminPermission perm="ad_automation"><AdAutomationPage /></RequireAdminPermission> },
       { path: 'ad-automation/:platformRowId', element: <RequireAdminPermission perm="ad_automation"><AdAutomationDetailPage /></RequireAdminPermission> },

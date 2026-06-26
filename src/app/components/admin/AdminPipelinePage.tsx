@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import {
   Users, MoreHorizontal, Trash2, X, ChevronRight, Search, Check, CheckCheck, Dot,
   Eye, Mail, Phone, AlertCircle, UserPlus, Filter, Sparkles, BellRing, StickyNote,
-  Settings as SettingsIcon, UserCheck, Ban, XCircle,
+  Settings as SettingsIcon, UserCheck, Ban, XCircle, Globe,
 } from 'lucide-react';
 import {
   PipelineCustomer, LeadStatus, LeadSource, TeamMember, AssignmentMode, PipelineSettings,
@@ -31,6 +31,7 @@ const ALL_SOURCES: LeadSource[] = ['tiktok','facebook','instagram','snapchat','g
 export function AdminPipelinePage() {
   const { t, language, dir, showToast } = useApp();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'landing'>('pipeline');
   const [customers, setCustomers] = useState<PipelineCustomer[]>(() => reconcileCustomers(loadCustomers()));
   const [query, setQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<LeadStatus | 'all'>('all');
@@ -297,17 +298,42 @@ export function AdminPipelinePage() {
               {t('Assignment Rules', 'قواعد التكليف')}
             </button>
           )}
-          <button
+          {activeTab === 'pipeline' && <button
             onClick={() => setShowAddCustomer(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-[13px] bg-[#043CC8] hover:bg-[#0330a0] transition-colors active:scale-[0.98] shadow-lg shadow-[#043CC8]/20"
             style={{ fontWeight: 600 }}
           >
             <UserPlus className="w-4 h-4" />
             {t('Add Customer', 'إضافة عميل')}
-          </button>
+          </button>}
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-border">
+        {[
+          { key: 'pipeline' as const, icon: Users, label: t('Customer Pipeline', 'سير العملاء') },
+          { key: 'landing'  as const, icon: Globe, label: t('Landing Page', 'صفحة الهبوط') },
+        ].map(tab => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 text-[13px] -mb-px border-b-2 transition-colors ${
+                active ? 'border-[#043CC8] text-[#043CC8]' : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+              style={{ fontWeight: active ? 700 : 500 }}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'pipeline' && (<>
       {/* Stat cards */}
       <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2">
         {statCards.map(s => (
@@ -717,7 +743,11 @@ export function AdminPipelinePage() {
       </div>
 
       {/* Landing Page Leads */}
-      <LandingLeadsTable onCopyToPipeline={addCustomer} />
+      </>)}
+
+      {activeTab === 'landing' && (
+        <LandingLeadsTable onCopyToPipeline={(data) => { const id = addCustomer(data); setActiveTab('pipeline'); return id; }} />
+      )}
 
       {/* Add customer modal */}
       {showAddCustomer && (
