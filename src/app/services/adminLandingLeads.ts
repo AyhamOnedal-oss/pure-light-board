@@ -24,6 +24,7 @@ export interface LandingLead {
   contact_time: LandingContactTime;
   source: LandingSource | null;
   subject: string | null;
+  description: string | null;
   match_status: LandingMatch;
   matched_tenant_id: string | null;
   copied_to_pipeline_at: string | null;

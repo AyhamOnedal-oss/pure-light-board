@@ -679,6 +679,7 @@ export type Database = {
           copied_to_pipeline_at: string | null
           created_at: string
           customer_type: string
+          description: string | null
           email: string
           id: string
           ip_address: string | null
@@ -698,6 +699,7 @@ export type Database = {
           copied_to_pipeline_at?: string | null
           created_at?: string
           customer_type: string
+          description?: string | null
           email: string
           id?: string
           ip_address?: string | null
@@ -717,6 +719,7 @@ export type Database = {
           copied_to_pipeline_at?: string | null
           created_at?: string
           customer_type?: string
+          description?: string | null
           email?: string
           id?: string
           ip_address?: string | null
