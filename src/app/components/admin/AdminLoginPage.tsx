@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router';
 import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 import { normalizeEmail, normalizePassword } from '../../utils/authInput';
+import { firstAllowedAdminPath, ADMIN_ALL_PERM_KEYS, type AdminPermKey } from '../../utils/adminPermissions';
 
 export function AdminLoginPage() {
   const { t, theme, setTheme, language, setLanguage, signIn, signOut } = useApp();
@@ -54,8 +55,35 @@ export function AdminLoginPage() {
       setErrors({ general: t('This account is not authorized for the admin panel', 'هذا الحساب غير مصرّح له بالدخول إلى لوحة الأدمن') });
       return;
     }
+    // Compute the staff member's permission set so we can land them on a
+    // page they actually have access to.
+    const roleList = (roles ?? []).map((r: any) => r.role);
+    let perms: AdminPermKey[] = [];
+    if (roleList.includes('super_admin')) {
+      perms = [...ADMIN_ALL_PERM_KEYS];
+    } else {
+      let row: any = null;
+      const { data: byId } = await supabase
+        .from('admin_team_members')
+        .select('permissions, status')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      row = byId;
+      if (!row && user.email) {
+        const { data: byEmail } = await supabase
+          .from('admin_team_members')
+          .select('permissions, status')
+          .ilike('email', user.email)
+          .maybeSingle();
+        row = byEmail;
+      }
+      if (row && row.status === 'active' && Array.isArray(row.permissions)) {
+        perms = row.permissions as AdminPermKey[];
+      }
+    }
+    const can = (k: AdminPermKey) => roleList.includes('super_admin') || perms.includes(k);
     setLoading(false);
-    navigate('/admin', { replace: true });
+    navigate(firstAllowedAdminPath(can), { replace: true });
   };
 
   const inputClass = "w-full px-4 py-3 rounded-xl bg-input-background border border-border focus:border-[#043CC8] focus:ring-2 focus:ring-[#043CC8]/20 outline-none transition-all text-[14px] text-foreground";
