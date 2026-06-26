@@ -6,6 +6,7 @@ import { Eye, EyeOff, Globe, Moon, Sun, ArrowLeft, ArrowRight, CheckCircle2, Ale
 import logoDark from '../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../imports/FUQAH-AI-Logo-02@2x.png';
 import { normalizeEmail, normalizePassword } from '../utils/authInput';
+import { firstAllowedAdminPath } from '../utils/adminPermissions';
 
 function ResendResetLink({
   email,
