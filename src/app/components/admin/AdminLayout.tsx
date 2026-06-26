@@ -84,6 +84,7 @@ export function AdminLayout() {
 
   const customersItems = [
     { to: '/admin/pipeline',  label: t('Customer Pipeline', 'سير العملاء'), icon: GitBranch, showBadge: true,  perm: 'pipeline' as const },
+    { to: '/admin/pipeline/landing', label: t('Landing Page', 'صفحة الهبوط'), icon: Globe, showBadge: false, perm: 'pipeline' as const, exact: true },
     { to: '/admin/customers', label: t('Customers',         'العملاء'),     icon: Users,     showBadge: false, perm: 'customers' as const },
   ];
 
@@ -177,7 +178,7 @@ export function AdminLayout() {
                 );
               }
               return (
-              <NavLink key={item.to} to={item.to}
+              <NavLink key={item.to} to={item.to} end={item.to === '/admin/pipeline'}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2 rounded-xl transition-all text-[13px] ${
                     isActive ? 'bg-sidebar-accent text-[#043CC8]' : 'text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground'
