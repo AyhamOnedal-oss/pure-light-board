@@ -18,6 +18,7 @@ import {
   hasAnyUnseenFor, markUnreadBy, isForcedUnreadFor,
 } from './pipelineData';
 import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
+import { LandingLeadsTable } from './LandingLeadsTable';
 
 const ALL_STATUSES: LeadStatus[] = [
   'new_lead', 'contacted', 'not_interested',
@@ -136,7 +137,7 @@ export function AdminPipelinePage() {
     setDeleteId(null);
     showToast(t('Customer removed', 'تم حذف العميل'));
   };
-  const addCustomer = (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>) => {
+  const addCustomer = (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>): string => {
     const now = new Date().toISOString();
     // Round-robin auto-assignment
     let assignedMemberIds: string[] = [];
@@ -161,6 +162,7 @@ export function AdminPipelinePage() {
     showToast(assignName
       ? t(`Customer added — assigned to ${assignName}`, `تم إضافة العميل — مُكلّف لـ${assignName}`)
       : t('Customer added', 'تم إضافة العميل'));
+    return nu.id;
   };
 
   const toggleAssignment = (customerId: string, memberId: string) => {
@@ -713,6 +715,9 @@ export function AdminPipelinePage() {
           </div>
         )}
       </div>
+
+      {/* Landing Page Leads */}
+      <LandingLeadsTable onCopyToPipeline={addCustomer} />
 
       {/* Add customer modal */}
       {showAddCustomer && (
