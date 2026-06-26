@@ -716,6 +716,9 @@ export function AdminPipelinePage() {
         )}
       </div>
 
+      {/* Landing Page Leads */}
+      <LandingLeadsTable onCopyToPipeline={addCustomer} />
+
       {/* Add customer modal */}
       {showAddCustomer && (
         <AddCustomerModal onClose={() => setShowAddCustomer(false)} onSave={addCustomer} />
