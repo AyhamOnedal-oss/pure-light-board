@@ -73,32 +73,35 @@ export function AdminLayout() {
     }
   };
 
+  const notifyLocked = () => showToast(t('You do not have access to this section', 'ليس لديك صلاحية الوصول إلى هذا القسم'));
+  const lockedTitle = t('You do not have access to this section', 'ليس لديك صلاحية الوصول إلى هذا القسم');
+
   const navItems = [
     { to: '/admin', icon: LayoutDashboard, label: t('Admin Dashboard', 'لوحة تحكم الأدمن'), end: true, perm: 'admin_dashboard' as const },
     { to: '/admin/team', icon: UserCog, label: t('Team Management', 'إدارة الفريق'), perm: 'team_management' as const },
     { to: '/admin/ad-automation', icon: Megaphone, label: t('Ad Automation', 'أتمتة الإعلانات'), perm: 'ad_automation' as const },
-  ].filter(i => adminCan(i.perm));
+  ];
 
   const customersItems = [
     { to: '/admin/pipeline',  label: t('Customer Pipeline', 'سير العملاء'), icon: GitBranch, showBadge: true,  perm: 'pipeline' as const },
     { to: '/admin/customers', label: t('Customers',         'العملاء'),     icon: Users,     showBadge: false, perm: 'customers' as const },
-  ].filter(i => adminCan(i.perm));
+  ];
 
   const reportsItems = [
     { to: '/admin/reports/all',   label: t('All',   'الكل'),  perm: 'reports_all' as const },
     { to: '/admin/reports/zid',   label: t('Zid',   'زد'),    perm: 'reports_zid' as const },
     { to: '/admin/reports/salla', label: t('Salla', 'سلة'),   perm: 'reports_salla' as const },
-  ].filter(i => adminCan(i.perm));
+  ];
 
   const invoicesItems = [
     { to: '/admin/invoices/subscriptions', label: t('Subscription Payments', 'مدفوعات الاشتراكات'), perm: 'billing_subscriptions' as const },
     { to: '/admin/invoices/server',        label: t('Server Invoices',       'فواتير الخوادم'),      perm: 'billing_servers' as const },
     { to: '/admin/invoices/other',         label: t('Other Invoices',        'فواتير أخرى'),         perm: 'billing_other' as const },
-  ].filter(i => adminCan(i.perm));
+  ];
 
-  const showCustomersGroup = customersItems.length > 0;
-  const showReportsGroup   = reportsItems.length > 0;
-  const showInvoicesGroup  = invoicesItems.length > 0;
+  const customersAnyAllowed = customersItems.some(i => adminCan(i.perm));
+  const reportsAnyAllowed   = reportsItems.some(i => adminCan(i.perm));
+  const invoicesAnyAllowed  = invoicesItems.some(i => adminCan(i.perm));
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
