@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import {
   Users, MoreHorizontal, Trash2, X, ChevronRight, Search, Check, CheckCheck, Dot,
@@ -31,7 +31,13 @@ const ALL_SOURCES: LeadSource[] = ['tiktok','facebook','instagram','snapchat','g
 export function AdminPipelinePage() {
   const { t, language, dir, showToast } = useApp();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'landing'>('pipeline');
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'landing'>(
+    location.pathname.endsWith('/landing') ? 'landing' : 'pipeline'
+  );
+  useEffect(() => {
+    setActiveTab(location.pathname.endsWith('/landing') ? 'landing' : 'pipeline');
+  }, [location.pathname]);
   const [customers, setCustomers] = useState<PipelineCustomer[]>(() => reconcileCustomers(loadCustomers()));
   const [query, setQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<LeadStatus | 'all'>('all');
@@ -320,7 +326,10 @@ export function AdminPipelinePage() {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                navigate(tab.key === 'landing' ? '/admin/pipeline/landing' : '/admin/pipeline');
+              }}
               className={`inline-flex items-center gap-2 px-4 py-2.5 text-[13px] -mb-px border-b-2 transition-colors ${
                 active ? 'border-[#043CC8] text-[#043CC8]' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
