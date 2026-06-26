@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import {
-  Globe, MoreHorizontal, Trash2, Edit3, UserPlus, Loader2, Sun, Moon,
+  ChevronRight, MoreHorizontal, Trash2, Edit3, UserPlus, Loader2, Sun, Moon, Globe,
   CheckCircle2, AlertTriangle, XCircle, Info, RefreshCw, Search, Copy,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -70,6 +71,7 @@ export interface LandingLeadsTableProps {
 
 export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) {
   const { t, language, dir, showToast } = useApp();
+  const navigate = useNavigate();
   const [leads, setLeads] = useState<LandingLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,31 +134,31 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
 
   return (
     <div className="space-y-3">
-      {/* Header strip styled like the screenshot */}
-      <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap"
-          style={{ background: '#0f6b78', color: '#fff' }}>
-          <div className="inline-flex items-center gap-2">
-            <Globe className="w-4 h-4" />
-            <h2 className="text-[15px]" style={{ fontWeight: 700 }}>
-              {t('Landing Page Leads', 'صفحة الهبوط')}
-            </h2>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/15">{filtered.length}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 text-white/70 ${isRtl ? 'right-2' : 'left-2'}`} />
-              <input value={query} onChange={e => setQuery(e.target.value)}
-                placeholder={t('Search…', 'بحث…')}
-                className={`bg-white/10 border border-white/20 rounded-lg text-[12px] py-1.5 ${isRtl ? 'pr-7 pl-2' : 'pl-7 pr-2'} text-white placeholder:text-white/60 outline-none focus:bg-white/15 w-44`} />
-            </div>
-            <button onClick={onRefresh}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] border border-white/20"
-              style={{ fontWeight: 600 }}>
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              {t('Refresh', 'تحديث')}
-            </button>
-          </div>
+      {/* Toolbar matched to the pipeline page */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-[240px] relative">
+          <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input value={query} onChange={e => setQuery(e.target.value)}
+            placeholder={t('Search by name, email, phone, subject...', 'بحث بالاسم، الإيميل، الجوال، الموضوع...')}
+            className="w-full ps-10 pe-4 py-2.5 rounded-xl bg-input-background border border-border text-[14px] outline-none focus:border-[#043CC8] focus:ring-2 focus:ring-[#043CC8]/20 transition-all" />
+        </div>
+        <button onClick={onRefresh}
+          className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>
+          <RefreshCw className={`w-4 h-4 text-muted-foreground ${refreshing ? 'animate-spin' : ''}`} />
+          {t('Refresh', 'تحديث')}
+        </button>
+      </div>
+
+      {/* Monday-style table — matches Customer Pipeline */}
+      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3 border-b-[3px]" style={{ borderBottomColor: '#043CC8' }}>
+          <ChevronRight className="w-4 h-4 text-[#043CC8] rotate-90" />
+          <span className="text-[14px]" style={{ color: '#043CC8', fontWeight: 700 }}>
+            {t('Landing Page Leads', 'صفحة الهبوط')}
+          </span>
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground" style={{ fontWeight: 500 }}>
+            {filtered.length} / {leads.length}
+          </span>
         </div>
 
         <div className="overflow-x-auto">
@@ -175,9 +177,9 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
               </p>
             </div>
           ) : (
-            <table className="w-full text-[13px]">
-              <thead className="bg-muted/40 border-b border-border">
-                <tr>
+            <table className="w-full text-[13px]" style={{ minWidth: 1200 }}>
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
                   <Th align="center">#</Th>
                   <Th>{t('Name', 'الإسم')}</Th>
                   <Th>{t('Phone', 'رقم الجوال')}</Th>
@@ -192,36 +194,23 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
               </thead>
               <tbody>
                 {filtered.map((lead, idx) => {
-                  const isPartial = lead.match_status === 'partial';
+                  // Match is computed from email + phone ONLY (name is never used as identifier).
+                  // Color phone & email red when they fail to match.
                   const isNone = lead.match_status === 'none';
-                  const basicColor = isNone ? '#D43A56' : isPartial ? '#C6802B' : undefined;
+                  const isPartial = lead.match_status === 'partial';
+                  const mismatchColor = isNone ? '#D43A56' : isPartial ? '#C6802B' : undefined;
                   return (
-                    <tr key={lead.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                    <tr
+                      key={lead.id}
+                      onClick={() => navigate(`/admin/pipeline/landing/${lead.id}`)}
+                      className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                    >
                       <td className="px-4 py-3 text-center text-muted-foreground">{idx + 1}</td>
-                      <td className="px-4 py-3" style={{ color: basicColor, fontWeight: 600 }}>
-                        <div className="inline-flex items-center gap-2">
-                          {lead.source && mapSource(lead.source) && mapSource(lead.source) !== 'manual' && (
-                            <PlatformIcon platform={mapSource(lead.source) as any} size={14} />
-                          )}
-                          {lead.name}
-                          {lead.copied_to_pipeline_at && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-muted-foreground" style={{ fontWeight: 600 }}>
-                              {t('Copied', 'منقول')}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3" style={{ color: basicColor, fontWeight: 600, direction: 'ltr' }}>{lead.phone}</td>
-                      <td className="px-4 py-3" style={{ color: basicColor, fontWeight: 600 }}>{lead.email}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px]"
-                          style={{
-                            background: lead.customer_type === 'new' ? 'rgba(0,200,117,0.12)' : 'rgba(87,155,252,0.12)',
-                            color: lead.customer_type === 'new' ? '#00A65A' : '#2F7BE6',
-                            fontWeight: 700,
-                          }}>
-                          {lead.customer_type === 'new' ? t('New Lead', 'عميل جديد') : t('Existing', 'عميل حالي')}
-                        </span>
+                      <td className="px-4 py-3" style={{ fontWeight: 600 }}>{lead.name}</td>
+                      <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }}>{lead.phone}</td>
+                      <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600 }}>{lead.email}</td>
+                      <td className="px-4 py-3 text-center text-[13px]">
+                        {lead.customer_type === 'new' ? t('New Lead', 'عميل جديد') : t('Existing', 'عميل حالي')}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -235,15 +224,17 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                           ? <SourceCell source={lead.source} />
                           : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 max-w-[360px]">
                         {lead.customer_type === 'existing'
-                          ? <span className="text-[12.5px]">{lead.subject || <span className="text-muted-foreground">—</span>}</span>
+                          ? (lead.subject
+                              ? <p className="text-[12.5px] whitespace-pre-wrap leading-relaxed">{lead.subject}</p>
+                              : <span className="text-muted-foreground">—</span>)
                           : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <MatchPill status={lead.match_status} />
                       </td>
-                      <td className="px-4 py-3 text-center relative">
+                      <td className="px-4 py-3 text-center relative" onClick={e => e.stopPropagation()}>
                         <button
                           ref={el => { menuRefs.current[lead.id] = el; }}
                           onClick={() => setRowMenuFor(rowMenuFor === lead.id ? null : lead.id)}
@@ -295,8 +286,8 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
           <div>
             <p style={{ fontWeight: 700 }}>{t('Match status guide', 'دليل حالة المطابقة')}</p>
             <p className="text-muted-foreground mt-0.5">
-              {t('Basic data: name • phone • email • customer type',
-                 'البيانات الأساسية: الاسم • رقم الجوال • الإيميل • نوع العميل')}
+              {t('Identifiers used: phone • email (name is never used).',
+                 'المعرّفات المستخدمة: رقم الجوال • الإيميل (لا يُستخدم الاسم).')}
             </p>
           </div>
         </div>
