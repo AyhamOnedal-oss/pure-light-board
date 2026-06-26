@@ -45,6 +45,7 @@ Deno.serve(async (req) => {
   const subject = customer_type === 'existing'
     ? String(body?.subject ?? '').trim().slice(0, 500) || null
     : null;
+  const description = String(body?.description ?? '').trim().slice(0, 4000) || null;
 
   if (!name || name.length > 200) return bad('invalid_name');
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255) return bad('invalid_email');
@@ -62,7 +63,7 @@ Deno.serve(async (req) => {
   const { data, error } = await supabase
     .from('admin_landing_leads')
     .insert({
-      name, email, phone, customer_type, contact_time, source, subject,
+      name, email, phone, customer_type, contact_time, source, subject, description,
       ip_address: ip, user_agent: ua,
     })
     .select('id, match_status')
