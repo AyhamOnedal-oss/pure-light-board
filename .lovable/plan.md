@@ -1,29 +1,30 @@
+## Plan
 
-## Goal
+1. **Fix the real permission source**
+   - Add a secure self-read rule for `admin_team_members` so an admin staff member can read their own row by `user_id`.
+   - This fixes the current bug where `ayhamwork34@gmail.com` has permissions in the super-admin table, but the staff login cannot read its own permissions, so the app treats them as having none.
 
-Make the admin (Fuqah staff) experience match the merchant panel for restricted users:
+2. **Make permission checks match the super-admin assignment UI**
+   - Update the database helper so child permissions work correctly:
+     - `billing_subscriptions` grants access to subscription invoices data.
+     - `pipeline` grants access to the customer pipeline.
+     - `reports_zid` / `reports_salla` / `reports_all` grant reports data needed for those pages.
+     - `ad_automation_add/delete/sync` can open the automation section while still restricting buttons by their exact permission.
+   - Update RLS policies for admin dashboard/reports/invoices/ad automation tables so staff sees the same permitted data as super admin on allowed pages, not zero/fallback data.
 
-1. Always show every top-level item and every sub-item in the admin sidebar — never hide them.
-2. Items the staff member cannot access render dimmed, non-clickable, with the red "no-entry" circle icon and a tooltip, exactly like `Layout.tsx` does for merchant staff.
-3. After login on `/admin/login`, redirect the staff member to the first page they actually have permission to see, not a hard-coded `/admin` (which fails for staff without `admin_dashboard`).
+3. **Load staff permissions reliably in the frontend**
+   - Change `AppContext` to load admin staff permissions from the now-readable staff row, with a safe fallback if needed.
+   - Keep permission loading active until the row is resolved, preventing the sidebar from rendering everything as blocked for one account.
 
-## Changes
+4. **Fix route redirects**
+   - Ensure admin staff is sent to the first page they actually have permission for.
+   - Keep `/admin` accessible for `ayhamwork34@gmail.com` because the database confirms `admin_dashboard` is granted.
 
-### `src/app/components/admin/AdminLayout.tsx`
-- Stop filtering `navItems`, `customersItems`, `reportsItems`, `invoicesItems` by `adminCan`. Keep the full lists; compute `allowed = adminCan(item.perm)` per item.
-- For each item:
-  - When `allowed`: render the existing `NavLink`.
-  - When not `allowed`: render a `div` with `opacity-40 cursor-not-allowed`, a tooltip (`"You do not have access to this section" / "ليس لديك صلاحية الوصول إلى هذا القسم"`), an `onClick` that calls a `notifyLocked()` toast, and the red circle-with-slash icon (same markup used in `Layout.tsx`).
-- Always render the three collapsible groups (Customer Management, Reports, Invoices). The parent button stays clickable to toggle the submenu. If **every** child in a group is restricted, render the parent itself in the disabled "no-entry" style (no toggle).
-- Add a small `notifyLocked` helper inside the component using the existing `showToast` from `useApp()`.
+5. **Show all sidebar fields and subfields**
+   - Keep every admin menu item visible.
+   - Show allowed items as clickable.
+   - Show restricted parent and child items with the red “no access” sign instead of hiding subfields.
 
-### `src/app/components/admin/AdminLoginPage.tsx`
-- Import `firstAllowedAdminPath` from `src/app/utils/adminPermissions`.
-- After confirming the user has `super_admin` or `admin`, read the staff member's permissions row (super_admin → all permissions; admin → `admin_team_members.permissions` by `user_id`/email), build a `can` predicate, and `navigate(firstAllowedAdminPath(can), { replace: true })` instead of always `/admin`.
-
-### `src/app/components/LoginPage.tsx` (only the redirect after sign-in)
-- When the signed-in user has `super_admin`/`admin`, redirect through `firstAllowedAdminPath` (same helper) instead of `/dashboard` so an admin who lacks `admin_dashboard` doesn't bounce off the guard.
-
-## Out of scope
-- No DB / migration changes — `ayhamwork34@gmail.com` already has `admin_dashboard` plus the other granted keys; the routing/guards are already correct for him. The visible bug is purely the sidebar hiding items and the post-login fallback path.
-- No changes to `RequireAdminPermission` or `RequireAuth` — they already handle `isAnyAdmin` and per-permission gating.
+6. **Verify with the current staff row**
+   - Confirm `ayhamwork34@gmail.com` reads these permissions: `admin_dashboard`, `pipeline`, `billing_subscriptions`.
+   - Confirm the admin dashboard opens, pipeline opens, subscription invoices open, and restricted sections remain blocked with the no-access icon.
