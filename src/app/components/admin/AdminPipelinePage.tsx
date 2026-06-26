@@ -262,13 +262,13 @@ export function AdminPipelinePage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-2 text-[12px] text-muted-foreground mb-1.5">
-            <Users className="w-3.5 h-3.5" />
+            {activeTab === 'landing' ? <Globe className="w-3.5 h-3.5" /> : <Users className="w-3.5 h-3.5" />}
             <span>{t('Customer Management', 'إدارة العملاء')}</span>
             <ChevronRight className={`w-3 h-3 ${dir === 'rtl' ? 'rotate-180' : ''}`} />
-            <span>{t('Customer Pipeline', 'سير العملاء')}</span>
+            <span>{activeTab === 'landing' ? t('Landing Page', 'صفحة الهبوط') : t('Customer Pipeline', 'سير العملاء')}</span>
           </div>
           <h1 className="text-[24px] flex items-center gap-2 flex-wrap" style={{ fontWeight: 700 }}>
-            {t('Customer Pipeline', 'سير العملاء')}
+            {activeTab === 'landing' ? t('Landing Page', 'صفحة الهبوط') : t('Customer Pipeline', 'سير العملاء')}
             {headerCounts.newCount > 0 && (
               <span className="text-[10px] px-2 py-1 rounded-full bg-red-500 text-white inline-flex items-center gap-1 animate-pulse" style={{ fontWeight: 700 }}>
                 <Sparkles className="w-3 h-3" />
@@ -289,8 +289,11 @@ export function AdminPipelinePage() {
             )}
           </h1>
           <p className="text-muted-foreground text-[14px] mt-1">
-            {t('Leads from ad platforms + subscribers from Zid / Salla arrive here automatically.',
-               'يصل العملاء من المنصات الإعلانية والمشتركون من زد/سلة هنا تلقائياً.')}
+            {activeTab === 'landing'
+              ? t('Leads submitted via the landing page form arrive here.',
+                  'العملاء المحتملون من نموذج صفحة الهبوط يصلون هنا.')
+              : t('Leads from ad platforms + subscribers from Zid / Salla arrive here automatically.',
+                  'يصل العملاء من المنصات الإعلانية والمشتركون من زد/سلة هنا تلقائياً.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -315,32 +318,7 @@ export function AdminPipelinePage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-border">
-        {[
-          { key: 'pipeline' as const, icon: Users, label: t('Customer Pipeline', 'سير العملاء') },
-          { key: 'landing'  as const, icon: Globe, label: t('Landing Page', 'صفحة الهبوط') },
-        ].map(tab => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => {
-                setActiveTab(tab.key);
-                navigate(tab.key === 'landing' ? '/admin/pipeline/landing' : '/admin/pipeline');
-              }}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 text-[13px] -mb-px border-b-2 transition-colors ${
-                active ? 'border-[#043CC8] text-[#043CC8]' : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-              style={{ fontWeight: active ? 700 : 500 }}
-            >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Tabs removed — pages are navigated only from the sidebar */}
 
       {activeTab === 'pipeline' && (<>
       {/* Stat cards */}
