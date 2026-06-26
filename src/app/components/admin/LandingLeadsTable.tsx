@@ -209,7 +209,7 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                       <td className="px-4 py-3" style={{ fontWeight: 600 }}>{lead.name}</td>
                       <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }}>{lead.phone}</td>
                       <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600 }}>{lead.email}</td>
-                      <td className="px-4 py-3 text-center text-[13px]">
+                      <td className="px-4 py-3 text-center text-[13px]" style={{ color: mismatchColor, fontWeight: mismatchColor ? 600 : undefined }}>
                         {lead.customer_type === 'new' ? t('New Lead', 'عميل جديد') : t('Existing', 'عميل حالي')}
                       </td>
                       <td className="px-4 py-3 text-center">
