@@ -743,7 +743,11 @@ export function AdminPipelinePage() {
       </div>
 
       {/* Landing Page Leads */}
-      <LandingLeadsTable onCopyToPipeline={addCustomer} />
+      </>)}
+
+      {activeTab === 'landing' && (
+        <LandingLeadsTable onCopyToPipeline={(data) => { const id = addCustomer(data); setActiveTab('pipeline'); return id; }} />
+      )}
 
       {/* Add customer modal */}
       {showAddCustomer && (
