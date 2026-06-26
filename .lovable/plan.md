@@ -1,49 +1,29 @@
-Root cause to fix:
-- Internal Fuqah staff are currently identified with a broad `admin` role, but their saved `admin_team_members.permissions` are not used by the admin routes/sidebar/actions.
-- Most `admin_*` database policies and `admin_kpis()` still allow only `super_admin`, so admin employees can enter `/admin` but cannot read real stats/data, which causes empty/zero states.
-- Invite/edit/delete does repeated auth lookups by email and blocks on email sending, so staff actions feel slow.
 
-Plan:
-1. Add a real internal-staff identity link
-   - Add `user_id` to `admin_team_members` with indexes for `user_id`, `email`, and `status`.
-   - Keep roles separate: `super_admin` = owner (`admin@fuqah.ai`), `admin` = Fuqah internal employee, tenant employees remain only in tenant/team tables.
-   - Backfill/maintain `user_id` through the admin invite function whenever creating, editing, resending, or activating staff.
+## Goal
 
-2. Create admin-staff permission enforcement
-   - Add a database helper like `admin_has_permission(user_id, permission_key)`.
-   - It returns full access for `super_admin`, and checks active `admin_team_members.permissions` for internal `admin` employees.
-   - Update admin dashboard/stat policies and RPCs so staff with the right permission can read real data instead of zeros.
+Make the admin (Fuqah staff) experience match the merchant panel for restricted users:
 
-3. Wire admin permissions into the frontend
-   - Extend `AppContext` with `adminPermissions`, `adminPermissionsLoading`, and `adminCan(key)`.
-   - Super admin gets all permissions.
-   - Admin employees get only their saved `admin_team_members.permissions`.
-   - If an employee has no permission for `/admin`, route them to their first allowed admin page, not `/dashboard`.
+1. Always show every top-level item and every sub-item in the admin sidebar — never hide them.
+2. Items the staff member cannot access render dimmed, non-clickable, with the red "no-entry" circle icon and a tooltip, exactly like `Layout.tsx` does for merchant staff.
+3. After login on `/admin/login`, redirect the staff member to the first page they actually have permission to see, not a hard-coded `/admin` (which fails for staff without `admin_dashboard`).
 
-4. Gate the admin UI by permission
-   - Filter Admin sidebar items by permission:
-     - Dashboard → `admin_dashboard`
-     - Team Management → `team_management`
-     - Customer Pipeline/List → `pipeline`, `customers`
-     - Reports → `reports_*`
-     - Billing → `billing_*`
-     - Ad Automation → `ad_automation`
-   - Add action-level permissions for automation, e.g. `ad_automation_add`, `ad_automation_delete`, `ad_automation_sync`, so “Add Automation” is clickable only when granted.
-   - Hide/disable restricted buttons and protect direct URL access with an admin route guard.
+## Changes
 
-5. Fix zero stats for admin employees
-   - Allow real reads for dashboard/admin data only when the employee has the corresponding permission.
-   - Update `admin_kpis()` and `admin_db_usage()` to allow `super_admin` or staff with `admin_dashboard`.
-   - Remove misleading mock/zero fallback where it hides permission failures; show a proper restricted/no-access state instead.
+### `src/app/components/admin/AdminLayout.tsx`
+- Stop filtering `navItems`, `customersItems`, `reportsItems`, `invoicesItems` by `adminCan`. Keep the full lists; compute `allowed = adminCan(item.perm)` per item.
+- For each item:
+  - When `allowed`: render the existing `NavLink`.
+  - When not `allowed`: render a `div` with `opacity-40 cursor-not-allowed`, a tooltip (`"You do not have access to this section" / "ليس لديك صلاحية الوصول إلى هذا القسم"`), an `onClick` that calls a `notifyLocked()` toast, and the red circle-with-slash icon (same markup used in `Layout.tsx`).
+- Always render the three collapsible groups (Customer Management, Reports, Invoices). The parent button stays clickable to toggle the submenu. If **every** child in a group is restricted, render the parent itself in the disabled "no-entry" style (no toggle).
+- Add a small `notifyLocked` helper inside the component using the existing `showToast` from `useApp()`.
 
-6. Speed up invite/edit/delete/render
-   - Stop repeated auth-user lookup by email where `user_id` is already known.
-   - Make delete/status/edit use `user_id` directly for role revoke/grant.
-   - Do optimistic UI updates in `AdminTeam` and reload quietly afterward.
-   - Make email sending non-blocking after the account/role/team row succeeds, so the UI does not wait on Resend latency.
-   - Add proper loading states instead of mock fallbacks while the team list loads.
+### `src/app/components/admin/AdminLoginPage.tsx`
+- Import `firstAllowedAdminPath` from `src/app/utils/adminPermissions`.
+- After confirming the user has `super_admin` or `admin`, read the staff member's permissions row (super_admin → all permissions; admin → `admin_team_members.permissions` by `user_id`/email), build a `can` predicate, and `navigate(firstAllowedAdminPath(can), { replace: true })` instead of always `/admin`.
 
-7. Verify
-   - Test as super admin: full stats, full sidebar, full team actions.
-   - Test as restricted admin employee: `/admin` opens, real allowed stats/data show, restricted menu/actions are hidden/blocked, no `/dashboard` redirect.
-   - Test invite/add/delete performance and confirm the email link points to `fuqah.ai/admin/login`.
+### `src/app/components/LoginPage.tsx` (only the redirect after sign-in)
+- When the signed-in user has `super_admin`/`admin`, redirect through `firstAllowedAdminPath` (same helper) instead of `/dashboard` so an admin who lacks `admin_dashboard` doesn't bounce off the guard.
+
+## Out of scope
+- No DB / migration changes — `ayhamwork34@gmail.com` already has `admin_dashboard` plus the other granted keys; the routing/guards are already correct for him. The visible bug is purely the sidebar hiding items and the post-login fallback path.
+- No changes to `RequireAdminPermission` or `RequireAuth` — they already handle `isAnyAdmin` and per-permission gating.
