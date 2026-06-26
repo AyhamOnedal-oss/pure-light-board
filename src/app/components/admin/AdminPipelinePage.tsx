@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import {
   Users, MoreHorizontal, Trash2, X, ChevronRight, Search, Check, CheckCheck, Dot,
   Eye, Mail, Phone, AlertCircle, UserPlus, Filter, Sparkles, BellRing, StickyNote,
-  Settings as SettingsIcon, UserCheck, Ban, XCircle,
+  Settings as SettingsIcon, UserCheck, Ban, XCircle, Globe,
 } from 'lucide-react';
 import {
   PipelineCustomer, LeadStatus, LeadSource, TeamMember, AssignmentMode, PipelineSettings,
@@ -31,6 +31,7 @@ const ALL_SOURCES: LeadSource[] = ['tiktok','facebook','instagram','snapchat','g
 export function AdminPipelinePage() {
   const { t, language, dir, showToast } = useApp();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'landing'>('pipeline');
   const [customers, setCustomers] = useState<PipelineCustomer[]>(() => reconcileCustomers(loadCustomers()));
   const [query, setQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<LeadStatus | 'all'>('all');
