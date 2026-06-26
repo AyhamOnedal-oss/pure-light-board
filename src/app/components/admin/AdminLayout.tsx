@@ -114,8 +114,24 @@ export function AdminLayout() {
         </span>
       </div>
       <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
-        {navItems.map(item => (
-          <NavLink key={item.to} to={item.to} end={item.end}
+        {navItems.map(item => {
+          const allowed = adminCan(item.perm);
+          if (!allowed) {
+            return (
+              <div key={item.to}
+                onClick={notifyLocked}
+                title={lockedTitle}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+                <item.icon className="w-[18px] h-[18px]" />
+                <span style={{ fontWeight: 500 }}>{item.label}</span>
+                <span className="ms-auto w-[18px] h-[18px] rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+                  <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+                </span>
+              </div>
+            );
+          }
+          return (
+            <NavLink key={item.to} to={item.to} end={item.end}
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
                 isActive ? 'bg-[#043CC8] text-white shadow-lg shadow-[#043CC8]/20' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
@@ -123,10 +139,11 @@ export function AdminLayout() {
             <item.icon className="w-[18px] h-[18px]" />
             <span style={{ fontWeight: 500 }}>{item.label}</span>
           </NavLink>
-        ))}
+          );
+        })}
 
         {/* Customer Management (collapsible: Pipeline + Customers) */}
-        {showCustomersGroup && (
+        {customersAnyAllowed ? (
         <>
         <button onClick={() => setCustomersOpen(!customersOpen)}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
@@ -145,7 +162,21 @@ export function AdminLayout() {
         </button>
         {customersOpen && (
           <div className="space-y-0.5 ps-3 mt-1">
-            {customersItems.map(item => (
+            {customersItems.map(item => {
+              const allowed = adminCan(item.perm);
+              if (!allowed) {
+                return (
+                  <div key={item.to} onClick={notifyLocked} title={lockedTitle}
+                    className="flex items-center gap-3 px-4 py-2 rounded-xl text-[13px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+                    <item.icon className="w-4 h-4" />
+                    <span style={{ fontWeight: 500 }}>{item.label}</span>
+                    <span className="ms-auto w-4 h-4 rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+                      <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+                    </span>
+                  </div>
+                );
+              }
+              return (
               <NavLink key={item.to} to={item.to}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2 rounded-xl transition-all text-[13px] ${
@@ -159,14 +190,24 @@ export function AdminLayout() {
                   </span>
                 )}
               </NavLink>
-            ))}
+              );
+            })}
           </div>
         )}
         </>
+        ) : (
+          <div onClick={notifyLocked} title={lockedTitle}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+            <Users className="w-[18px] h-[18px]" />
+            <span style={{ fontWeight: 500 }}>{t('Customer Management', 'إدارة العملاء')}</span>
+            <span className="ms-auto w-[18px] h-[18px] rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+              <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+            </span>
+          </div>
         )}
 
         {/* Reports */}
-        {showReportsGroup && (
+        {reportsAnyAllowed ? (
         <>
         <button onClick={() => setReportsOpen(!reportsOpen)}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
@@ -180,7 +221,20 @@ export function AdminLayout() {
         </button>
         {reportsOpen && (
           <div className="space-y-0.5 ps-3 mt-1">
-            {reportsItems.map(item => (
+            {reportsItems.map(item => {
+              const allowed = adminCan(item.perm);
+              if (!allowed) {
+                return (
+                  <div key={item.to} onClick={notifyLocked} title={lockedTitle}
+                    className="flex items-center gap-3 px-4 py-2 rounded-xl text-[13px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+                    <span style={{ fontWeight: 500 }}>{item.label}</span>
+                    <span className="ms-auto w-4 h-4 rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+                      <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+                    </span>
+                  </div>
+                );
+              }
+              return (
               <NavLink key={item.to} to={item.to}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2 rounded-xl transition-all text-[13px] ${
@@ -188,14 +242,24 @@ export function AdminLayout() {
                   }`}>
                 <span style={{ fontWeight: 500 }}>{item.label}</span>
               </NavLink>
-            ))}
+              );
+            })}
           </div>
         )}
         </>
+        ) : (
+          <div onClick={notifyLocked} title={lockedTitle}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+            <FileText className="w-[18px] h-[18px]" />
+            <span style={{ fontWeight: 500 }}>{t('Reports', 'التقارير')}</span>
+            <span className="ms-auto w-[18px] h-[18px] rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+              <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+            </span>
+          </div>
         )}
 
         {/* Invoices */}
-        {showInvoicesGroup && (
+        {invoicesAnyAllowed ? (
         <>
         <button onClick={() => setInvoicesOpen(!invoicesOpen)}
           className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[14px] ${
@@ -209,7 +273,20 @@ export function AdminLayout() {
         </button>
         {invoicesOpen && (
           <div className="space-y-0.5 ps-3 mt-1">
-            {invoicesItems.map(item => (
+            {invoicesItems.map(item => {
+              const allowed = adminCan(item.perm);
+              if (!allowed) {
+                return (
+                  <div key={item.to} onClick={notifyLocked} title={lockedTitle}
+                    className="flex items-center gap-3 px-4 py-2 rounded-xl text-[13px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+                    <span style={{ fontWeight: 500 }}>{item.label}</span>
+                    <span className="ms-auto w-4 h-4 rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+                      <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+                    </span>
+                  </div>
+                );
+              }
+              return (
               <NavLink key={item.to} to={item.to}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2 rounded-xl transition-all text-[13px] ${
@@ -217,10 +294,20 @@ export function AdminLayout() {
                   }`}>
                 <span style={{ fontWeight: 500 }}>{item.label}</span>
               </NavLink>
-            ))}
+              );
+            })}
           </div>
         )}
         </>
+        ) : (
+          <div onClick={notifyLocked} title={lockedTitle}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] opacity-40 cursor-not-allowed select-none text-sidebar-foreground/50">
+            <Receipt className="w-[18px] h-[18px]" />
+            <span style={{ fontWeight: 500 }}>{t('Invoices & Payments', 'الفواتير والمدفوعات')}</span>
+            <span className="ms-auto w-[18px] h-[18px] rounded-full border-2 border-red-500 relative flex items-center justify-center" aria-hidden>
+              <span className="absolute inset-x-0 top-1/2 h-[2px] bg-red-500 rotate-45" />
+            </span>
+          </div>
         )}
       </nav>
 
