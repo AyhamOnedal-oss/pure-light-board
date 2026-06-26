@@ -59,7 +59,9 @@ function ResendResetLink({
 }
 
 export function LoginPage() {
-  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, isAnyAdmin, roleLoading, signOut } = useApp();
+  const { t, theme, setTheme, language, setLanguage, signIn, signUp, sendPasswordReset, session, authLoading, isSuperAdmin, isAnyAdmin, roleLoading, signOut, adminCan, adminPermissionsLoading } = useApp();
+  // Lazy import to keep this section local.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: string } };
   // Pre-fill email when arriving from Zid/Salla install flow.
@@ -142,10 +144,12 @@ export function LoginPage() {
     // request a password reset email.
     if (forgotParam || view === 'forgot') return;
     if (!authLoading && !roleLoading && session) {
+      // For admins, wait for permissions to load before computing landing path.
+      if (isAnyAdmin && adminPermissionsLoading) return;
       // Super admins always land on /admin, regardless of any prior `from` location
       // (which may point to /dashboard from an unauthenticated redirect).
       const dest = isAnyAdmin
-        ? '/admin'
+        ? firstAllowedAdminPath(adminCan)
         : (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//') && !redirectParam.startsWith('/admin')
             ? redirectParam
             : location.state?.from && !location.state.from.startsWith('/admin')
@@ -153,7 +157,7 @@ export function LoginPage() {
             : '/dashboard');
       navigate(dest, { replace: true });
     }
-  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, isAnyAdmin, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail, forgotParam, view]);
+  }, [authLoading, roleLoading, session, navigate, location.state, isSuperAdmin, isAnyAdmin, adminPermissionsLoading, adminCan, showInstallSuccess, isInviteLink, inviteSignedOut, prefillEmail, forgotParam, view]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
