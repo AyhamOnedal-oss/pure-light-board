@@ -685,6 +685,7 @@ export type Database = {
           match_status: string
           matched_tenant_id: string | null
           name: string
+          notes: Json
           phone: string
           pipeline_customer_id: string | null
           source: string | null
@@ -703,6 +704,7 @@ export type Database = {
           match_status?: string
           matched_tenant_id?: string | null
           name: string
+          notes?: Json
           phone: string
           pipeline_customer_id?: string | null
           source?: string | null
@@ -721,6 +723,7 @@ export type Database = {
           match_status?: string
           matched_tenant_id?: string | null
           name?: string
+          notes?: Json
           phone?: string
           pipeline_customer_id?: string | null
           source?: string | null
