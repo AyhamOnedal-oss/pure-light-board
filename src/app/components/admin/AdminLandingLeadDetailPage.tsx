@@ -216,16 +216,14 @@ export function AdminLandingLeadDetailPage() {
           {lead.customer_type === 'new' && (
             <Row label={t('Source', 'المصدر')} value={lead.source || '—'} />
           )}
-          {lead.customer_type === 'existing' && (
-            <div className="md:col-span-2">
-              <p className="text-[11.5px] text-muted-foreground mb-1.5" style={{ fontWeight: 500 }}>
-                {t('Subject', 'الموضوع')}
-              </p>
-              <p className="text-[13.5px] whitespace-pre-wrap leading-relaxed bg-muted/30 rounded-xl p-3 border border-border">
-                {lead.subject || '—'}
-              </p>
-            </div>
-          )}
+          <div className="md:col-span-2">
+            <p className="text-[11.5px] text-muted-foreground mb-1.5" style={{ fontWeight: 500 }}>
+              {t('Title', 'الموضوع')}
+            </p>
+            <p className="text-[13.5px] whitespace-pre-wrap leading-relaxed bg-muted/30 rounded-xl p-3 border border-border">
+              {lead.subject || '—'}
+            </p>
+          </div>
           <div className="md:col-span-2">
             <p className="text-[11.5px] text-muted-foreground mb-1.5" style={{ fontWeight: 500 }}>
               {t('Description', 'الوصف')}

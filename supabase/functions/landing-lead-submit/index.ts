@@ -42,9 +42,7 @@ Deno.serve(async (req) => {
   const source = customer_type === 'new'
     ? (SOURCES.has(rawSource) ? rawSource : 'other')
     : null;
-  const subject = customer_type === 'existing'
-    ? String(body?.subject ?? '').trim().slice(0, 500) || null
-    : null;
+  const subject = String(body?.subject ?? '').trim().slice(0, 500) || null;
   const description = String(body?.description ?? '').trim().slice(0, 4000) || null;
 
   if (!name || name.length > 200) return bad('invalid_name');
