@@ -120,6 +120,7 @@ export const router = createBrowserRouter([
       { path: 'invoices/:type', element: <RequireAdminPermission perm={['billing_subscriptions','billing_servers','billing_other']}><AdminInvoices /></RequireAdminPermission> },
       { path: 'team', element: <RequireAdminPermission perm="team_management"><AdminTeam /></RequireAdminPermission> },
       { path: 'pipeline', element: <RequireAdminPermission perm="pipeline"><AdminPipelinePage /></RequireAdminPermission> },
+      { path: 'pipeline/landing', element: <RequireAdminPermission perm="pipeline"><AdminPipelinePage /></RequireAdminPermission> },
       { path: 'pipeline/landing/:id', element: <RequireAdminPermission perm="pipeline"><AdminLandingLeadDetailPage /></RequireAdminPermission> },
       { path: 'pipeline/:id', element: <RequireAdminPermission perm="pipeline"><AdminPipelineDetailPage /></RequireAdminPermission> },
       { path: 'ad-automation', element: <RequireAdminPermission perm="ad_automation"><AdAutomationPage /></RequireAdminPermission> },
