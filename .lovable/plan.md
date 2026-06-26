@@ -1,89 +1,41 @@
-
 ## Goal
-Add a second table **صفحة الهبوط** beneath the existing **سير العملاء** table on `/admin/pipeline`. It receives submissions from the public landing-page form (Figma-built, external) via a new edge function, classifies each lead's identity match against Zid/Salla connections, and lets admins copy a row into the main pipeline.
+Confirm the direct Figma → Supabase wiring you described, and tighten `docs/landing-form-prompt.md` so the Figma side has everything it needs in one place.
 
-## 1. Database
-
-New table `admin_landing_leads`:
-- `id`, `created_at`
-- `name` (display only, NOT used for matching)
-- `phone`, `email`
-- `customer_type` `'new' | 'existing'` (عميل جديد / عميل حالي)
-- `contact_time` `'morning' | 'evening'`
-- `source` — `tiktok | instagram | snapchat | facebook | google | ecommerce | other` (only for `new`)
-- `subject` text (only for `existing`)
-- `match_status` `'full' | 'partial' | 'none'` (computed at insert)
-- `copied_to_pipeline_at` timestamptz (nullable; row stays after copy)
-- `pipeline_customer_id` uuid (nullable)
-
-Phone column added to `settings_account` if missing (per your answer).
-
-Match rule (only against active Zid + Salla connections — joined to the tenant's owner contact in `settings_account`):
-- both email AND phone match a tenant → **full** (مطابق)
-- one matches → **partial** (مطابق جزئياً)
-- neither → **none** (غير مطابق)
-Name is never used.
-
-A SECURITY DEFINER function `admin_landing_compute_match(email, phone)` runs the lookup and is called by a `BEFORE INSERT` trigger so `match_status` is always trustworthy.
-
-RLS: only super_admin or admins with `admin_pipeline` permission can SELECT/UPDATE/DELETE. INSERT is done by the edge function via service role (no anon policy needed).
-
-GRANTs included for `authenticated` + `service_role`.
-
-## 2. Edge function `landing-lead-submit`
-
-Public endpoint (verify_jwt off, CORS open) for the external landing page:
-
-`POST /functions/v1/landing-lead-submit`
-```json
-{ "name": "...", "phone": "+9665...", "email": "...",
-  "customer_type": "new" | "existing",
-  "contact_time": "morning" | "evening",
-  "source": "tiktok|instagram|...",   // when new
-  "subject": "..."                     // when existing
-}
+## The flow you're locking in
 ```
-- Zod validation, normalizes phone (digits only, +966 prefix), lowercases email.
-- Inserts into `admin_landing_leads`; trigger fills `match_status`.
-- Returns `{ ok: true, id, match_status }`.
-- Rate limited per IP via existing `widget_rate_limits` pattern.
+Figma form  ──POST JSON──▶  https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/landing-lead-submit
+                              │
+                              ▼
+                     admin_landing_leads (trigger computes match_status)
+                              │
+                              ▼
+                /admin/pipeline → صفحة الهبوط table
+```
 
-A short prompt block for Figma AI will be added to `docs/landing-form-prompt.md` so you can wire the external form to this endpoint.
+This works as-is. The edge function is already public (no auth header), CORS is open, and the DB trigger fills `match_status` from email+phone against active Zid/Salla connections. No backend changes needed.
 
-## 3. Admin UI — `AdminPipelinePage.tsx`
+## Why this is the right call
+- Zero middleware, zero monthly cost.
+- One source of truth — every submission lands in the same admin table.
+- Admin can copy any row into سير العميل via the existing actions menu.
 
-Add a second card below the existing pipeline table titled **صفحة الهبوط** (icon: globe), same Monday-style design:
+## What I'll change (docs only — no code)
+Update `docs/landing-form-prompt.md` so the Figma builder can paste it straight into a Figma Sites/Make **code block** with no guesswork:
 
-Columns (RTL):
-| # | الإسم | رقم الجوال | الإيميل | نوع العميل | وقت التواصل | المصدر | الموضوع | المطابقة | الإجراءات |
+1. **Exact request contract** (already there) — keep.
+2. **Ready-to-paste `<script>` snippet** for the Figma code block:
+   - Reads inputs by `name` attribute (matches the field names in your screenshot: الاسم، رقم الجوال، الإيميل، نوع العميل، وقت التواصل، المصدر، الموضوع).
+   - Normalizes Saudi phone (`05…` / `5…` / `+9665…` → `+9665…`).
+   - Lowercases email, trims name.
+   - Sends only `source` for "عميل جديد" and only `subject` for "عميل حالي".
+   - Disables submit while in-flight, shows success/error states, resets the form on success.
+3. **Field-name → JSON-key mapping table** so whoever wires the Figma inputs knows what to call each field.
+4. **Validation rules mirror** of the edge function (so the form rejects bad input before the round-trip).
+5. **Troubleshooting**: CORS, 400 messages (`invalid_phone`, `invalid_email`, etc.), and how to confirm a submission landed (`/admin/pipeline` → صفحة الهبوط).
 
-Rendering rules:
-- نوع العميل: green chip "عميل جديد" / blue chip "عميل حالي"
-- وقت التواصل: ☀️ صباحاً / 🌙 مساءً
-- المصدر: shown only when `customer_type='new'`; uses existing `SOURCE_META` icons (TikTok, Google, Instagram…). Otherwise `—`.
-- الموضوع: shown only when `customer_type='existing'`. Otherwise `—`.
-- المطابقة: pill — green مطابق / amber مطابق جزئياً / red غير مطابق.
-- When match ≠ full, color the basic-data cells (name/phone/email) in red text per your legend.
-- Actions menu (`⋯`):
-  - **نسخ إلى سير العميل** — creates a `PipelineCustomer` (status `new_lead`, source = landing source or `manual`, subscribedVia inferred from match if any) and sets `copied_to_pipeline_at`. Row remains visible with a small "منقول" badge.
-  - **تعديل** — inline edit dialog (subject/source/contact_time).
-  - **حذف** — soft delete via service.
+## Out of scope (call out if you want any of these next)
+- reCAPTCHA / hCaptcha or honeypot anti-spam — currently only IP rate limiting is in place.
+- Email/Slack notification to admins on each new lead.
+- Auto-promote "full match" leads to سير العميل without a manual copy.
 
-Legend strip beneath the table (matches your screenshot):
-- البيانات الأساسية: الاسم • رقم الجوال • الإيميل • نوع العميل
-- مطابق / مطابق جزئياً / غير مطابق explanations with icons.
-
-Loading state uses `Loader2` (per your earlier preference, no default-flash).
-
-## 4. Services / wiring
-
-New `src/app/services/adminLandingLeads.ts`:
-- `fetchLandingLeads()`, `deleteLandingLead(id)`, `updateLandingLead(id, patch)`, `copyToPipeline(id, currentUserId)`.
-
-`copyToPipeline` uses the existing `pipelineData` helpers to append a `PipelineCustomer` to localStorage (the pipeline is still local per current code) and stamps `copied_to_pipeline_at` in the DB. When the pipeline migrates to DB later, swap to the proper insert.
-
-## 5. Technical notes
-- All currency-free, all Arabic strings already present in `STATUS_META` / `SOURCE_META` are reused.
-- No changes to existing سير العملاء table behavior, columns, or styling.
-- Email and phone are the only identity inputs used for matching — name is purely display.
-- Realtime not required (admin refresh via existing refetch button is enough); we can add a `supabase.channel` later.
+If this matches what you want, approve and I'll just update the doc — no code changes.
