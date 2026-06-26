@@ -673,6 +673,63 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_landing_leads: {
+        Row: {
+          contact_time: string
+          copied_to_pipeline_at: string | null
+          created_at: string
+          customer_type: string
+          email: string
+          id: string
+          ip_address: string | null
+          match_status: string
+          matched_tenant_id: string | null
+          name: string
+          phone: string
+          pipeline_customer_id: string | null
+          source: string | null
+          subject: string | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          contact_time: string
+          copied_to_pipeline_at?: string | null
+          created_at?: string
+          customer_type: string
+          email: string
+          id?: string
+          ip_address?: string | null
+          match_status?: string
+          matched_tenant_id?: string | null
+          name: string
+          phone: string
+          pipeline_customer_id?: string | null
+          source?: string | null
+          subject?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          contact_time?: string
+          copied_to_pipeline_at?: string | null
+          created_at?: string
+          customer_type?: string
+          email?: string
+          id?: string
+          ip_address?: string | null
+          match_status?: string
+          matched_tenant_id?: string | null
+          name?: string
+          phone?: string
+          pipeline_customer_id?: string | null
+          source?: string | null
+          subject?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       admin_reports_plans: {
         Row: {
           created_at: string
@@ -2066,6 +2123,13 @@ export type Database = {
         Returns: boolean
       }
       admin_kpis: { Args: { _from: string; _to: string }; Returns: Json }
+      admin_landing_compute_match: {
+        Args: { _email: string; _phone: string }
+        Returns: {
+          match_status: string
+          tenant_id: string
+        }[]
+      }
       dashboard_metrics: {
         Args: { _from: string; _tenant: string; _to: string }
         Returns: Json
