@@ -226,6 +226,14 @@ export function AdminLandingLeadDetailPage() {
               </p>
             </div>
           )}
+          <div className="md:col-span-2">
+            <p className="text-[11.5px] text-muted-foreground mb-1.5" style={{ fontWeight: 500 }}>
+              {t('Description', 'الوصف')}
+            </p>
+            <p className="text-[13.5px] whitespace-pre-wrap leading-relaxed bg-muted/30 rounded-xl p-3 border border-border">
+              {lead.description || '—'}
+            </p>
+          </div>
         </div>
       </div>
 
