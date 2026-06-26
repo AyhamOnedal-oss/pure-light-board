@@ -1,41 +1,51 @@
 ## Goal
-Confirm the direct Figma → Supabase wiring you described, and tighten `docs/landing-form-prompt.md` so the Figma side has everything it needs in one place.
 
-## The flow you're locking in
-```
-Figma form  ──POST JSON──▶  https://kdrcgusinkqgwaafcgnw.supabase.co/functions/v1/landing-lead-submit
-                              │
-                              ▼
-                     admin_landing_leads (trigger computes match_status)
-                              │
-                              ▼
-                /admin/pipeline → صفحة الهبوط table
-```
+Make صفحة الهبوط a proper sub-tab under سير العملاء, match the same Monday-style table look, allow opening each lead to add notes, and apply the requested column/data fixes.
 
-This works as-is. The edge function is already public (no auth header), CORS is open, and the DB trigger fills `match_status` from email+phone against active Zid/Salla connections. No backend changes needed.
+## Changes
 
-## Why this is the right call
-- Zero middleware, zero monthly cost.
-- One source of truth — every submission lands in the same admin table.
-- Admin can copy any row into سير العميل via the existing actions menu.
+### 1. Tabs in `AdminPipelinePage.tsx`
+Add a tab strip directly under the page title with two pills:
+- `سير العملاء` (default)
+- `صفحة الهبوط` (with a small counter pill for total leads)
 
-## What I'll change (docs only — no code)
-Update `docs/landing-form-prompt.md` so the Figma builder can paste it straight into a Figma Sites/Make **code block** with no guesswork:
+Each pill mirrors the existing stat-card/filter styling (`#043CC8` active background). Only one table is rendered at a time; toolbar/stat-cards/Add Customer button only show on the pipeline tab. The landing tab renders the redesigned `LandingLeadsTable`.
 
-1. **Exact request contract** (already there) — keep.
-2. **Ready-to-paste `<script>` snippet** for the Figma code block:
-   - Reads inputs by `name` attribute (matches the field names in your screenshot: الاسم، رقم الجوال، الإيميل، نوع العميل، وقت التواصل، المصدر، الموضوع).
-   - Normalizes Saudi phone (`05…` / `5…` / `+9665…` → `+9665…`).
-   - Lowercases email, trims name.
-   - Sends only `source` for "عميل جديد" and only `subject` for "عميل حالي".
-   - Disables submit while in-flight, shows success/error states, resets the form on success.
-3. **Field-name → JSON-key mapping table** so whoever wires the Figma inputs knows what to call each field.
-4. **Validation rules mirror** of the edge function (so the form rejects bad input before the round-trip).
-5. **Troubleshooting**: CORS, 400 messages (`invalid_phone`, `invalid_email`, etc.), and how to confirm a submission landed (`/admin/pipeline` → صفحة الهبوط).
+### 2. Rebuild `LandingLeadsTable.tsx` to match the upper table 1:1
+Replace the dark-teal header strip with the same component shell used by the pipeline table:
+- White card with `rounded-2xl`, `border-border`, and a 3px `#043CC8` bottom border on the header strip.
+- Header text: `صفحة الهبوط` in `#043CC8`, with a muted `count` chip.
+- Same `<thead>` muted background, same `<Th>` typography, same row hover and divider style as `AdminPipelinePage`.
+- Same kebab action menu styling.
 
-## Out of scope (call out if you want any of these next)
-- reCAPTCHA / hCaptcha or honeypot anti-spam — currently only IP rate limiting is in place.
-- Email/Slack notification to admins on each new lead.
-- Auto-promote "full match" leads to سير العميل without a manual copy.
+Column tweaks per request:
+- `نوع العميل`: render as plain text (no green/blue pill background, no chip border). Just `عميل جديد` / `عميل حالي` in regular foreground color.
+- Remove the `منقول` badge entirely from the name cell (no copied indicator shown).
+- `الموضوع`: render full text, allow wrapping (`whitespace-pre-wrap`, `max-w-[320px]`), no truncation.
+- Name/phone/email: only color red when the field itself is the mismatch source. Specifically:
+  - `none` → color phone + email red, name stays default.
+  - `partial` → color only the missing side (email red if no email match, phone red if no phone match — derived from a new lightweight per-row flag from the trigger; until then both partial fields use amber as today).
+  - `full` → default color.
+- Name no longer renders a `PlatformIcon` prefix.
 
-If this matches what you want, approve and I'll just update the doc — no code changes.
+Legend (bottom strip): change the guide text to `البيانات الأساسية: رقم الجوال • الإيميل` (drop name + customer type) to reflect that match logic is email + phone only.
+
+### 3. Row click → Landing Lead Detail page with notes
+- Add new route `pipeline/landing/:id` in `src/app/routes.tsx`, guarded by the same `admin_pipeline` permission, rendering a new `AdminLandingLeadDetailPage.tsx`.
+- The whole `<tr>` becomes clickable (cursor pointer, hover bg). The kebab `…` cell stops propagation.
+- Detail page layout: breadcrumb (`إدارة العملاء › صفحة الهبوط › {name}`), summary card with all lead fields + the `match` pill, and a `Team Notes` panel ported from `AdminPipelineDetailPage` (same `StickyNote` header, textarea, "Add Note" button, reverse-chronological list, delete-on-hover). No attachments, no journey — notes only, to keep scope tight.
+- Actions in the detail header: `نسخ إلى سير العميل`, `تعديل` (opens existing edit modal), `حذف`.
+
+### 4. Persist notes for landing leads
+Add a `notes jsonb NOT NULL DEFAULT '[]'::jsonb` column to `public.admin_landing_leads` via migration. Each note: `{ id, author, authorId, text, createdAt }`. Read/write through `adminLandingLeads.ts` with two helpers: `addLandingLeadNote(id, note)` and `deleteLandingLeadNote(id, noteId)` that update the JSON array atomically using a SQL `coalesce(notes,'[]'::jsonb) || …` update.
+
+### 5. Service + types
+- `LandingLead` interface gains `notes: LandingNote[]`.
+- `markCopiedToPipeline` continues to record the link but the UI no longer displays the badge.
+
+## Technical Notes
+
+- Match function (`admin_landing_compute_match`) already matches on email + phone only — no SQL change needed there. The plan only changes UI legend wording and per-row red-coloring rules.
+- Tabs use local component state (no URL param); deep links continue to land on the pipeline tab by default. Landing detail uses its own URL so it's still shareable.
+- Keep the existing `LandingLeadsTable` props contract; `onCopyToPipeline` stays the same so we don't touch `AdminPipelinePage`'s `addCustomer`.
+- No changes to widget, chat, or other unrelated areas.
