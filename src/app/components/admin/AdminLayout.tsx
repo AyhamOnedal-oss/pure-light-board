@@ -178,7 +178,7 @@ export function AdminLayout() {
                 );
               }
               return (
-              <NavLink key={item.to} to={item.to}
+              <NavLink key={item.to} to={item.to} end={item.to === '/admin/pipeline'}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2 rounded-xl transition-all text-[13px] ${
                     isActive ? 'bg-sidebar-accent text-[#043CC8]' : 'text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground'
