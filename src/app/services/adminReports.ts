@@ -47,58 +47,10 @@ export const MOCK_REPORTS: AdminReportsData = {
 };
 
 export async function fetchAdminReports(): Promise<AdminReportsData> {
-  try {
-    const [plansRes, revRes] = await Promise.all([
-      supabase.from('admin_reports_plans')
-        .select('platform,plan_name,plan_name_ar,price,subscribers,total,display_order')
-        .order('display_order', { ascending: true }),
-      supabase.from('admin_reports_revenue_monthly')
-        .select('year,month,zid,salla')
-        .order('year', { ascending: true })
-        .order('month', { ascending: true }),
-    ]);
-
-    const data: AdminReportsData = {
-      zidPlans: [],
-      sallaPlans: [],
-      revenueByMonth: [],
-    };
-
-    if (!plansRes.error && plansRes.data) {
-      for (const r of plansRes.data as any[]) {
-        const row: ReportPlanRow = {
-          name: r.plan_name, nameAr: r.plan_name_ar,
-          price: r.price, subscribers: r.subscribers, total: r.total,
-        };
-        if (r.platform === 'zid') data.zidPlans.push(row);
-        else if (r.platform === 'salla') data.sallaPlans.push(row);
-      }
-    }
-    if (!revRes.error && revRes.data) {
-      for (const r of revRes.data as any[]) {
-        const idx = Math.min(11, Math.max(0, (r.month as number) - 1));
-        data.revenueByMonth.push({
-          name: MONTHS_EN[idx], nameAr: MONTHS_AR[idx],
-          zid: r.zid, salla: r.salla,
-        });
-      }
-    }
-
-    const needLive =
-      data.zidPlans.length === 0 ||
-      data.sallaPlans.length === 0 ||
-      data.revenueByMonth.length === 0;
-
-    if (needLive) {
-      const live = await computeLiveReports();
-      if (data.zidPlans.length === 0) data.zidPlans = live.zidPlans;
-      if (data.sallaPlans.length === 0) data.sallaPlans = live.sallaPlans;
-      if (data.revenueByMonth.length === 0) data.revenueByMonth = live.revenueByMonth;
-    }
-    return data;
-  } catch {
-    return computeLiveReports();
-  }
+  // Always compute from live tenants + connections. The legacy
+  // `admin_reports_plans` / `admin_reports_revenue_monthly` tables only ever
+  // held seed/mock numbers and would shadow real data, so we ignore them.
+  return computeLiveReports();
 }
 
 // ---------------------------------------------------------------------------

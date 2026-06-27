@@ -6,7 +6,7 @@ import { Search, Filter, ChevronDown, Eye, LogIn, X } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { PlatformIcon } from './platformIcons';
 import { loadCustomers, reconcileCustomers, PipelineCustomer } from './pipelineData';
-import { fetchAdminCustomers, MOCK_CUSTOMERS, type AdminCustomerRow } from '../../services/adminCustomers';
+import { fetchAdminCustomers, type AdminCustomerRow } from '../../services/adminCustomers';
 import { supabase } from '@/integrations/supabase/client';
 
 type Customer = AdminCustomerRow;
@@ -22,7 +22,7 @@ export function AdminCustomers() {
   const [pipelineCustomers, setPipelineCustomers] = useState<PipelineCustomer[]>(
     () => reconcileCustomers(loadCustomers())
   );
-  const [dbCustomers, setDbCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+  const [dbCustomers, setDbCustomers] = useState<Customer[]>([]);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
   const impersonate = async (c: Customer) => {
