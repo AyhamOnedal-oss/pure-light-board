@@ -52,14 +52,20 @@ function statusFromTenant(status: string | null | undefined): AdminCustomerRow['
 export async function fetchAdminCustomers(): Promise<AdminCustomerRow[]> {
   // 1. Real tenants enriched with plan + connection + usage
   try {
-    const [{ data: tenants }, { data: plans }, { data: zid }, { data: salla }] = await Promise.all([
+    const [{ data: tenants }, { data: plans }, { data: zid }, { data: salla }, { data: members }] = await Promise.all([
       supabase.from('settings_workspace').select('id,name,platform,status,plan,domain').order('created_at', { ascending: false }),
       supabase.from('settings_plans').select('tenant_id,monthly_word_quota,monthly_words_used'),
       supabase.from('zid_connections').select('tenant_id,store_email,store_name,is_active'),
       supabase.from('salla_connections').select('tenant_id,store_email,store_name,is_active'),
+      supabase.from('auth_tenant_members').select('tenant_id'),
     ]);
 
     if (tenants && tenants.length > 0) {
+      // Only keep tenants that have at least one real auth user linked.
+      const memberTenantIds = new Set<string>((members || []).map((m: any) => m.tenant_id));
+      const realTenants = tenants.filter((t: any) => memberTenantIds.has(t.id));
+      if (realTenants.length === 0) return [];
+
       const planMap = new Map<string, any>();
       (plans || []).forEach((p: any) => planMap.set(p.tenant_id, p));
       const zidMap = new Map<string, any>();
@@ -77,7 +83,7 @@ export async function fetchAdminCustomers(): Promise<AdminCustomerRow[]> {
         pro: { en: 'Pro', ar: 'احترافي' },
       };
 
-      const real: AdminCustomerRow[] = tenants.map((t: any) => {
+      const real: AdminCustomerRow[] = realTenants.map((t: any) => {
         const z = zidMap.get(t.id);
         const s = sallaMap.get(t.id);
         const conn = s || z;
@@ -119,30 +125,5 @@ export async function fetchAdminCustomers(): Promise<AdminCustomerRow[]> {
     }
   } catch { /* fall through */ }
 
-  // 2. Try DB-seeded mock rows
-  try {
-    const { data, error } = await supabase
-      .from('admin_customers_seed')
-      .select('id,store_name,store_name_ar,email,phone,platform,plan,plan_ar,usage_percent,words,total_words,status,logo_initials')
-      .order('created_at', { ascending: true });
-    if (!error && data && data.length > 0) {
-      return data.map((r: any) => ({
-        id: r.id,
-        name: r.store_name,
-        nameAr: r.store_name_ar,
-        email: r.email,
-        phone: r.phone || '',
-        platform: r.platform as 'Zid' | 'Salla',
-        plan: r.plan,
-        planAr: r.plan_ar,
-        usagePercent: r.usage_percent,
-        words: r.words,
-        totalWords: r.total_words,
-        status: r.status as AdminCustomerRow['status'],
-        logo: r.logo_initials,
-      }));
-    }
-  } catch { /* fall through */ }
-
-  return MOCK_CUSTOMERS;
+  return [];
 }
