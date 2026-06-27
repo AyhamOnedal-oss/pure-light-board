@@ -183,7 +183,7 @@ export function AdminCustomerDetails() {
               { icon: Globe, label: t('Platform', 'المنصة'), value: language === 'ar' ? (customer.platform === 'Zid' ? 'زد' : 'سلة') : customer.platform },
               { icon: CreditCard, label: t('Plan', 'الخطة'), value: language === 'ar' ? customer.planAr : customer.plan },
               { icon: Calendar, label: t('Registration', 'التسجيل'), value: customer.regDate },
-              { icon: Star, label: t('Chat Rating', 'تقييم الشات'), value: `${customer.rating} / 5` },
+              { icon: Star, label: t('Chat Rating', 'تقييم الشات'), value: customer.ratingCount > 0 ? `${customer.rating} / 5` : '—' },
               { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: customer.bubbleClicks.toLocaleString() },
             ].map((item, i) => (
               <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-muted/30">
