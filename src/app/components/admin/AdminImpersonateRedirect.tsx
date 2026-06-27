@@ -17,8 +17,7 @@ export function AdminImpersonateRedirect() {
       try {
         const params = new URLSearchParams(window.location.search);
         const token_hash = params.get('token_hash') || '';
-        const email = params.get('email') || '';
-        if (!token_hash || !email) {
+        if (!token_hash) {
           throw new Error('Missing impersonation token.');
         }
         // Ensure this tab starts from a clean slate.
@@ -26,7 +25,6 @@ export function AdminImpersonateRedirect() {
         const { error: vErr } = await supabase.auth.verifyOtp({
           type: 'magiclink',
           token_hash,
-          email,
         });
         if (vErr) throw vErr;
         if (cancelled) return;
