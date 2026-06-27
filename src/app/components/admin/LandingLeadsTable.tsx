@@ -227,6 +227,7 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                   <Th align="center">{t('Customer Type', 'نوع العميل')}</Th>
                   <Th align="center">{t('Contact Time', 'وقت التواصل')}</Th>
                   <Th>{t('Source', 'المصدر')}</Th>
+                  <Th align="center">{t('Assign Employee', 'تكليف موظف')}</Th>
                   <Th>{t('Subject', 'الموضوع')}</Th>
                   <Th align="center">{t('Match', 'المطابقة')}</Th>
                   <Th align="center">{t('Actions', 'الإجراءات')}</Th>
@@ -263,6 +264,88 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                         {lead.customer_type === 'new'
                           ? <SourceCell source={lead.source} />
                           : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      {/* Assign Employee */}
+                      <td className="px-4 py-3 text-center relative" onClick={e => e.stopPropagation()}>
+                        {(() => {
+                          const assigned = (lead.assigned_member_ids || [])
+                            .map(id => members.find(m => m.id === id))
+                            .filter(Boolean) as TeamMember[];
+                          return (
+                            <div className="inline-flex items-center gap-1">
+                              {assigned.length > 0 ? (
+                                <div className="flex -space-s-2">
+                                  {assigned.slice(0, 3).map(m => (
+                                    <span key={m.id} title={m.name}
+                                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] border-2 border-card"
+                                      style={{ background: m.color, fontWeight: 700 }}>
+                                      {m.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                                    </span>
+                                  ))}
+                                  {assigned.length > 3 && (
+                                    <span className="w-7 h-7 rounded-full bg-muted text-[10px] flex items-center justify-center border-2 border-card" style={{ fontWeight: 700 }}>
+                                      +{assigned.length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                                  <UserCheck className="w-3 h-3" /> {t('Unassigned', 'غير مُكلَّف')}
+                                </span>
+                              )}
+                              {isAdminUser && (
+                                <button
+                                  ref={el => { assignRefs.current[lead.id] = el; }}
+                                  onClick={() => setAssignMenuFor(assignMenuFor === lead.id ? null : lead.id)}
+                                  className="p-1 rounded-md hover:bg-muted text-muted-foreground"
+                                  title={t('Assign employee', 'تكليف موظف')}>
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {assignMenuFor === lead.id && (() => {
+                          const btn = assignRefs.current[lead.id];
+                          if (!btn) return null;
+                          const rect = btn.getBoundingClientRect();
+                          const menuH = Math.max(1, eligibleMembers.length) * 44 + 60;
+                          const flipUp = (window.innerHeight - rect.bottom) < menuH + 12 && rect.top > menuH + 12;
+                          const top = flipUp ? Math.max(8, rect.top - menuH - 4) : rect.bottom + 4;
+                          return (
+                            <>
+                              <div className="fixed inset-0 z-[60]" onClick={() => setAssignMenuFor(null)} />
+                              <div className="fixed z-[70] bg-card border border-border rounded-xl shadow-2xl py-1 w-56 text-start max-h-[70vh] overflow-y-auto"
+                                style={{ top, left: Math.min(window.innerWidth - 232, Math.max(8, rect.right - 220)) }}>
+                                <p className="px-3 py-2 text-[10px] text-muted-foreground uppercase tracking-wider" style={{ fontWeight: 700 }}>
+                                  {t('Assign to employee', 'تكليف موظف')}
+                                </p>
+                                {eligibleMembers.length === 0 && (
+                                  <p className="px-3 py-2 text-[12px] text-muted-foreground">
+                                    {t('No employees available', 'لا يوجد موظفون متاحون')}
+                                  </p>
+                                )}
+                                {eligibleMembers.map(m => {
+                                  const isAssigned = (lead.assigned_member_ids || []).includes(m.id);
+                                  return (
+                                    <button key={m.id}
+                                      onClick={() => setLeadAssignment(lead.id, m.id)}
+                                      className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-muted text-[13px] text-start">
+                                      <span className="inline-flex items-center gap-2">
+                                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px]"
+                                          style={{ background: m.color, fontWeight: 700 }}>
+                                          {m.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                                        </span>
+                                        <span className="text-[12px]" style={{ fontWeight: 600 }}>{m.name}</span>
+                                      </span>
+                                      {isAssigned && <Check className="w-3.5 h-3.5 text-[#043CC8]" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 max-w-[360px]">
                         {lead.customer_type === 'existing'
