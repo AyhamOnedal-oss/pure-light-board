@@ -1,0 +1,1 @@
+ALTER TABLE public.admin_landing_leads ADD COLUMN IF NOT EXISTS assigned_member_ids text[] NOT NULL DEFAULT '{}';
