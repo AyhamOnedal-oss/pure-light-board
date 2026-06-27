@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useParams, useNavigate } from 'react-router';
 import { motion } from 'motion/react';
@@ -7,9 +7,10 @@ import {
   ArrowLeft, ArrowRight, LogIn, Store, Mail, Phone, User, Calendar, Star,
   MousePointerClick, Globe, CreditCard, Trash2, Shield, ShieldOff,
   Link, MessageSquare, Ticket, FileText, Plus, Send, RefreshCw, Ban, CheckCircle,
-  XCircle, Clock, Edit, Key
+  XCircle, Clock, Edit, Key, Loader2
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { supabase } from '@/integrations/supabase/client';
 
 const COLORS = ['#043CC8', '#e2e8f0'];
 
@@ -21,38 +22,90 @@ export function AdminCustomerDetails() {
   const [noteText, setNoteText] = useState('');
   const [showAddWords, setShowAddWords] = useState(false);
   const [addWordsAmount, setAddWordsAmount] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any | null>(null);
+  const [impersonating, setImpersonating] = useState(false);
 
-  // Mock customer data
-  const customer = {
-    id, name: 'Elegant Store', nameAr: 'متجر أنيق', logo: 'ES',
-    email: 'info@elegant.sa', owner: 'Mohammed Ali', ownerAr: 'محمد علي',
-    phone: '+966501234567', usagePercent: 72, regDate: '2025-08-15',
-    trialWords: 5000, paidWords: 46800, rating: 4.5, bubbleClicks: 1245,
-    platform: 'Zid', plan: 'Professional', planAr: 'احترافي',
-    status: 'active', totalWords: 65000,
-    subscription: {
-      plan: 'Professional', planAr: 'احترافي', status: 'active',
-      start: '2026-03-01', end: '2026-04-01', usedWords: 46800, trialWords: 5000,
-    },
-    previousSubs: [
-      { plan: 'Trial', start: '2025-08-15', end: '2025-09-15', status: 'expired' },
-      { plan: 'Economy', start: '2025-09-15', end: '2025-12-15', status: 'expired' },
-      { plan: 'Basic', start: '2025-12-15', end: '2026-03-01', status: 'expired' },
-    ],
-    activity: [
-      { date: '2026-04-16 10:30', event: 'Admin logged in as customer', eventAr: 'الأدمن دخل كعميل', type: 'admin' },
-      { date: '2026-04-10 14:00', event: 'Subscription renewed', eventAr: 'تم تجديد الاشتراك', type: 'subscription' },
-      { date: '2026-03-28 09:15', event: 'Words exhausted - 80% alert', eventAr: 'تنبيه استنفاد الكلمات - 80%', type: 'alert' },
-      { date: '2026-03-01 00:00', event: 'Upgraded to Professional', eventAr: 'ترقية إلى احترافي', type: 'subscription' },
-    ],
-    notes: [
-      { id: '1', staff: 'Ahmed', staffAr: 'أحمد', content: 'Customer requested additional words package', contentAr: 'العميل طلب حزمة كلمات إضافية', date: '2026-04-15' },
-      { id: '2', staff: 'Sara', staffAr: 'سارة', content: 'Resolved billing issue', contentAr: 'تم حل مشكلة الفوترة', date: '2026-04-10' },
-    ],
-    tickets: [
-      { id: 'T-101', subject: 'Billing Issue', subjectAr: 'مشكلة فوترة', status: 'resolved', date: '2026-04-10' },
-      { id: 'T-098', subject: 'AI Training Request', subjectAr: 'طلب تدريب الذكاء', status: 'open', date: '2026-04-08' },
-    ],
+  useEffect(() => {
+    let alive = true;
+    if (!id) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }] = await Promise.all([
+          supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
+          supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
+          supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
+          supabase.from('settings_plans').select('monthly_word_quota,monthly_words_used,period_start,subscription_end_date').eq('tenant_id', id).maybeSingle(),
+          supabase.from('dashboard_usage_daily').select('clicks').eq('tenant_id', id),
+        ]);
+        if (!alive) return;
+        const conn = salla || zid;
+        const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
+        const name = conn?.store_name || ws?.name || 'Unnamed Store';
+        const email = conn?.store_email || '—';
+        const totalWords = Number(plan?.monthly_word_quota || 0);
+        const words = Number(plan?.monthly_words_used || 0);
+        const usagePercent = totalWords > 0 ? Math.min(100, Math.round((words / totalWords) * 100)) : 0;
+        const bubbleClicks = (clicks || []).reduce((s: number, r: any) => s + Number(r.clicks || 0), 0);
+        const initials = name.split(/\s+/).map((p: string) => p[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'CU';
+        const planLabels: Record<string, { en: string; ar: string }> = {
+          free: { en: 'Trial', ar: 'تجريبي' }, trial: { en: 'Trial', ar: 'تجريبي' },
+          economy: { en: 'Economy', ar: 'اقتصادي' }, basic: { en: 'Basic', ar: 'أساسي' },
+          professional: { en: 'Professional', ar: 'احترافي' }, business: { en: 'Business', ar: 'أعمال' },
+          pro: { en: 'Pro', ar: 'احترافي' },
+        };
+        const planKey = (ws?.plan || 'free').toString().toLowerCase();
+        const planLabel = planLabels[planKey] || { en: ws?.plan || 'Trial', ar: ws?.plan || 'تجريبي' };
+        const regDate = (conn?.connected_at || conn?.created_at || ws?.created_at || '').toString().slice(0, 10);
+        const statusActive = conn?.is_active ?? (ws?.status === 'active' || ws?.status === 'trial');
+
+        setData({
+          id, name, nameAr: name, logo: initials,
+          email, owner: '—', ownerAr: '—',
+          phone: '—', usagePercent, regDate,
+          trialWords: 0, paidWords: words, rating: 0, bubbleClicks,
+          platform, plan: planLabel.en, planAr: planLabel.ar,
+          status: statusActive ? 'active' : 'inactive', totalWords,
+          storeUrl: conn?.store_url || '',
+          subscription: {
+            plan: planLabel.en, planAr: planLabel.ar, status: statusActive ? 'active' : 'inactive',
+            start: (plan?.period_start || '').toString().slice(0, 10) || '—',
+            end: (plan?.subscription_end_date || '').toString().slice(0, 10) || '—',
+            usedWords: words, trialWords: 0,
+          },
+          previousSubs: [],
+          activity: [],
+          notes: [],
+          tickets: [],
+        });
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [id]);
+
+  if (loading || !data) {
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center text-muted-foreground">
+        <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
+  }
+  const customer = data;
+
+  const impersonate = async () => {
+    setImpersonating(true);
+    try {
+      const { data: res, error } = await supabase.functions.invoke('admin-impersonate', { body: { tenantId: id } });
+      if (error || !res?.url) throw new Error((error as any)?.message || res?.error || 'Failed');
+      window.open(res.url, '_blank', 'noopener,noreferrer');
+    } catch (e: any) {
+      showToast(t('Login as customer failed: ', 'تعذر الدخول كعميل: ') + (e?.message || ''));
+    } finally {
+      setImpersonating(false);
+    }
   };
 
   const usageData = [
@@ -94,8 +147,8 @@ export function AdminCustomerDetails() {
             <p className="text-[12px] text-muted-foreground">{customer.email}</p>
           </div>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] transition-colors text-[13px]" style={{ fontWeight: 600 }}>
-          <LogIn className="w-4 h-4" /> {t('Login as Customer', 'الدخول كعميل')}
+        <button onClick={impersonate} disabled={impersonating} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] disabled:opacity-50 transition-colors text-[13px]" style={{ fontWeight: 600 }}>
+          {impersonating ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />} {t('Login as Customer', 'الدخول كعميل')}
         </button>
       </div>
 
