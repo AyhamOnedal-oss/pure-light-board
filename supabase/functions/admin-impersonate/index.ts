@@ -55,15 +55,20 @@ Deno.serve(async (req) => {
 
     const origin = req.headers.get('origin') || req.headers.get('referer') || '';
     const cleanOrigin = origin.replace(/\/+$/, '').replace(/\/admin.*$/, '');
-    const redirectTo = (cleanOrigin || 'https://app.fuqah.ai') + '/dashboard';
+    const base = cleanOrigin || 'https://app.fuqah.ai';
 
     const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
       type: 'magiclink',
       email,
-      options: { redirectTo },
+      options: { redirectTo: base + '/dashboard' },
     });
-    if (linkErr || !linkData?.properties?.action_link) {
+    if (linkErr || !linkData?.properties) {
       return json({ error: linkErr?.message || 'Failed to generate link' }, 500);
+    }
+    const props: any = linkData.properties;
+    const tokenHash: string | undefined = props.hashed_token || props.token_hash;
+    if (!tokenHash) {
+      return json({ error: 'No token returned from Supabase' }, 500);
     }
 
     await admin.from('admin_impersonation_log').insert({
@@ -73,7 +78,10 @@ Deno.serve(async (req) => {
       target_email: email,
     });
 
-    return json({ url: linkData.properties.action_link, email, tenantId });
+    // The client opens /admin/impersonate?... in a new tab, which exchanges
+    // the token_hash for a session in that tab only (per-tab storage).
+    const redirectUrl = `${base}/admin/impersonate?token_hash=${encodeURIComponent(tokenHash)}&email=${encodeURIComponent(email)}&tenant=${encodeURIComponent(tenantId)}`;
+    return json({ url: redirectUrl, tokenHash, email, tenantId });
   } catch (e) {
     console.error('admin-impersonate error', e);
     return json({ error: (e as Error).message }, 500);
