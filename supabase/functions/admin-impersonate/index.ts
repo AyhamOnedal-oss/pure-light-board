@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
 
     // The client opens /admin/impersonate?... in a new tab, which exchanges
     // the token_hash for a session in that tab only (per-tab storage).
-    const redirectUrl = `${base}/admin/impersonate?token_hash=${encodeURIComponent(tokenHash)}&email=${encodeURIComponent(email)}&tenant=${encodeURIComponent(tenantId)}`;
+    const redirectUrl = `${base}/impersonate?token_hash=${encodeURIComponent(tokenHash)}&email=${encodeURIComponent(email)}&tenant=${encodeURIComponent(tenantId)}`;
     return json({ url: redirectUrl, tokenHash, email, tenantId });
   } catch (e) {
     console.error('admin-impersonate error', e);
