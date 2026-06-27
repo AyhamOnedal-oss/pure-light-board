@@ -168,7 +168,7 @@ export function AdminPipelinePage() {
     setDeleteId(null);
     showToast(t('Customer removed', 'تم حذف العميل'));
   };
-  const addCustomer = (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>): string => {
+  const addCustomer = (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>, forcedId?: string): string => {
     const now = new Date().toISOString();
     // Round-robin auto-assignment
     let assignedMemberIds: string[] = [];
@@ -180,7 +180,7 @@ export function AdminPipelinePage() {
       }
     }
     const nu: PipelineCustomer = {
-      id: `cus_${Date.now()}`,
+      id: forcedId ?? `cus_${Date.now()}`,
       ...data,
       createdAt: now, viewed: true,
       notes: [], customValues: {},

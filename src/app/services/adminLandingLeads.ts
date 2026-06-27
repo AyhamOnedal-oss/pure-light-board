@@ -75,11 +75,20 @@ export async function assignLandingLead(id: string, memberIds: string[]) {
   await updateLandingLead(id, { assigned_member_ids: memberIds } as any);
 }
 
-export async function markCopiedToPipeline(id: string, pipelineCustomerId: string) {
-  await updateLandingLead(id, {
-    copied_to_pipeline_at: new Date().toISOString(),
-    pipeline_customer_id: pipelineCustomerId,
-  } as any);
+export async function markCopiedToPipeline(id: string, pipelineCustomerId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('admin_landing_leads' as any)
+    .update({
+      copied_to_pipeline_at: new Date().toISOString(),
+      pipeline_customer_id: pipelineCustomerId,
+    } as any)
+    .eq('id', id)
+    .is('copied_to_pipeline_at', null)
+    .is('pipeline_customer_id', null)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 }
 
 export async function addLandingLeadNote(id: string, note: LandingNote): Promise<LandingNote[]> {

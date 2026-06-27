@@ -70,7 +70,7 @@ function Th({ children, align = 'start' }: { children: React.ReactNode; align?: 
 }
 
 export interface LandingLeadsTableProps {
-  onCopyToPipeline: (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>) => string;
+  onCopyToPipeline: (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>, forcedId?: string) => string;
 }
 
 export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) {
@@ -149,28 +149,40 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
     }));
   };
 
-  const handleCopy = (lead: LandingLead) => {
+  const handleCopy = async (lead: LandingLead) => {
     if (lead.copied_to_pipeline_at || lead.pipeline_customer_id || copyingIds.has(lead.id)) {
       showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
       setRowMenuFor(null);
       return;
     }
     setCopyingIds(ids => new Set(ids).add(lead.id));
+    const pipelineId = `cus_${Date.now()}`;
+    try {
+      const copied = await markCopiedToPipeline(lead.id, pipelineId);
+      if (!copied) {
+        await load();
+        showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
+        return;
+      }
     const mapped = mapSource(lead.source);
-    const pipelineId = onCopyToPipeline({
+    onCopyToPipeline({
       name: lead.name,
       email: lead.email,
       phone: lead.phone,
       source: (mapped ?? 'manual') as any,
       status: 'new_lead',
-    } as any);
-    markCopiedToPipeline(lead.id, pipelineId).catch(console.error);
+    } as any, pipelineId);
     setLeads(ls => ls.map(l => l.id === lead.id
       ? { ...l, copied_to_pipeline_at: new Date().toISOString(), pipeline_customer_id: pipelineId }
       : l));
-    setCopyingIds(ids => { const next = new Set(ids); next.delete(lead.id); return next; });
-    setRowMenuFor(null);
     showToast(t('Copied to Customer Pipeline', 'تم النسخ إلى سير العميل'));
+    } catch (e) {
+      console.error(e);
+      showToast(t('Failed to copy lead', 'تعذر نسخ الطلب'));
+    } finally {
+      setCopyingIds(ids => { const next = new Set(ids); next.delete(lead.id); return next; });
+      setRowMenuFor(null);
+    }
   };
 
   const handleDelete = async () => {

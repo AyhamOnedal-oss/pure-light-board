@@ -139,12 +139,21 @@ export function AdminLandingLeadDetailPage() {
     } catch (e) { console.error(e); showToast(t('Delete failed', 'تعذر الحذف')); }
   };
 
-  const copyToPipeline = () => {
+  const copyToPipeline = async () => {
     if (copyingToPipeline || lead.copied_to_pipeline_at || lead.pipeline_customer_id) {
       showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
       return;
     }
     setCopyingToPipeline(true);
+    const pipelineId = `cus_${Date.now()}`;
+    try {
+      const copied = await markCopiedToPipeline(lead.id, pipelineId);
+      if (!copied) {
+        const fresh = await fetchLandingLead(lead.id);
+        if (fresh) setLead(fresh);
+        showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
+        return;
+      }
     const customers = loadCustomers();
     const now = new Date().toISOString();
     const mappedSource =
@@ -152,7 +161,7 @@ export function AdminLandingLeadDetailPage() {
         ? 'manual'
         : lead.source;
     const nu: PipelineCustomer = {
-      id: `cus_${Date.now()}`,
+      id: pipelineId,
       name: lead.name,
       email: lead.email,
       phone: lead.phone,
@@ -167,13 +176,18 @@ export function AdminLandingLeadDetailPage() {
       journey: [{ id: `j_init_${Date.now()}`, status: 'new_lead', date: now, note: 'Copied from Landing Page' }],
     } as PipelineCustomer;
     saveCustomers([nu, ...customers]);
-    markCopiedToPipeline(lead.id, nu.id).catch(console.error);
     setLead({
       ...lead,
       copied_to_pipeline_at: new Date().toISOString(),
       pipeline_customer_id: nu.id,
     });
     showToast(t('Copied to Customer Pipeline', 'تم النسخ إلى سير العميل'));
+    } catch (e) {
+      console.error(e);
+      showToast(t('Failed to copy lead', 'تعذر نسخ الطلب'));
+    } finally {
+      setCopyingToPipeline(false);
+    }
   };
 
   const copiedToPipeline = Boolean(lead.copied_to_pipeline_at || lead.pipeline_customer_id);
