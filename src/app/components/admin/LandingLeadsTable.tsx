@@ -243,7 +243,10 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                   return (
                     <tr
                       key={lead.id}
-                      onClick={() => navigate(`/admin/pipeline/landing/${lead.id}`)}
+                      onClick={() => {
+                        try { localStorage.setItem(`fuqah.landing.seen.${currentUserId}`, String(Date.now())); } catch {}
+                        navigate(`/admin/pipeline/landing/${lead.id}`);
+                      }}
                       className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3 text-center text-muted-foreground">{idx + 1}</td>
