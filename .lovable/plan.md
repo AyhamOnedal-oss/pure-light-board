@@ -1,51 +1,55 @@
-## Problem
+# Admin Customer Details — Functional Subscription Actions
 
-In `/admin/customers/:id`, "نقرات الفقاعة" (bubble clicks) and "تقييم الشات" (chat rating) are wrong — clicks show 0/low and rating shows `0 / 5` — even though the same tenant's user dashboard correctly shows 175 clicks and 3.9 rating.
+The buttons in `AdminCustomerDetails.tsx` currently call a fake `handleAction` toast. Make them real, enforce expiry, and add a token usage breakdown.
 
-Two root causes (verified against the live DB):
+## 1. Backend (single edge function `admin-subscription-actions`)
 
-1. **RLS blocks admin staff.** `dashboard_usage_daily` and `conversations_main` only allow access via `is_tenant_member(...)` / `member_can(...)`. An admin (super_admin or `app_role='admin'`) is not a tenant member of customer workspaces, so every cross-tenant SELECT returns 0 rows. This is the same class of bug we fixed last turn for `auth_tenant_members` / `settings_workspace` / `zid_connections` / `salla_connections` / `settings_plans` — these two tables were missed.
+New edge function gated by admin role (`admin` / `super_admin` via `auth_user_roles`). Accepts:
 
-2. **`AdminCustomerDetails` never reads the rating.** In `src/app/components/admin/AdminCustomerDetails.tsx` the load effect hardcodes `rating: 0` — `csat_rating` is never queried from `conversations_main`.
+- `{ tenantId, action: "end" }`
+  - Set `settings_plans.subscription_end_date = today` and `settings_workspace.status = 'inactive'`.
+- `{ tenantId, action: "add_words", words }`
+  - Increase `settings_plans.monthly_word_quota` by `words` (top‑up). Log entry to `admin_impersonation_log`‑style audit (or new `admin_credit_topups` table — see Tables).
+- `{ tenantId, action: "renew_trial" }`
+  - Only allowed when current `settings_workspace.plan` is `free`/`trial`. Reset: `monthly_words_used=0`, `period_start=today`, `subscription_end_date=today+14`, `status='trial'`, clear `*_emailed_*` markers. Reject with 400 otherwise.
 
-Verified data for the 3 real tenants (so the numbers below are what `/admin/customers/:id` should show):
+Login gating (requirement 1 — user can't enter after end date):
+- Add a guard in `RequireAuth.tsx` (or `AppContext` bootstrap) that loads the tenant's `settings_plans.subscription_end_date` + `settings_workspace.status`; if `status='inactive'` or `subscription_end_date < today`, route to `AccountDisabledScreen` and block dashboard access. Admin impersonation already uses a separate session, so admins remain unaffected.
 
-| Tenant | Clicks | Rating |
-|---|---|---|
-| المتجر التجريبي النهائي (Zid) | 175 | 3.93 (28 ratings) |
-| متجر تجريبي (Salla) | 33 | 3.20 (5) |
-| Fuqah AI (Salla) | 48 | 3.82 (11) |
+## 2. Tables (migration)
 
-## Fix
+- `admin_credit_topups(tenant_id, words, added_by, note, created_at)` with admin‑only RLS + grants for `service_role` and `authenticated` admins. Used for audit + future "previous top‑ups" list.
 
-### 1. Migration — add admin-read RLS policies
+(No schema changes needed for the actions themselves; existing columns on `settings_plans`/`settings_workspace` cover it.)
 
-Mirror what we did for the customers list so admin staff can read aggregated metrics across all tenants:
+## 3. Frontend — `AdminCustomerDetails.tsx`
 
-```sql
-CREATE POLICY "admins read all usage"
-  ON public.dashboard_usage_daily FOR SELECT
-  TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'::app_role)
-      OR public.has_role(auth.uid(), 'super_admin'::app_role));
+- Replace `handleAction` stubs for: End Subscription, Add Words, Renew Trial — each invokes `admin-subscription-actions`, then re-fetches the customer data so UI updates immediately (status badge, used %, quota, dates).
+- "Renew Trial" button: only enabled when `plan` is `free`/`trial`; otherwise grey out + tooltip "للباقة التجريبية فقط".
+- "End Subscription" success: badge flips to ملغي, status shows ended date.
+- "Add Words" success: bumps `totalWords`, recomputes %.
 
-CREATE POLICY "admins read all conversations"
-  ON public.conversations_main FOR SELECT
-  TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'::app_role)
-      OR public.has_role(auth.uid(), 'super_admin'::app_role));
-```
+## 4. Token / Words Usage Breakdown (Store Info card)
 
-Read-only — no INSERT/UPDATE/DELETE for admins on these tables.
+Pull from `ai_classifier_usage` filtered by `tenant_id`:
+- `inputTokens = sum(prompt_tokens)`
+- `outputTokens = sum(completion_tokens)`
+- Scope: only widget context — filter `source IN ('widget','widget_chat')` (verify which `source` value `chat-ai` writes; adjust filter accordingly). Includes image/vision turns since `chat-ai` logs them through the same path.
+- Conversion: words = `round(tokens * 0.75)` (standard 1 token ≈ 0.75 word). Display three new tiles next to Trial/Paid/Usage:
+  - Input Tokens → words
+  - Output Tokens → words
+  - Total Tokens → words
+- These reflect what is actually deducted from the tenant's quota (matches `monthly_words_used`).
 
-### 2. `src/app/components/admin/AdminCustomerDetails.tsx`
+## Technical notes
 
-- Add a parallel fetch:
-  `supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating','is',null)`
-- Compute `avgRating = sum/count` (rounded to 1 decimal) and `ratingCount`.
-- Replace the hardcoded `rating: 0` with the computed value; show "—" when `ratingCount === 0`.
-- Keep `bubbleClicks` query as-is — once RLS is fixed it will return the real sum.
+- Edge function uses `SUPABASE_SERVICE_ROLE_KEY` and verifies caller is admin via `auth_user_roles`.
+- `verify_jwt = true` (default) for `admin-subscription-actions`.
+- Frontend uses `supabase.functions.invoke('admin-subscription-actions', { body })`.
+- After each action call `loadCustomer()` (extracted from the existing `useEffect`) to refresh.
+- Login gate query is cheap (1 row) and runs once at auth bootstrap; cache in `AppContext`.
 
 ## Out of scope
 
-No UI redesign, no changes to the user dashboard, no other tabs touched.
+- Per‑plan paid renewals (Stripe/Paddle flows) — only the trial reset is requested.
+- Detailed top‑up history UI (table exists; UI surfacing can come later).
