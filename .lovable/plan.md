@@ -1,31 +1,51 @@
 ## Problem
 
-`AdminCustomers` is built around `settings_workspace` ("tenants"), then enriched with optional Zid/Salla rows. That's why you saw `Admin's Workspace` and other personal workspaces — every signup auto-creates a `settings_workspace` + `auth_tenant_members` row via the `handle_new_user` trigger, regardless of whether the user ever installed Zid or Salla. None of those are real customers.
+In `/admin/customers/:id`, "نقرات الفقاعة" (bubble clicks) and "تقييم الشات" (chat rating) are wrong — clicks show 0/low and rating shows `0 / 5` — even though the same tenant's user dashboard correctly shows 175 clicks and 3.9 rating.
 
-Real customers = stores that actually installed the app:
+Two root causes (verified against the live DB):
 
-- `zid_connections` → 1 row (`المتجر التجريبي النهائي`)
-- `salla_connections` → 2 rows (both `متجر تجريبي`)
+1. **RLS blocks admin staff.** `dashboard_usage_daily` and `conversations_main` only allow access via `is_tenant_member(...)` / `member_can(...)`. An admin (super_admin or `app_role='admin'`) is not a tenant member of customer workspaces, so every cross-tenant SELECT returns 0 rows. This is the same class of bug we fixed last turn for `auth_tenant_members` / `settings_workspace` / `zid_connections` / `salla_connections` / `settings_plans` — these two tables were missed.
 
-Total = 3 customers, matching what you see in the dashboard.
+2. **`AdminCustomerDetails` never reads the rating.** In `src/app/components/admin/AdminCustomerDetails.tsx` the load effect hardcodes `rating: 0` — `csat_rating` is never queried from `conversations_main`.
+
+Verified data for the 3 real tenants (so the numbers below are what `/admin/customers/:id` should show):
+
+| Tenant | Clicks | Rating |
+|---|---|---|
+| المتجر التجريبي النهائي (Zid) | 175 | 3.93 (28 ratings) |
+| متجر تجريبي (Salla) | 33 | 3.20 (5) |
+| Fuqah AI (Salla) | 48 | 3.82 (11) |
 
 ## Fix
 
-Rewrite `fetchAdminCustomers` in `src/app/services/adminCustomers.ts` to be **connection-first**, not workspace-first:
+### 1. Migration — add admin-read RLS policies
 
-1. Query `zid_connections` and `salla_connections` directly (one row per connection = one customer row).
-2. For each connection, look up the linked `settings_workspace` (for `plan`, `status`) and `settings_plans` (for word usage) by `tenant_id` — purely as enrichment, never as the source of truth for whether the row exists.
-3. Identity columns come from the connection itself: `store_name`, `store_email`, platform, `is_active` → status (`active` / `inactive`).
-4. Drop the `auth_tenant_members` "must have an auth user" filter — it was the wrong proxy and is now unnecessary because the connection itself proves the store is real.
-5. Remove the pipeline-derived rows merged in `AdminCustomers.tsx` `combined` (the `pipe_*` entries from `loadCustomers()`) so pipeline mocks like `Noor Fashion` stop appearing in the customer list. Pipeline stays its own screen.
-6. Same fix flows naturally to the dashboard "All clients" KPI if it's reading the same service; otherwise leave the dashboard alone since you said it already shows 3.
+Mirror what we did for the customers list so admin staff can read aggregated metrics across all tenants:
 
-## Result
+```sql
+CREATE POLICY "admins read all usage"
+  ON public.dashboard_usage_daily FOR SELECT
+  TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'::app_role)
+      OR public.has_role(auth.uid(), 'super_admin'::app_role));
 
-The Customers table will show exactly 3 rows (1 Zid + 2 Salla), keyed by `tenant_id`, with working impersonation and details navigation. No personal workspaces, no pipeline mocks.
+CREATE POLICY "admins read all conversations"
+  ON public.conversations_main FOR SELECT
+  TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'::app_role)
+      OR public.has_role(auth.uid(), 'super_admin'::app_role));
+```
+
+Read-only — no INSERT/UPDATE/DELETE for admins on these tables.
+
+### 2. `src/app/components/admin/AdminCustomerDetails.tsx`
+
+- Add a parallel fetch:
+  `supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating','is',null)`
+- Compute `avgRating = sum/count` (rounded to 1 decimal) and `ratingCount`.
+- Replace the hardcoded `rating: 0` with the computed value; show "—" when `ratingCount === 0`.
+- Keep `bubbleClicks` query as-is — once RLS is fixed it will return the real sum.
 
 ## Out of scope
 
-- No DB migrations.
-- No changes to pipeline, reports, or dashboard logic.
-- No UI redesign — same table, same columns, same actions.
+No UI redesign, no changes to the user dashboard, no other tabs touched.
