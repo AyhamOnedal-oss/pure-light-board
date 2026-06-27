@@ -25,22 +25,21 @@ export function AdminCustomerDetails() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any | null>(null);
   const [impersonating, setImpersonating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const loadCustomer = React.useCallback(async () => {
     if (!id) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }] = await Promise.all([
+    setLoading(true);
+    try {
+      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }] = await Promise.all([
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
           supabase.from('settings_plans').select('monthly_word_quota,monthly_words_used,period_start,subscription_end_date').eq('tenant_id', id).maybeSingle(),
           supabase.from('dashboard_usage_daily').select('clicks').eq('tenant_id', id),
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
+          supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
         ]);
-        if (!alive) return;
         const conn = salla || zid;
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
         const name = conn?.store_name || ws?.name || 'Unnamed Store';
@@ -54,6 +53,9 @@ export function AdminCustomerDetails() {
         const avgRating = ratingCount > 0
           ? Math.round((ratingRows.reduce((s: number, r: any) => s + Number(r.csat_rating || 0), 0) / ratingCount) * 10) / 10
           : 0;
+        const inputTokens = (tokens || []).reduce((s: number, r: any) => s + Number(r.prompt_tokens || 0), 0);
+        const outputTokens = (tokens || []).reduce((s: number, r: any) => s + Number(r.completion_tokens || 0), 0);
+        const tokensToWords = (n: number) => Math.round(n * 0.75);
         const initials = name.split(/\s+/).map((p: string) => p[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'CU';
         const planLabels: Record<string, { en: string; ar: string }> = {
           free: { en: 'Trial', ar: 'تجريبي' }, trial: { en: 'Trial', ar: 'تجريبي' },
@@ -64,7 +66,9 @@ export function AdminCustomerDetails() {
         const planKey = (ws?.plan || 'free').toString().toLowerCase();
         const planLabel = planLabels[planKey] || { en: ws?.plan || 'Trial', ar: ws?.plan || 'تجريبي' };
         const regDate = (conn?.connected_at || conn?.created_at || ws?.created_at || '').toString().slice(0, 10);
-        const statusActive = conn?.is_active ?? (ws?.status === 'active' || ws?.status === 'trial');
+        const wsStatus = (ws?.status || '').toString();
+        const statusActive = wsStatus === 'suspended' ? false : (conn?.is_active ?? (wsStatus === 'active' || wsStatus === 'trial'));
+        const isTrialPlan = planKey === 'free' || planKey === 'trial' || planKey === '';
 
         setData({
           id, name, nameAr: name, logo: initials,
@@ -74,6 +78,11 @@ export function AdminCustomerDetails() {
           platform, plan: planLabel.en, planAr: planLabel.ar,
           status: statusActive ? 'active' : 'inactive', totalWords,
           storeUrl: conn?.store_url || '',
+          isTrialPlan,
+          inputTokens, outputTokens,
+          inputWords: tokensToWords(inputTokens),
+          outputWords: tokensToWords(outputTokens),
+          totalTokenWords: tokensToWords(inputTokens + outputTokens),
           subscription: {
             plan: planLabel.en, planAr: planLabel.ar, status: statusActive ? 'active' : 'inactive',
             start: (plan?.period_start || '').toString().slice(0, 10) || '—',
@@ -85,12 +94,12 @@ export function AdminCustomerDetails() {
           notes: [],
           tickets: [],
         });
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => { loadCustomer(); }, [loadCustomer]);
 
   if (loading || !data) {
     return (
@@ -128,6 +137,27 @@ export function AdminCustomerDetails() {
   ];
 
   const cardClass = "bg-card rounded-2xl border border-border p-5 shadow-sm";
+
+  const callAction = async (action: 'end' | 'add_words' | 'renew_trial', extra: Record<string, unknown> = {}) => {
+    setBusy(action);
+    try {
+      const { data: res, error } = await supabase.functions.invoke('admin-subscription-actions', {
+        body: { tenantId: id, action, ...extra },
+      });
+      if (error || (res && (res as any).error)) {
+        throw new Error((error as any)?.message || (res as any)?.error || 'failed');
+      }
+      showToast(t('Done', 'تم بنجاح'));
+      await loadCustomer();
+    } catch (e: any) {
+      const msg = e?.message === 'trial_only'
+        ? t('Renew Trial is for the free trial plan only', 'تجديد التجربة متاح للخطة التجريبية فقط')
+        : (e?.message || t('Action failed', 'فشل تنفيذ الإجراء'));
+      showToast(msg);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const handleAddNote = () => {
     if (!noteText.trim()) return;
