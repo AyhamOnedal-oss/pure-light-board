@@ -50,37 +50,69 @@ function statusFromTenant(status: string | null | undefined): AdminCustomerRow['
  * the in-memory MOCK_CUSTOMERS so the UI always has something to show.
  */
 export async function fetchAdminCustomers(): Promise<AdminCustomerRow[]> {
-  // 1. Try real tenants
+  // 1. Real tenants enriched with plan + connection + usage
   try {
-    const { data: tenants, error } = await supabase
-      .from('settings_workspace')
-      .select('id,name,platform,status,plan,domain')
-      .order('created_at', { ascending: false });
-    if (!error && tenants && tenants.length > 0) {
+    const [{ data: tenants }, { data: plans }, { data: zid }, { data: salla }] = await Promise.all([
+      supabase.from('settings_workspace').select('id,name,platform,status,plan,domain').order('created_at', { ascending: false }),
+      supabase.from('settings_plans').select('tenant_id,monthly_word_quota,monthly_words_used'),
+      supabase.from('zid_connections').select('tenant_id,store_email,store_name,is_active'),
+      supabase.from('salla_connections').select('tenant_id,store_email,store_name,is_active'),
+    ]);
+
+    if (tenants && tenants.length > 0) {
+      const planMap = new Map<string, any>();
+      (plans || []).forEach((p: any) => planMap.set(p.tenant_id, p));
+      const zidMap = new Map<string, any>();
+      (zid || []).forEach((c: any) => zidMap.set(c.tenant_id, c));
+      const sallaMap = new Map<string, any>();
+      (salla || []).forEach((c: any) => sallaMap.set(c.tenant_id, c));
+
+      const planLabels: Record<string, { en: string; ar: string }> = {
+        free: { en: 'Trial', ar: 'تجريبي' },
+        trial: { en: 'Trial', ar: 'تجريبي' },
+        economy: { en: 'Economy', ar: 'اقتصادي' },
+        basic: { en: 'Basic', ar: 'أساسي' },
+        professional: { en: 'Professional', ar: 'احترافي' },
+        business: { en: 'Business', ar: 'أعمال' },
+        pro: { en: 'Pro', ar: 'احترافي' },
+      };
+
       const real: AdminCustomerRow[] = tenants.map((t: any) => {
-        const planRaw = (t.plan || 'free').toString();
-        const planLabels: Record<string, { en: string; ar: string }> = {
-          free: { en: 'Trial', ar: 'تجريبي' },
-          economy: { en: 'Economy', ar: 'اقتصادي' },
-          basic: { en: 'Basic', ar: 'أساسي' },
-          professional: { en: 'Professional', ar: 'احترافي' },
-          business: { en: 'Business', ar: 'أعمال' },
-        };
-        const labels = planLabels[planRaw.toLowerCase()] || { en: planRaw, ar: planRaw };
+        const z = zidMap.get(t.id);
+        const s = sallaMap.get(t.id);
+        const conn = s || z;
+        let platform: 'Zid' | 'Salla' = platformFromTenant(t.platform);
+        if (s) platform = 'Salla'; else if (z) platform = 'Zid';
+
+        const planRaw = (t.plan || 'free').toString().toLowerCase();
+        const labels = planLabels[planRaw] || { en: t.plan || 'Trial', ar: t.plan || 'تجريبي' };
+
+        const p = planMap.get(t.id);
+        const words = Number(p?.monthly_words_used || 0);
+        const totalWords = Number(p?.monthly_word_quota || 0);
+        const usagePercent = totalWords > 0 ? Math.min(100, Math.round((words / totalWords) * 100)) : 0;
+
+        let status: AdminCustomerRow['status'] = statusFromTenant(t.status);
+        if ((t.status || '').toLowerCase() === 'cancelled') status = 'cancelled';
+        else if (z?.is_active || s?.is_active) status = 'active';
+
+        const displayName = conn?.store_name || t.name || 'Unnamed Workspace';
+        const email = conn?.store_email || t.domain || '—';
+
         return {
           id: t.id,
-          name: t.name || 'Unnamed Workspace',
-          nameAr: t.name || 'مساحة عمل',
-          email: t.domain || '—',
+          name: displayName,
+          nameAr: displayName,
+          email,
           phone: '',
-          platform: platformFromTenant(t.platform),
+          platform,
           plan: labels.en,
           planAr: labels.ar,
-          usagePercent: 0,
-          words: 0,
-          totalWords: 0,
-          status: statusFromTenant(t.status),
-          logo: initials(t.name || 'CU'),
+          usagePercent,
+          words,
+          totalWords,
+          status,
+          logo: initials(displayName),
         };
       });
       return real;
