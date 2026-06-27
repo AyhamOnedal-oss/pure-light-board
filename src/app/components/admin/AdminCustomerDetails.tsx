@@ -25,22 +25,21 @@ export function AdminCustomerDetails() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any | null>(null);
   const [impersonating, setImpersonating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const loadCustomer = React.useCallback(async () => {
     if (!id) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }] = await Promise.all([
+    setLoading(true);
+    try {
+      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }] = await Promise.all([
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
           supabase.from('settings_plans').select('monthly_word_quota,monthly_words_used,period_start,subscription_end_date').eq('tenant_id', id).maybeSingle(),
           supabase.from('dashboard_usage_daily').select('clicks').eq('tenant_id', id),
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
+          supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
         ]);
-        if (!alive) return;
         const conn = salla || zid;
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
         const name = conn?.store_name || ws?.name || 'Unnamed Store';
@@ -54,6 +53,9 @@ export function AdminCustomerDetails() {
         const avgRating = ratingCount > 0
           ? Math.round((ratingRows.reduce((s: number, r: any) => s + Number(r.csat_rating || 0), 0) / ratingCount) * 10) / 10
           : 0;
+        const inputTokens = (tokens || []).reduce((s: number, r: any) => s + Number(r.prompt_tokens || 0), 0);
+        const outputTokens = (tokens || []).reduce((s: number, r: any) => s + Number(r.completion_tokens || 0), 0);
+        const tokensToWords = (n: number) => Math.round(n * 0.75);
         const initials = name.split(/\s+/).map((p: string) => p[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'CU';
         const planLabels: Record<string, { en: string; ar: string }> = {
           free: { en: 'Trial', ar: 'تجريبي' }, trial: { en: 'Trial', ar: 'تجريبي' },
@@ -64,7 +66,9 @@ export function AdminCustomerDetails() {
         const planKey = (ws?.plan || 'free').toString().toLowerCase();
         const planLabel = planLabels[planKey] || { en: ws?.plan || 'Trial', ar: ws?.plan || 'تجريبي' };
         const regDate = (conn?.connected_at || conn?.created_at || ws?.created_at || '').toString().slice(0, 10);
-        const statusActive = conn?.is_active ?? (ws?.status === 'active' || ws?.status === 'trial');
+        const wsStatus = (ws?.status || '').toString();
+        const statusActive = wsStatus === 'suspended' ? false : (conn?.is_active ?? (wsStatus === 'active' || wsStatus === 'trial'));
+        const isTrialPlan = planKey === 'free' || planKey === 'trial' || planKey === '';
 
         setData({
           id, name, nameAr: name, logo: initials,
@@ -74,6 +78,11 @@ export function AdminCustomerDetails() {
           platform, plan: planLabel.en, planAr: planLabel.ar,
           status: statusActive ? 'active' : 'inactive', totalWords,
           storeUrl: conn?.store_url || '',
+          isTrialPlan,
+          inputTokens, outputTokens,
+          inputWords: tokensToWords(inputTokens),
+          outputWords: tokensToWords(outputTokens),
+          totalTokenWords: tokensToWords(inputTokens + outputTokens),
           subscription: {
             plan: planLabel.en, planAr: planLabel.ar, status: statusActive ? 'active' : 'inactive',
             start: (plan?.period_start || '').toString().slice(0, 10) || '—',
@@ -85,12 +94,12 @@ export function AdminCustomerDetails() {
           notes: [],
           tickets: [],
         });
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => { loadCustomer(); }, [loadCustomer]);
 
   if (loading || !data) {
     return (
@@ -128,6 +137,27 @@ export function AdminCustomerDetails() {
   ];
 
   const cardClass = "bg-card rounded-2xl border border-border p-5 shadow-sm";
+
+  const callAction = async (action: 'end' | 'add_words' | 'renew_trial', extra: Record<string, unknown> = {}) => {
+    setBusy(action);
+    try {
+      const { data: res, error } = await supabase.functions.invoke('admin-subscription-actions', {
+        body: { tenantId: id, action, ...extra },
+      });
+      if (error || (res && (res as any).error)) {
+        throw new Error((error as any)?.message || (res as any)?.error || 'failed');
+      }
+      showToast(t('Done', 'تم بنجاح'));
+      await loadCustomer();
+    } catch (e: any) {
+      const msg = e?.message === 'trial_only'
+        ? t('Renew Trial is for the free trial plan only', 'تجديد التجربة متاح للخطة التجريبية فقط')
+        : (e?.message || t('Action failed', 'فشل تنفيذ الإجراء'));
+      showToast(msg);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const handleAddNote = () => {
     if (!noteText.trim()) return;
@@ -209,6 +239,20 @@ export function AdminCustomerDetails() {
               <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.usagePercent}%</p>
             </div>
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+            <div className="p-4 rounded-xl bg-muted/30 text-center">
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Input Tokens (≈ words)', 'توكنات المدخلات (≈ كلمات)')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.inputTokens.toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.inputWords.toLocaleString()}</span></p>
+            </div>
+            <div className="p-4 rounded-xl bg-muted/30 text-center">
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Output Tokens (≈ words)', 'توكنات المخرجات (≈ كلمات)')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.outputTokens.toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.outputWords.toLocaleString()}</span></p>
+            </div>
+            <div className="p-4 rounded-xl bg-muted/30 text-center">
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Total Tokens (≈ words)', 'إجمالي التوكنات (≈ كلمات)')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}>{(customer.inputTokens + customer.outputTokens).toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.totalTokenWords.toLocaleString()}</span></p>
+            </div>
+          </div>
         </motion.div>
       )}
 
@@ -217,7 +261,11 @@ export function AdminCustomerDetails() {
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-[15px]" style={{ fontWeight: 600 }}>{t('Current Subscription', 'الاشتراك الحالي')}</h3>
-              <span className="px-2.5 py-1 rounded-lg text-[11px] bg-green-500/10 text-green-500" style={{ fontWeight: 600 }}>{t('Active', 'نشط')}</span>
+              {customer.status === 'active' ? (
+                <span className="px-2.5 py-1 rounded-lg text-[11px] bg-green-500/10 text-green-500" style={{ fontWeight: 600 }}>{t('Active', 'نشط')}</span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-lg text-[11px] bg-red-500/10 text-red-500" style={{ fontWeight: 600 }}>{t('Unsubscribed', 'ملغي')}</span>
+              )}
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-3">
@@ -243,13 +291,19 @@ export function AdminCustomerDetails() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-border">
-              <button onClick={() => handleAction(t('End subscription', 'إنهاء الاشتراك'))} className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[12px] transition-colors" style={{ fontWeight: 600 }}>
+              <button onClick={() => callAction('end')} disabled={busy !== null} className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[12px] transition-colors disabled:opacity-50" style={{ fontWeight: 600 }}>
                 <XCircle className="w-3.5 h-3.5 inline me-1" /> {t('End Subscription', 'إنهاء الاشتراك')}
               </button>
-              <button onClick={() => setShowAddWords(true)} className="px-4 py-2 rounded-xl bg-[#043CC8]/10 text-[#043CC8] hover:bg-[#043CC8]/20 text-[12px] transition-colors" style={{ fontWeight: 600 }}>
+              <button onClick={() => setShowAddWords(true)} disabled={busy !== null} className="px-4 py-2 rounded-xl bg-[#043CC8]/10 text-[#043CC8] hover:bg-[#043CC8]/20 text-[12px] transition-colors disabled:opacity-50" style={{ fontWeight: 600 }}>
                 <Plus className="w-3.5 h-3.5 inline me-1" /> {t('Add Words', 'إضافة كلمات')}
               </button>
-              <button onClick={() => handleAction(t('Renew trial', 'تجديد التجربة'))} className="px-4 py-2 rounded-xl bg-green-500/10 text-green-500 hover:bg-green-500/20 text-[12px] transition-colors" style={{ fontWeight: 600 }}>
+              <button
+                onClick={() => callAction('renew_trial')}
+                disabled={busy !== null || !customer.isTrialPlan}
+                title={!customer.isTrialPlan ? t('Available for the free trial plan only', 'متاح للخطة التجريبية فقط') : ''}
+                className="px-4 py-2 rounded-xl bg-green-500/10 text-green-500 hover:bg-green-500/20 text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ fontWeight: 600 }}
+              >
                 <RefreshCw className="w-3.5 h-3.5 inline me-1" /> {t('Renew Trial', 'تجديد التجربة')}
               </button>
             </div>
@@ -263,8 +317,16 @@ export function AdminCustomerDetails() {
                   className="w-full px-4 py-3 rounded-xl bg-input-background border border-border focus:border-[#043CC8] outline-none text-[14px] text-foreground" />
                 <div className="flex gap-3 mt-4">
                   <button onClick={() => setShowAddWords(false)} className="flex-1 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>{t('Cancel', 'إلغاء')}</button>
-                  <button onClick={() => { handleAction(t('Add words', 'إضافة كلمات')); setShowAddWords(false); setAddWordsAmount(''); }}
-                    className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px]" style={{ fontWeight: 600 }}>{t('Add', 'إضافة')}</button>
+                  <button
+                    onClick={async () => {
+                      const n = Math.floor(Number(addWordsAmount));
+                      if (!n || n <= 0) { showToast(t('Enter a valid number', 'أدخل رقماً صحيحاً')); return; }
+                      setShowAddWords(false);
+                      setAddWordsAmount('');
+                      await callAction('add_words', { words: n });
+                    }}
+                    disabled={busy !== null}
+                    className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] disabled:opacity-50" style={{ fontWeight: 600 }}>{t('Add', 'إضافة')}</button>
                 </div>
               </div>
             </div>

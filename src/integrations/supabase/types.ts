@@ -139,6 +139,33 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_credit_topups: {
+        Row: {
+          added_by: string | null
+          created_at: string
+          id: string
+          note: string | null
+          tenant_id: string
+          words: number
+        }
+        Insert: {
+          added_by?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          tenant_id: string
+          words: number
+        }
+        Update: {
+          added_by?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          tenant_id?: string
+          words?: number
+        }
+        Relationships: []
+      }
       admin_customers_seed: {
         Row: {
           created_at: string

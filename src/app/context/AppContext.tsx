@@ -50,6 +50,8 @@ interface AppContextType {
   adminPermissions: AdminPermKey[];
   adminPermissionsLoading: boolean;
   adminCan: (key: AdminPermKey) => boolean;
+  isSubscriptionEnded: boolean;
+  subscriptionLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -84,6 +86,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [roleLoading, setRoleLoading] = useState(true);
   const [adminPermissions, setAdminPermissions] = useState<AdminPermKey[]>([]);
   const [adminPermissionsLoading, setAdminPermissionsLoading] = useState(true);
+  const [isSubscriptionEnded, setIsSubscriptionEnded] = useState(false);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
 
   // Tracks whether the most recent sign-out was initiated by the user
   // (Log Out button) vs. happening involuntarily (e.g. the server-side
@@ -254,6 +258,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (key: AdminPermKey) => isSuperAdmin || adminPermissions.includes(key),
     [isSuperAdmin, adminPermissions],
   );
+
+  // Subscription gate — block dashboard access when status='suspended'
+  // or subscription_end_date is in the past.
+  useEffect(() => {
+    if (!tenantId) { setIsSubscriptionEnded(false); setSubscriptionLoading(false); return; }
+    let cancelled = false;
+    setSubscriptionLoading(true);
+    (async () => {
+      const [{ data: ws }, { data: plan }] = await Promise.all([
+        supabase.from('settings_workspace').select('status').eq('id', tenantId).maybeSingle(),
+        supabase.from('settings_plans').select('subscription_end_date').eq('tenant_id', tenantId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const today = new Date().toISOString().slice(0, 10);
+      const endDate = (plan?.subscription_end_date || '').toString().slice(0, 10);
+      const ended = (ws?.status === 'suspended') || (!!endDate && endDate < today);
+      setIsSubscriptionEnded(ended);
+      setSubscriptionLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -459,6 +484,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       adminPermissions,
       adminPermissionsLoading,
       adminCan,
+      isSubscriptionEnded, subscriptionLoading,
       signIn, signUp, signOut, sendPasswordReset,
     }}>
       {children}
