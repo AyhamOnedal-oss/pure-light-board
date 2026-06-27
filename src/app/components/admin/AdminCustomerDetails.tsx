@@ -239,6 +239,20 @@ export function AdminCustomerDetails() {
               <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.usagePercent}%</p>
             </div>
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+            <div className="p-4 rounded-xl bg-muted/30 text-center">
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Input Tokens (≈ words)', 'توكنات المدخلات (≈ كلمات)')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.inputTokens.toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.inputWords.toLocaleString()}</span></p>
+            </div>
+            <div className="p-4 rounded-xl bg-muted/30 text-center">
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Output Tokens (≈ words)', 'توكنات المخرجات (≈ كلمات)')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.outputTokens.toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.outputWords.toLocaleString()}</span></p>
+            </div>
+            <div className="p-4 rounded-xl bg-muted/30 text-center">
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Total Tokens (≈ words)', 'إجمالي التوكنات (≈ كلمات)')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}>{(customer.inputTokens + customer.outputTokens).toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.totalTokenWords.toLocaleString()}</span></p>
+            </div>
+          </div>
         </motion.div>
       )}
 
@@ -273,13 +287,19 @@ export function AdminCustomerDetails() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-border">
-              <button onClick={() => handleAction(t('End subscription', 'إنهاء الاشتراك'))} className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[12px] transition-colors" style={{ fontWeight: 600 }}>
+              <button onClick={() => callAction('end')} disabled={busy !== null} className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[12px] transition-colors disabled:opacity-50" style={{ fontWeight: 600 }}>
                 <XCircle className="w-3.5 h-3.5 inline me-1" /> {t('End Subscription', 'إنهاء الاشتراك')}
               </button>
-              <button onClick={() => setShowAddWords(true)} className="px-4 py-2 rounded-xl bg-[#043CC8]/10 text-[#043CC8] hover:bg-[#043CC8]/20 text-[12px] transition-colors" style={{ fontWeight: 600 }}>
+              <button onClick={() => setShowAddWords(true)} disabled={busy !== null} className="px-4 py-2 rounded-xl bg-[#043CC8]/10 text-[#043CC8] hover:bg-[#043CC8]/20 text-[12px] transition-colors disabled:opacity-50" style={{ fontWeight: 600 }}>
                 <Plus className="w-3.5 h-3.5 inline me-1" /> {t('Add Words', 'إضافة كلمات')}
               </button>
-              <button onClick={() => handleAction(t('Renew trial', 'تجديد التجربة'))} className="px-4 py-2 rounded-xl bg-green-500/10 text-green-500 hover:bg-green-500/20 text-[12px] transition-colors" style={{ fontWeight: 600 }}>
+              <button
+                onClick={() => callAction('renew_trial')}
+                disabled={busy !== null || !customer.isTrialPlan}
+                title={!customer.isTrialPlan ? t('Available for the free trial plan only', 'متاح للخطة التجريبية فقط') : ''}
+                className="px-4 py-2 rounded-xl bg-green-500/10 text-green-500 hover:bg-green-500/20 text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ fontWeight: 600 }}
+              >
                 <RefreshCw className="w-3.5 h-3.5 inline me-1" /> {t('Renew Trial', 'تجديد التجربة')}
               </button>
             </div>
@@ -293,8 +313,16 @@ export function AdminCustomerDetails() {
                   className="w-full px-4 py-3 rounded-xl bg-input-background border border-border focus:border-[#043CC8] outline-none text-[14px] text-foreground" />
                 <div className="flex gap-3 mt-4">
                   <button onClick={() => setShowAddWords(false)} className="flex-1 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>{t('Cancel', 'إلغاء')}</button>
-                  <button onClick={() => { handleAction(t('Add words', 'إضافة كلمات')); setShowAddWords(false); setAddWordsAmount(''); }}
-                    className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px]" style={{ fontWeight: 600 }}>{t('Add', 'إضافة')}</button>
+                  <button
+                    onClick={async () => {
+                      const n = Math.floor(Number(addWordsAmount));
+                      if (!n || n <= 0) { showToast(t('Enter a valid number', 'أدخل رقماً صحيحاً')); return; }
+                      setShowAddWords(false);
+                      setAddWordsAmount('');
+                      await callAction('add_words', { words: n });
+                    }}
+                    disabled={busy !== null}
+                    className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] disabled:opacity-50" style={{ fontWeight: 600 }}>{t('Add', 'إضافة')}</button>
                 </div>
               </div>
             </div>
