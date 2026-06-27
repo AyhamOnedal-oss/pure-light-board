@@ -19,6 +19,7 @@ import {
 } from './pipelineData';
 import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
 import { LandingLeadsTable } from './LandingLeadsTable';
+import { fetchLandingLeads, type LandingLead } from '../../services/adminLandingLeads';
 
 const ALL_STATUSES: LeadStatus[] = [
   'new_lead', 'contacted', 'not_interested',
@@ -131,6 +132,29 @@ export function AdminPipelinePage() {
     }
     return { newCount, notesCount, trialExpiredCount };
   }, [visibleToUser, currentUserId]);
+
+  // -------- Landing-only header counts (NEW + NOTES). Trial-ended is intentionally excluded. --------
+  const [landingLeads, setLandingLeads] = useState<LandingLead[]>([]);
+  useEffect(() => {
+    if (activeTab !== 'landing') return;
+    (async () => {
+      try { setLandingLeads(await fetchLandingLeads()); } catch (e) { console.error(e); }
+    })();
+  }, [activeTab]);
+  const landingSeenKey = `fuqah.landing.seen.${currentUserId}`;
+  const landingSeenAt = useMemo(() => {
+    try { return Number(localStorage.getItem(landingSeenKey)) || 0; } catch { return 0; }
+  }, [landingSeenKey, landingLeads.length]);
+  const landingCounts = useMemo(() => {
+    let newCount = 0, notesCount = 0;
+    for (const l of landingLeads) {
+      const created = new Date(l.created_at).getTime();
+      if (created > landingSeenAt) newCount++;
+      const latestNote = (l.notes || []).reduce((mx, n) => Math.max(mx, new Date(n.createdAt).getTime()), 0);
+      if (latestNote > landingSeenAt) notesCount++;
+    }
+    return { newCount, notesCount };
+  }, [landingLeads, landingSeenAt]);
 
   // ---------- Handlers ----------
   const changeStatus = (id: string, status: LeadStatus) => {
@@ -269,22 +293,34 @@ export function AdminPipelinePage() {
           </div>
           <h1 className="text-[24px] flex items-center gap-2 flex-wrap" style={{ fontWeight: 700 }}>
             {activeTab === 'landing' ? t('Landing Page', 'صفحة الهبوط') : t('Customer Pipeline', 'سير العملاء')}
-            {headerCounts.newCount > 0 && (
+            {activeTab === 'pipeline' && headerCounts.newCount > 0 && (
               <span className="text-[10px] px-2 py-1 rounded-full bg-red-500 text-white inline-flex items-center gap-1 animate-pulse" style={{ fontWeight: 700 }}>
                 <Sparkles className="w-3 h-3" />
                 {headerCounts.newCount} {t('NEW', 'جديد')}
               </span>
             )}
-            {headerCounts.notesCount > 0 && (
+            {activeTab === 'pipeline' && headerCounts.notesCount > 0 && (
               <span className="text-[10px] px-2 py-1 rounded-full bg-orange-500 text-white inline-flex items-center gap-1" style={{ fontWeight: 700 }}>
                 <StickyNote className="w-3 h-3" />
                 {headerCounts.notesCount} {t('NOTES', 'ملاحظات')}
               </span>
             )}
-            {headerCounts.trialExpiredCount > 0 && (
+            {activeTab === 'pipeline' && headerCounts.trialExpiredCount > 0 && (
               <span className="text-[10px] px-2 py-1 rounded-full bg-red-600 text-white inline-flex items-center gap-1" style={{ fontWeight: 700 }}>
                 <AlertCircle className="w-3 h-3" />
                 {headerCounts.trialExpiredCount} {t('TRIAL ENDED', 'انتهى التجريبي')}
+              </span>
+            )}
+            {activeTab === 'landing' && landingCounts.newCount > 0 && (
+              <span className="text-[10px] px-2 py-1 rounded-full bg-red-500 text-white inline-flex items-center gap-1 animate-pulse" style={{ fontWeight: 700 }}>
+                <Sparkles className="w-3 h-3" />
+                {landingCounts.newCount} {t('NEW', 'جديد')}
+              </span>
+            )}
+            {activeTab === 'landing' && landingCounts.notesCount > 0 && (
+              <span className="text-[10px] px-2 py-1 rounded-full bg-orange-500 text-white inline-flex items-center gap-1" style={{ fontWeight: 700 }}>
+                <StickyNote className="w-3 h-3" />
+                {landingCounts.notesCount} {t('NOTES', 'ملاحظات')}
               </span>
             )}
           </h1>
