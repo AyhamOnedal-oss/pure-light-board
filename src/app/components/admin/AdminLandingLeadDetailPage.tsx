@@ -57,6 +57,7 @@ export function AdminLandingLeadDetailPage() {
   const [authorId, setAuthorId] = useState<string>('');
   const [noteText, setNoteText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [copyingToPipeline, setCopyingToPipeline] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -138,7 +139,21 @@ export function AdminLandingLeadDetailPage() {
     } catch (e) { console.error(e); showToast(t('Delete failed', 'تعذر الحذف')); }
   };
 
-  const copyToPipeline = () => {
+  const copyToPipeline = async () => {
+    if (copyingToPipeline || lead.copied_to_pipeline_at || lead.pipeline_customer_id) {
+      showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
+      return;
+    }
+    setCopyingToPipeline(true);
+    const pipelineId = `cus_${Date.now()}`;
+    try {
+      const copied = await markCopiedToPipeline(lead.id, pipelineId);
+      if (!copied) {
+        const fresh = await fetchLandingLead(lead.id);
+        if (fresh) setLead(fresh);
+        showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
+        return;
+      }
     const customers = loadCustomers();
     const now = new Date().toISOString();
     const mappedSource =
@@ -146,7 +161,7 @@ export function AdminLandingLeadDetailPage() {
         ? 'manual'
         : lead.source;
     const nu: PipelineCustomer = {
-      id: `cus_${Date.now()}`,
+      id: pipelineId,
       name: lead.name,
       email: lead.email,
       phone: lead.phone,
@@ -161,14 +176,21 @@ export function AdminLandingLeadDetailPage() {
       journey: [{ id: `j_init_${Date.now()}`, status: 'new_lead', date: now, note: 'Copied from Landing Page' }],
     } as PipelineCustomer;
     saveCustomers([nu, ...customers]);
-    markCopiedToPipeline(lead.id, nu.id).catch(console.error);
     setLead({
       ...lead,
       copied_to_pipeline_at: new Date().toISOString(),
       pipeline_customer_id: nu.id,
     });
     showToast(t('Copied to Customer Pipeline', 'تم النسخ إلى سير العميل'));
+    } catch (e) {
+      console.error(e);
+      showToast(t('Failed to copy lead', 'تعذر نسخ الطلب'));
+    } finally {
+      setCopyingToPipeline(false);
+    }
   };
+
+  const copiedToPipeline = Boolean(lead.copied_to_pipeline_at || lead.pipeline_customer_id);
 
   const onDelete = async () => {
     if (!lead) return;
@@ -198,9 +220,10 @@ export function AdminLandingLeadDetailPage() {
             {t('Back', 'رجوع')}
           </button>
           <div className="flex items-center gap-2">
-            <button onClick={copyToPipeline}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-white bg-[#043CC8] hover:bg-[#0330a0] text-[13px]" style={{ fontWeight: 600 }}>
-              <UserPlus className="w-4 h-4" /> {t('Copy to Pipeline', 'نسخ إلى سير العميل')}
+            <button onClick={copyToPipeline} disabled={copiedToPipeline || copyingToPipeline}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-white text-[13px] ${copiedToPipeline || copyingToPipeline ? 'bg-[#043CC8]/45 cursor-not-allowed' : 'bg-[#043CC8] hover:bg-[#0330a0]'}`} style={{ fontWeight: 600 }}>
+              {copiedToPipeline ? <CheckCircle2 className="w-4 h-4" /> : copyingToPipeline ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+              {copiedToPipeline ? t('Copied', 'تم النسخ') : t('Copy to Pipeline', 'نسخ إلى سير العميل')}
             </button>
             <button onClick={() => setConfirmDelete(true)}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-border hover:bg-muted text-[13px] text-red-500" style={{ fontWeight: 500 }}>

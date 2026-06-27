@@ -70,7 +70,7 @@ function Th({ children, align = 'start' }: { children: React.ReactNode; align?: 
 }
 
 export interface LandingLeadsTableProps {
-  onCopyToPipeline: (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>) => string;
+  onCopyToPipeline: (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>, forcedId?: string) => string;
 }
 
 export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) {
@@ -83,6 +83,7 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
   const [editLead, setEditLead] = useState<LandingLead | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [assignMenuFor, setAssignMenuFor] = useState<string | null>(null);
+  const [copyingIds, setCopyingIds] = useState<Set<string>>(() => new Set());
   const menuRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const assignRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -148,21 +149,40 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
     }));
   };
 
-  const handleCopy = (lead: LandingLead) => {
+  const handleCopy = async (lead: LandingLead) => {
+    if (lead.copied_to_pipeline_at || lead.pipeline_customer_id || copyingIds.has(lead.id)) {
+      showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
+      setRowMenuFor(null);
+      return;
+    }
+    setCopyingIds(ids => new Set(ids).add(lead.id));
+    const pipelineId = `cus_${Date.now()}`;
+    try {
+      const copied = await markCopiedToPipeline(lead.id, pipelineId);
+      if (!copied) {
+        await load();
+        showToast(t('This lead was already copied', 'تم نسخ هذا الطلب مسبقاً'));
+        return;
+      }
     const mapped = mapSource(lead.source);
-    const pipelineId = onCopyToPipeline({
+    onCopyToPipeline({
       name: lead.name,
       email: lead.email,
       phone: lead.phone,
       source: (mapped ?? 'manual') as any,
       status: 'new_lead',
-    } as any);
-    markCopiedToPipeline(lead.id, pipelineId).catch(console.error);
+    } as any, pipelineId);
     setLeads(ls => ls.map(l => l.id === lead.id
       ? { ...l, copied_to_pipeline_at: new Date().toISOString(), pipeline_customer_id: pipelineId }
       : l));
-    setRowMenuFor(null);
     showToast(t('Copied to Customer Pipeline', 'تم النسخ إلى سير العميل'));
+    } catch (e) {
+      console.error(e);
+      showToast(t('Failed to copy lead', 'تعذر نسخ الطلب'));
+    } finally {
+      setCopyingIds(ids => { const next = new Set(ids); next.delete(lead.id); return next; });
+      setRowMenuFor(null);
+    }
   };
 
   const handleDelete = async () => {
@@ -374,10 +394,10 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                               <div className="fixed inset-0 z-[60]" onClick={() => setRowMenuFor(null)} />
                               <div className="fixed z-[70] bg-card border border-border rounded-xl shadow-2xl py-1 w-56 text-start"
                                 style={{ top: rect.bottom + 4, left: Math.min(window.innerWidth - 232, Math.max(8, rect.right - 220)) }}>
-                                <button onClick={() => handleCopy(lead)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted text-[13px] text-start">
-                                  <UserPlus className="w-3.5 h-3.5 text-[#043CC8]" />
-                                  {t('Copy to Customer Pipeline', 'نسخ إلى سير العميل')}
+                                <button onClick={() => handleCopy(lead)} disabled={Boolean(lead.copied_to_pipeline_at || lead.pipeline_customer_id || copyingIds.has(lead.id))}
+                                  className={`w-full flex items-center gap-2 px-3 py-2 text-[13px] text-start ${lead.copied_to_pipeline_at || lead.pipeline_customer_id || copyingIds.has(lead.id) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted'}`}>
+                                  {lead.copied_to_pipeline_at || lead.pipeline_customer_id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <UserPlus className="w-3.5 h-3.5 text-[#043CC8]" />}
+                                  {lead.copied_to_pipeline_at || lead.pipeline_customer_id ? t('Already copied', 'تم النسخ مسبقاً') : t('Copy to Customer Pipeline', 'نسخ إلى سير العميل')}
                                 </button>
                                 <button onClick={() => { setEditLead(lead); setRowMenuFor(null); }}
                                   className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted text-[13px] text-start">
