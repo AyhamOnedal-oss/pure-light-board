@@ -5,7 +5,7 @@ import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
 import { Download, Calendar, ChevronDown, DollarSign, Users, Clock, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, AreaChart, Area } from 'recharts';
-import { fetchAdminReports, MOCK_REPORTS, type AdminReportsData } from '../../services/adminReports';
+import { fetchAdminReports, type AdminReportsData } from '../../services/adminReports';
 
 const dateFilters = [
   { key: 'current_month', en: 'Current Month', ar: 'الشهر الحالي' },
@@ -45,7 +45,7 @@ export function AdminReports() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [data, setData] = useState<AdminReportsData>(MOCK_REPORTS);
+  const [data, setData] = useState<AdminReportsData>({ zidPlans: [], sallaPlans: [], revenueByMonth: [] });
 
   useEffect(() => {
     let alive = true;
