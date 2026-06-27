@@ -769,7 +769,7 @@ export function AdminPipelinePage() {
       </>)}
 
       {activeTab === 'landing' && (
-        <LandingLeadsTable onCopyToPipeline={(data) => { const id = addCustomer(data); setActiveTab('pipeline'); return id; }} />
+        <LandingLeadsTable onCopyToPipeline={(data) => addCustomer(data)} />
       )}
 
       {/* Add customer modal */}
