@@ -33,12 +33,7 @@ export function AdminPipelinePage() {
   const { t, language, dir, showToast } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'landing'>(
-    location.pathname.endsWith('/landing') ? 'landing' : 'pipeline'
-  );
-  useEffect(() => {
-    setActiveTab(location.pathname.endsWith('/landing') ? 'landing' : 'pipeline');
-  }, [location.pathname]);
+  const activeTab: 'pipeline' | 'landing' = location.pathname.endsWith('/landing') ? 'landing' : 'pipeline';
   const [customers, setCustomers] = useState<PipelineCustomer[]>(() => reconcileCustomers(loadCustomers()));
   const [query, setQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<LeadStatus | 'all'>('all');
