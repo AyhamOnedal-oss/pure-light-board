@@ -31,6 +31,7 @@ import { AdminPipelinePage } from './components/admin/AdminPipelinePage';
 import { AdminPipelineDetailPage } from './components/admin/AdminPipelineDetailPage';
 import { AdminLandingLeadDetailPage } from './components/admin/AdminLandingLeadDetailPage';
 import { RequireAdminPermission } from './components/admin/RequireAdminPermission';
+import { AdminImpersonateRedirect } from './components/admin/AdminImpersonateRedirect';
 import { WidgetChatPage } from './components/WidgetChatPage';
 
 function RootEntry() {
@@ -93,6 +94,10 @@ export const router = createBrowserRouter([
   // Storefront chat iframe target — public, no auth, no dashboard chrome.
   // Used by supabase/functions/widget-loader as the iframe.src.
   { path: '/widget/chat', element: <WidgetChatPage /> },
+  // Public route consumed in a new tab to sign in as a merchant via a
+  // short-lived magic-link token_hash issued by the admin-impersonate
+  // edge function. The route itself does not require auth.
+  { path: '/impersonate', element: <AdminImpersonateRedirect /> },
   {
     path: '/dashboard',
     element: <RequireAuth><Layout /></RequireAuth>,
