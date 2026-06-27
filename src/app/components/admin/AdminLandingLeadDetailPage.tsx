@@ -98,7 +98,7 @@ export function AdminLandingLeadDetailPage() {
         <h3 className="text-[16px] mb-2" style={{ fontWeight: 600 }}>
           {t('Lead not found', 'الطلب غير موجود')}
         </h3>
-        <button onClick={() => navigate('/admin/pipeline')}
+        <button onClick={() => navigate('/admin/pipeline/landing')}
           className="text-[13px] text-[#043CC8] hover:underline" style={{ fontWeight: 600 }}>
           {t('Back to Landing Page leads', 'العودة إلى صفحة الهبوط')}
         </button>
@@ -171,7 +171,7 @@ export function AdminLandingLeadDetailPage() {
     try {
       await deleteLandingLead(lead.id);
       showToast(t('Lead deleted', 'تم حذف الطلب'));
-      navigate('/admin/pipeline');
+      navigate('/admin/pipeline/landing');
     } catch (e) { console.error(e); showToast(t('Delete failed', 'تعذر الحذف')); }
   };
 
