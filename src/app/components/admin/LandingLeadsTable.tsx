@@ -348,10 +348,8 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                         })()}
                       </td>
                       <td className="px-4 py-3 max-w-[360px]">
-                        {lead.customer_type === 'existing'
-                          ? (lead.subject
-                              ? <p className="text-[12.5px] whitespace-pre-wrap leading-relaxed">{lead.subject}</p>
-                              : <span className="text-muted-foreground">—</span>)
+                        {lead.subject
+                          ? <p className="text-[12.5px] whitespace-pre-wrap leading-relaxed line-clamp-2">{lead.subject}</p>
                           : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center">
