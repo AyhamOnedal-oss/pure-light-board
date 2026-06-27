@@ -32,12 +32,13 @@ export function AdminCustomerDetails() {
     (async () => {
       setLoading(true);
       try {
-        const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }] = await Promise.all([
+        const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }] = await Promise.all([
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
           supabase.from('settings_plans').select('monthly_word_quota,monthly_words_used,period_start,subscription_end_date').eq('tenant_id', id).maybeSingle(),
           supabase.from('dashboard_usage_daily').select('clicks').eq('tenant_id', id),
+          supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
         ]);
         if (!alive) return;
         const conn = salla || zid;
@@ -48,6 +49,11 @@ export function AdminCustomerDetails() {
         const words = Number(plan?.monthly_words_used || 0);
         const usagePercent = totalWords > 0 ? Math.min(100, Math.round((words / totalWords) * 100)) : 0;
         const bubbleClicks = (clicks || []).reduce((s: number, r: any) => s + Number(r.clicks || 0), 0);
+        const ratingRows = (ratings || []).filter((r: any) => r.csat_rating != null);
+        const ratingCount = ratingRows.length;
+        const avgRating = ratingCount > 0
+          ? Math.round((ratingRows.reduce((s: number, r: any) => s + Number(r.csat_rating || 0), 0) / ratingCount) * 10) / 10
+          : 0;
         const initials = name.split(/\s+/).map((p: string) => p[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'CU';
         const planLabels: Record<string, { en: string; ar: string }> = {
           free: { en: 'Trial', ar: 'تجريبي' }, trial: { en: 'Trial', ar: 'تجريبي' },
@@ -64,7 +70,7 @@ export function AdminCustomerDetails() {
           id, name, nameAr: name, logo: initials,
           email, owner: '—', ownerAr: '—',
           phone: '—', usagePercent, regDate,
-          trialWords: 0, paidWords: words, rating: 0, bubbleClicks,
+          trialWords: 0, paidWords: words, rating: avgRating, ratingCount, bubbleClicks,
           platform, plan: planLabel.en, planAr: planLabel.ar,
           status: statusActive ? 'active' : 'inactive', totalWords,
           storeUrl: conn?.store_url || '',
