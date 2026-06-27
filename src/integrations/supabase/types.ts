@@ -675,6 +675,7 @@ export type Database = {
       }
       admin_landing_leads: {
         Row: {
+          assigned_member_ids: string[]
           contact_time: string
           copied_to_pipeline_at: string | null
           created_at: string
@@ -695,6 +696,7 @@ export type Database = {
           user_agent: string | null
         }
         Insert: {
+          assigned_member_ids?: string[]
           contact_time: string
           copied_to_pipeline_at?: string | null
           created_at?: string
@@ -715,6 +717,7 @@ export type Database = {
           user_agent?: string | null
         }
         Update: {
+          assigned_member_ids?: string[]
           contact_time?: string
           copied_to_pipeline_at?: string | null
           created_at?: string

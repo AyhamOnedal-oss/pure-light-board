@@ -14,6 +14,20 @@ import {
 import { fmtDate, loadCustomers, saveCustomers, type PipelineCustomer } from './pipelineData';
 import { supabase } from '@/integrations/supabase/client';
 
+// Format a date in both Gregorian and Hijri (Arabic) calendars.
+function fmtDateBoth(iso: string, language: string): { greg: string; hijri: string } {
+  const d = new Date(iso);
+  const greg = fmtDate(iso, language as any);
+  let hijri = '';
+  try {
+    hijri = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
+      year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }).format(d);
+  } catch { hijri = ''; }
+  return { greg, hijri };
+}
+
 const MATCH_META: Record<LandingMatch, { ar: string; en: string; bg: string; fg: string; border: string }> = {
   full:    { ar: 'مطابق',         en: 'Matched',       bg: 'rgba(0,200,117,0.12)',  fg: '#00A65A', border: 'rgba(0,200,117,0.35)' },
   partial: { ar: 'مطابق جزئياً',  en: 'Partial match', bg: 'rgba(253,171,61,0.14)', fg: '#C6802B', border: 'rgba(253,171,61,0.4)' },
@@ -84,7 +98,7 @@ export function AdminLandingLeadDetailPage() {
         <h3 className="text-[16px] mb-2" style={{ fontWeight: 600 }}>
           {t('Lead not found', 'الطلب غير موجود')}
         </h3>
-        <button onClick={() => navigate('/admin/pipeline')}
+        <button onClick={() => navigate('/admin/pipeline/landing')}
           className="text-[13px] text-[#043CC8] hover:underline" style={{ fontWeight: 600 }}>
           {t('Back to Landing Page leads', 'العودة إلى صفحة الهبوط')}
         </button>
@@ -157,7 +171,7 @@ export function AdminLandingLeadDetailPage() {
     try {
       await deleteLandingLead(lead.id);
       showToast(t('Lead deleted', 'تم حذف الطلب'));
-      navigate('/admin/pipeline');
+      navigate('/admin/pipeline/landing');
     } catch (e) { console.error(e); showToast(t('Delete failed', 'تعذر الحذف')); }
   };
 
@@ -167,16 +181,14 @@ export function AdminLandingLeadDetailPage() {
       <div>
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground mb-1.5">
           <Globe className="w-3.5 h-3.5" />
-          <button onClick={() => navigate('/admin/pipeline')} className="hover:text-foreground">
-            {t('Customer Pipeline', 'سير العملاء')}
+          <button onClick={() => navigate('/admin/pipeline/landing')} className="hover:text-foreground">
+            {t('Landing Page', 'صفحة الهبوط')}
           </button>
-          <ChevronRight className={`w-3 h-3 ${dir === 'rtl' ? 'rotate-180' : ''}`} />
-          <span>{t('Landing Page', 'صفحة الهبوط')}</span>
           <ChevronRight className={`w-3 h-3 ${dir === 'rtl' ? 'rotate-180' : ''}`} />
           <span className="text-foreground">{lead.name}</span>
         </div>
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <button onClick={() => navigate('/admin/pipeline')}
+          <button onClick={() => navigate('/admin/pipeline/landing')}
             className="inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
             <ArrowLeft className={`w-4 h-4 ${dir === 'rtl' ? 'rotate-180' : ''}`} />
             {t('Back', 'رجوع')}
@@ -212,7 +224,18 @@ export function AdminLandingLeadDetailPage() {
           <Row label={t('Contact Time', 'وقت التواصل')}
                value={lead.contact_time === 'morning' ? t('Morning', 'صباحاً') : t('Evening', 'مساءً')}
                icon={lead.contact_time === 'morning' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-indigo-400" />} />
-          <Row label={t('Submitted', 'تاريخ الإرسال')} value={fmtDate(lead.created_at, language as any)} />
+          {(() => {
+            const { greg, hijri } = fmtDateBoth(lead.created_at, language);
+            return (
+              <div>
+                <p className="text-[11.5px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
+                  {t('Submitted', 'تاريخ الإرسال')}
+                </p>
+                <p className="text-[13.5px]" style={{ fontWeight: 600 }}>{greg}</p>
+                {hijri && <p className="text-[11.5px] text-muted-foreground mt-0.5" style={{ direction: 'rtl' }}>{hijri} هـ</p>}
+              </div>
+            );
+          })()}
           {lead.customer_type === 'new' && (
             <Row label={t('Source', 'المصدر')} value={lead.source || '—'} />
           )}

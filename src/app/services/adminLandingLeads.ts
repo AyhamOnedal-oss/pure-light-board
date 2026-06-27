@@ -30,6 +30,7 @@ export interface LandingLead {
   copied_to_pipeline_at: string | null;
   pipeline_customer_id: string | null;
   notes: LandingNote[];
+  assigned_member_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -41,7 +42,11 @@ export async function fetchLandingLeads(): Promise<LandingLead[]> {
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
-  return ((data as unknown as LandingLead[]) || []).map(l => ({ ...l, notes: l.notes || [] }));
+  return ((data as unknown as LandingLead[]) || []).map(l => ({
+    ...l,
+    notes: l.notes || [],
+    assigned_member_ids: l.assigned_member_ids || [],
+  }));
 }
 
 export async function fetchLandingLead(id: string): Promise<LandingLead | null> {
@@ -53,7 +58,7 @@ export async function fetchLandingLead(id: string): Promise<LandingLead | null> 
   if (error) throw error;
   if (!data) return null;
   const l = data as unknown as LandingLead;
-  return { ...l, notes: l.notes || [] };
+  return { ...l, notes: l.notes || [], assigned_member_ids: l.assigned_member_ids || [] };
 }
 
 export async function deleteLandingLead(id: string) {
@@ -64,6 +69,10 @@ export async function deleteLandingLead(id: string) {
 export async function updateLandingLead(id: string, patch: Partial<LandingLead>) {
   const { error } = await supabase.from('admin_landing_leads' as any).update(patch as any).eq('id', id);
   if (error) throw error;
+}
+
+export async function assignLandingLead(id: string, memberIds: string[]) {
+  await updateLandingLead(id, { assigned_member_ids: memberIds } as any);
 }
 
 export async function markCopiedToPipeline(id: string, pipelineCustomerId: string) {

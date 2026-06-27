@@ -2,14 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   ChevronRight, MoreHorizontal, Trash2, Edit3, UserPlus, Loader2, Sun, Moon, Globe,
-  CheckCircle2, AlertTriangle, XCircle, Info, RefreshCw, Search, Copy,
+  CheckCircle2, AlertTriangle, XCircle, Info, Search, Copy, UserCheck, Check,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
-  fetchLandingLeads, deleteLandingLead, updateLandingLead, markCopiedToPipeline,
+  fetchLandingLeads, deleteLandingLead, updateLandingLead, markCopiedToPipeline, assignLandingLead,
   type LandingLead, type LandingMatch, type LandingSource,
 } from '../../services/adminLandingLeads';
-import { SOURCE_META, type PipelineCustomer, type LeadSource } from './pipelineData';
+import {
+  SOURCE_META, type PipelineCustomer, type LeadSource,
+  loadMembers, loadSettings, saveSettings, pickRoundRobinMember,
+  getCurrentUserId, type TeamMember,
+} from './pipelineData';
 import { PlatformIcon } from './platformIcons';
 
 const MATCH_META: Record<LandingMatch, { labelAr: string; labelEn: string; bg: string; fg: string; border: string }> = {
@@ -74,12 +78,19 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
   const navigate = useNavigate();
   const [leads, setLeads] = useState<LandingLead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [rowMenuFor, setRowMenuFor] = useState<string | null>(null);
   const [editLead, setEditLead] = useState<LandingLead | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [assignMenuFor, setAssignMenuFor] = useState<string | null>(null);
   const menuRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const assignRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const [members] = useState<TeamMember[]>(() => loadMembers());
+  const currentUserId = getCurrentUserId();
+  const currentUser = useMemo(() => members.find(m => m.id === currentUserId) || members[0], [members, currentUserId]);
+  const isAdminUser = currentUser?.role === 'admin';
+  const eligibleMembers = useMemo(() => members.filter(m => m.role === 'member'), [members]);
 
   const load = async () => {
     try { setLeads(await fetchLandingLeads()); }
@@ -89,6 +100,32 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
   useEffect(() => {
     (async () => { setLoading(true); await load(); setLoading(false); })();
   }, []);
+
+  // Round-robin: when assignment mode is "round_robin", auto-assign any unassigned
+  // landing lead to the next eligible member. Runs once after the list loads.
+  useEffect(() => {
+    if (loading || leads.length === 0) return;
+    const settings = loadSettings();
+    if (settings.assignmentMode !== 'round_robin' || eligibleMembers.length === 0) return;
+    const unassigned = leads.filter(l => !(l.assigned_member_ids || []).length);
+    if (unassigned.length === 0) return;
+    let cursor = settings.roundRobinCursor;
+    const updates: Array<{ id: string; ids: string[] }> = [];
+    for (const l of unassigned) {
+      const { member, nextCursor } = pickRoundRobinMember(members, cursor);
+      if (!member) break;
+      updates.push({ id: l.id, ids: [member.id] });
+      cursor = nextCursor;
+    }
+    if (updates.length === 0) return;
+    saveSettings({ ...settings, roundRobinCursor: cursor });
+    setLeads(ls => ls.map(l => {
+      const u = updates.find(x => x.id === l.id);
+      return u ? { ...l, assigned_member_ids: u.ids } : l;
+    }));
+    updates.forEach(u => { assignLandingLead(u.id, u.ids).catch(console.error); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -101,7 +138,15 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
     );
   }, [leads, query]);
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  const setLeadAssignment = (leadId: string, memberId: string) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      const cur = l.assigned_member_ids || [];
+      const next = cur.includes(memberId) ? cur.filter(x => x !== memberId) : [...cur, memberId];
+      assignLandingLead(leadId, next).catch(console.error);
+      return { ...l, assigned_member_ids: next };
+    }));
+  };
 
   const handleCopy = (lead: LandingLead) => {
     const mapped = mapSource(lead.source);
@@ -142,11 +187,6 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
             placeholder={t('Search by name, email, phone, subject...', 'بحث بالاسم، الإيميل، الجوال، الموضوع...')}
             className="w-full ps-10 pe-4 py-2.5 rounded-xl bg-input-background border border-border text-[14px] outline-none focus:border-[#043CC8] focus:ring-2 focus:ring-[#043CC8]/20 transition-all" />
         </div>
-        <button onClick={onRefresh}
-          className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>
-          <RefreshCw className={`w-4 h-4 text-muted-foreground ${refreshing ? 'animate-spin' : ''}`} />
-          {t('Refresh', 'تحديث')}
-        </button>
       </div>
 
       {/* Monday-style table — matches Customer Pipeline */}
@@ -187,6 +227,7 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                   <Th align="center">{t('Customer Type', 'نوع العميل')}</Th>
                   <Th align="center">{t('Contact Time', 'وقت التواصل')}</Th>
                   <Th>{t('Source', 'المصدر')}</Th>
+                  <Th align="center">{t('Assign Employee', 'تكليف موظف')}</Th>
                   <Th>{t('Subject', 'الموضوع')}</Th>
                   <Th align="center">{t('Match', 'المطابقة')}</Th>
                   <Th align="center">{t('Actions', 'الإجراءات')}</Th>
@@ -202,7 +243,10 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                   return (
                     <tr
                       key={lead.id}
-                      onClick={() => navigate(`/admin/pipeline/landing/${lead.id}`)}
+                      onClick={() => {
+                        try { localStorage.setItem(`fuqah.landing.seen.${currentUserId}`, String(Date.now())); } catch {}
+                        navigate(`/admin/pipeline/landing/${lead.id}`);
+                      }}
                       className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3 text-center text-muted-foreground">{idx + 1}</td>
@@ -224,11 +268,91 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                           ? <SourceCell source={lead.source} />
                           : <span className="text-muted-foreground">—</span>}
                       </td>
+                      {/* Assign Employee */}
+                      <td className="px-4 py-3 text-center relative" onClick={e => e.stopPropagation()}>
+                        {(() => {
+                          const assigned = (lead.assigned_member_ids || [])
+                            .map(id => members.find(m => m.id === id))
+                            .filter(Boolean) as TeamMember[];
+                          return (
+                            <div className="inline-flex items-center gap-1">
+                              {assigned.length > 0 ? (
+                                <div className="flex -space-s-2">
+                                  {assigned.slice(0, 3).map(m => (
+                                    <span key={m.id} title={m.name}
+                                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] border-2 border-card"
+                                      style={{ background: m.color, fontWeight: 700 }}>
+                                      {m.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                                    </span>
+                                  ))}
+                                  {assigned.length > 3 && (
+                                    <span className="w-7 h-7 rounded-full bg-muted text-[10px] flex items-center justify-center border-2 border-card" style={{ fontWeight: 700 }}>
+                                      +{assigned.length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                                  <UserCheck className="w-3 h-3" /> {t('Unassigned', 'غير مُكلَّف')}
+                                </span>
+                              )}
+                              {isAdminUser && (
+                                <button
+                                  ref={el => { assignRefs.current[lead.id] = el; }}
+                                  onClick={() => setAssignMenuFor(assignMenuFor === lead.id ? null : lead.id)}
+                                  className="p-1 rounded-md hover:bg-muted text-muted-foreground"
+                                  title={t('Assign employee', 'تكليف موظف')}>
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {assignMenuFor === lead.id && (() => {
+                          const btn = assignRefs.current[lead.id];
+                          if (!btn) return null;
+                          const rect = btn.getBoundingClientRect();
+                          const menuH = Math.max(1, eligibleMembers.length) * 44 + 60;
+                          const flipUp = (window.innerHeight - rect.bottom) < menuH + 12 && rect.top > menuH + 12;
+                          const top = flipUp ? Math.max(8, rect.top - menuH - 4) : rect.bottom + 4;
+                          return (
+                            <>
+                              <div className="fixed inset-0 z-[60]" onClick={() => setAssignMenuFor(null)} />
+                              <div className="fixed z-[70] bg-card border border-border rounded-xl shadow-2xl py-1 w-56 text-start max-h-[70vh] overflow-y-auto"
+                                style={{ top, left: Math.min(window.innerWidth - 232, Math.max(8, rect.right - 220)) }}>
+                                <p className="px-3 py-2 text-[10px] text-muted-foreground uppercase tracking-wider" style={{ fontWeight: 700 }}>
+                                  {t('Assign to employee', 'تكليف موظف')}
+                                </p>
+                                {eligibleMembers.length === 0 && (
+                                  <p className="px-3 py-2 text-[12px] text-muted-foreground">
+                                    {t('No employees available', 'لا يوجد موظفون متاحون')}
+                                  </p>
+                                )}
+                                {eligibleMembers.map(m => {
+                                  const isAssigned = (lead.assigned_member_ids || []).includes(m.id);
+                                  return (
+                                    <button key={m.id}
+                                      onClick={() => setLeadAssignment(lead.id, m.id)}
+                                      className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-muted text-[13px] text-start">
+                                      <span className="inline-flex items-center gap-2">
+                                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px]"
+                                          style={{ background: m.color, fontWeight: 700 }}>
+                                          {m.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                                        </span>
+                                        <span className="text-[12px]" style={{ fontWeight: 600 }}>{m.name}</span>
+                                      </span>
+                                      {isAssigned && <Check className="w-3.5 h-3.5 text-[#043CC8]" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-3 max-w-[360px]">
-                        {lead.customer_type === 'existing'
-                          ? (lead.subject
-                              ? <p className="text-[12.5px] whitespace-pre-wrap leading-relaxed">{lead.subject}</p>
-                              : <span className="text-muted-foreground">—</span>)
+                        {lead.subject
+                          ? <p className="text-[12.5px] whitespace-pre-wrap leading-relaxed line-clamp-2">{lead.subject}</p>
                           : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center">
