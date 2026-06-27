@@ -261,7 +261,11 @@ export function AdminCustomerDetails() {
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-[15px]" style={{ fontWeight: 600 }}>{t('Current Subscription', 'الاشتراك الحالي')}</h3>
-              <span className="px-2.5 py-1 rounded-lg text-[11px] bg-green-500/10 text-green-500" style={{ fontWeight: 600 }}>{t('Active', 'نشط')}</span>
+              {customer.status === 'active' ? (
+                <span className="px-2.5 py-1 rounded-lg text-[11px] bg-green-500/10 text-green-500" style={{ fontWeight: 600 }}>{t('Active', 'نشط')}</span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-lg text-[11px] bg-red-500/10 text-red-500" style={{ fontWeight: 600 }}>{t('Unsubscribed', 'ملغي')}</span>
+              )}
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-3">
