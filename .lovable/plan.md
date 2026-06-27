@@ -1,55 +1,27 @@
-# Admin Customer Details — Functional Subscription Actions
+## Problem
+On `/admin/customers/:id`:
+1. The three "توكنات" tiles all show `0 / 0` even though `ai_classifier_usage` has real rows (e.g. 68,684 prompt + 3,360 completion tokens for this tenant). Root cause: RLS on `ai_classifier_usage` only allows tenant members, so admin staff queries return 0 rows.
+2. Labels mention "توكنات" — user wants words only.
+3. The الإجمالي tile is redundant (already shown as "الكلمات المستخدمة" in the subscription card).
+4. The subscription card needs input/output words rows below "الكلمات المستخدمة".
 
-The buttons in `AdminCustomerDetails.tsx` currently call a fake `handleAction` toast. Make them real, enforce expiry, and add a token usage breakdown.
+## Changes
 
-## 1. Backend (single edge function `admin-subscription-actions`)
+### 1. RLS migration — `ai_classifier_usage`
+Add a SELECT policy so admin/super_admin staff can read all rows (mirrors the policies previously added to `dashboard_usage_daily` and `conversations_main`):
+```sql
+CREATE POLICY "admins read all classifier usage"
+ON public.ai_classifier_usage FOR SELECT TO authenticated
+USING (has_role(auth.uid(),'admin') OR has_role(auth.uid(),'super_admin'));
+```
 
-New edge function gated by admin role (`admin` / `super_admin` via `auth_user_roles`). Accepts:
+### 2. `src/app/components/admin/AdminCustomerDetails.tsx`
+- Replace the 3-tile token row: keep only two tiles — **كلمات المدخلات** and **كلمات المخرجات** (remove "إجمالي التوكنات"). Drop the word "توكنات" everywhere; show plain numbers (`inputWords.toLocaleString()`).
+- In the الاشتراك الحالي card, add two rows under "الكلمات المستخدمة":
+  - `كلمات المدخلات` → `inputWords`
+  - `كلمات المخرجات` → `outputWords`
+- Keep the existing tokens→words conversion (`tokens * 0.75`, rounded) but never surface the word "token/توكن" in the UI.
 
-- `{ tenantId, action: "end" }`
-  - Set `settings_plans.subscription_end_date = today` and `settings_workspace.status = 'inactive'`.
-- `{ tenantId, action: "add_words", words }`
-  - Increase `settings_plans.monthly_word_quota` by `words` (top‑up). Log entry to `admin_impersonation_log`‑style audit (or new `admin_credit_topups` table — see Tables).
-- `{ tenantId, action: "renew_trial" }`
-  - Only allowed when current `settings_workspace.plan` is `free`/`trial`. Reset: `monthly_words_used=0`, `period_start=today`, `subscription_end_date=today+14`, `status='trial'`, clear `*_emailed_*` markers. Reject with 400 otherwise.
-
-Login gating (requirement 1 — user can't enter after end date):
-- Add a guard in `RequireAuth.tsx` (or `AppContext` bootstrap) that loads the tenant's `settings_plans.subscription_end_date` + `settings_workspace.status`; if `status='inactive'` or `subscription_end_date < today`, route to `AccountDisabledScreen` and block dashboard access. Admin impersonation already uses a separate session, so admins remain unaffected.
-
-## 2. Tables (migration)
-
-- `admin_credit_topups(tenant_id, words, added_by, note, created_at)` with admin‑only RLS + grants for `service_role` and `authenticated` admins. Used for audit + future "previous top‑ups" list.
-
-(No schema changes needed for the actions themselves; existing columns on `settings_plans`/`settings_workspace` cover it.)
-
-## 3. Frontend — `AdminCustomerDetails.tsx`
-
-- Replace `handleAction` stubs for: End Subscription, Add Words, Renew Trial — each invokes `admin-subscription-actions`, then re-fetches the customer data so UI updates immediately (status badge, used %, quota, dates).
-- "Renew Trial" button: only enabled when `plan` is `free`/`trial`; otherwise grey out + tooltip "للباقة التجريبية فقط".
-- "End Subscription" success: badge flips to ملغي, status shows ended date.
-- "Add Words" success: bumps `totalWords`, recomputes %.
-
-## 4. Token / Words Usage Breakdown (Store Info card)
-
-Pull from `ai_classifier_usage` filtered by `tenant_id`:
-- `inputTokens = sum(prompt_tokens)`
-- `outputTokens = sum(completion_tokens)`
-- Scope: only widget context — filter `source IN ('widget','widget_chat')` (verify which `source` value `chat-ai` writes; adjust filter accordingly). Includes image/vision turns since `chat-ai` logs them through the same path.
-- Conversion: words = `round(tokens * 0.75)` (standard 1 token ≈ 0.75 word). Display three new tiles next to Trial/Paid/Usage:
-  - Input Tokens → words
-  - Output Tokens → words
-  - Total Tokens → words
-- These reflect what is actually deducted from the tenant's quota (matches `monthly_words_used`).
-
-## Technical notes
-
-- Edge function uses `SUPABASE_SERVICE_ROLE_KEY` and verifies caller is admin via `auth_user_roles`.
-- `verify_jwt = true` (default) for `admin-subscription-actions`.
-- Frontend uses `supabase.functions.invoke('admin-subscription-actions', { body })`.
-- After each action call `loadCustomer()` (extracted from the existing `useEffect`) to refresh.
-- Login gate query is cheap (1 row) and runs once at auth bootstrap; cache in `AppContext`.
-
-## Out of scope
-
-- Per‑plan paid renewals (Stripe/Paddle flows) — only the trial reset is requested.
-- Detailed top‑up history UI (table exists; UI surfacing can come later).
+## Verification
+- After migration, refresh `/admin/customers/4257914d-…`: tiles show non-zero (≈ 51,513 input words, 2,520 output words for this tenant) and the subscription card lists both values under الكلمات المستخدمة.
+- Other tenants render their own real values; no regressions to merchant-side dashboards (their RLS path is unchanged).
