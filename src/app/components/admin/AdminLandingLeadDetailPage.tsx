@@ -162,8 +162,12 @@ export function AdminLandingLeadDetailPage() {
     } as PipelineCustomer;
     saveCustomers([nu, ...customers]);
     markCopiedToPipeline(lead.id, nu.id).catch(console.error);
+    setLead({
+      ...lead,
+      copied_to_pipeline_at: new Date().toISOString(),
+      pipeline_customer_id: nu.id,
+    });
     showToast(t('Copied to Customer Pipeline', 'تم النسخ إلى سير العميل'));
-    navigate(`/admin/pipeline/${nu.id}`);
   };
 
   const onDelete = async () => {
