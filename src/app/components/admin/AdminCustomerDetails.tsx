@@ -239,18 +239,14 @@ export function AdminCustomerDetails() {
               <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.usagePercent}%</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Input Tokens (≈ words)', 'توكنات المدخلات (≈ كلمات)')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.inputTokens.toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.inputWords.toLocaleString()}</span></p>
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Input Words', 'كلمات المدخلات')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.inputWords} /></p>
             </div>
             <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Output Tokens (≈ words)', 'توكنات المخرجات (≈ كلمات)')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.outputTokens.toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.outputWords.toLocaleString()}</span></p>
-            </div>
-            <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Total Tokens (≈ words)', 'إجمالي التوكنات (≈ كلمات)')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}>{(customer.inputTokens + customer.outputTokens).toLocaleString()} <span className="text-[12px] text-muted-foreground">/ {customer.totalTokenWords.toLocaleString()}</span></p>
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Output Words', 'كلمات المخرجات')}</p>
+              <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.outputWords} /></p>
             </div>
           </div>
         </motion.div>
@@ -273,6 +269,8 @@ export function AdminCustomerDetails() {
                 <div className="flex justify-between text-[13px]"><span className="text-muted-foreground">{t('Start Date', 'تاريخ البدء')}</span><span style={{ fontWeight: 500 }}>{customer.subscription.start}</span></div>
                 <div className="flex justify-between text-[13px]"><span className="text-muted-foreground">{t('End Date', 'تاريخ الانتهاء')}</span><span style={{ fontWeight: 500 }}>{customer.subscription.end}</span></div>
                 <div className="flex justify-between text-[13px]"><span className="text-muted-foreground">{t('Used Words', 'الكلمات المستخدمة')}</span><span style={{ fontWeight: 600 }}>{customer.subscription.usedWords.toLocaleString()}</span></div>
+                <div className="flex justify-between text-[13px]"><span className="text-muted-foreground">{t('Input Words', 'كلمات المدخلات')}</span><span style={{ fontWeight: 600 }}>{customer.inputWords.toLocaleString()}</span></div>
+                <div className="flex justify-between text-[13px]"><span className="text-muted-foreground">{t('Output Words', 'كلمات المخرجات')}</span><span style={{ fontWeight: 600 }}>{customer.outputWords.toLocaleString()}</span></div>
               </div>
               <div className="flex items-center justify-center">
                 <div className="relative">
