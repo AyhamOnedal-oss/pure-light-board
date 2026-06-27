@@ -5,7 +5,6 @@ import { motion } from 'motion/react';
 import { Search, Filter, ChevronDown, Eye, LogIn, X } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { PlatformIcon } from './platformIcons';
-import { loadCustomers, reconcileCustomers, PipelineCustomer } from './pipelineData';
 import { fetchAdminCustomers, type AdminCustomerRow } from '../../services/adminCustomers';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -19,14 +18,11 @@ export function AdminCustomers() {
   const [filterPlan, setFilterPlan] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
-  const [pipelineCustomers, setPipelineCustomers] = useState<PipelineCustomer[]>(
-    () => reconcileCustomers(loadCustomers())
-  );
   const [dbCustomers, setDbCustomers] = useState<Customer[]>([]);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
   const impersonate = async (c: Customer) => {
-    if (c.id.startsWith('pipe_') || c.id.startsWith('mock-')) {
+    if (c.id.startsWith('mock-')) {
       showToast(t('No real user linked to this row', 'لا يوجد مستخدم حقيقي لهذا السجل'));
       return;
     }
@@ -50,61 +46,7 @@ export function AdminCustomers() {
     return () => { alive = false; };
   }, []);
 
-  // Re-sync whenever the window regains focus so that changes made in the
-  // Pipeline page (status transitions, new subscribers, cancellations) appear
-  // automatically in this list.
-  useEffect(() => {
-    const sync = () => setPipelineCustomers(reconcileCustomers(loadCustomers()));
-    window.addEventListener('focus', sync);
-    window.addEventListener('storage', sync);
-    return () => {
-      window.removeEventListener('focus', sync);
-      window.removeEventListener('storage', sync);
-    };
-  }, []);
-
-  const combined = useMemo<Customer[]>(() => {
-    const mapped: Customer[] = pipelineCustomers
-      .filter(p => p.status === 'subscribed' || p.status === 'subscription_expired' || p.status === 'cancelled')
-      .map(p => {
-        const platform: 'Zid' | 'Salla' =
-          p.subscribedVia === 'salla' ? 'Salla'
-            : p.subscribedVia === 'zid' ? 'Zid'
-            : p.source === 'salla' ? 'Salla'
-            : 'Zid';
-        return { p, platform };
-      })
-      .map(({ p, platform }) => {
-        const planKey = (p.subscriptionPlan || 'economy').toLowerCase();
-        const planLabel: Record<string, { en: string; ar: string }> = {
-          economy: { en: 'Economy', ar: 'اقتصادي' },
-          basic: { en: 'Basic', ar: 'أساسي' },
-          professional: { en: 'Professional', ar: 'احترافي' },
-          business: { en: 'Business', ar: 'أعمال' },
-        };
-        const info = planLabel[planKey] || { en: p.subscriptionPlan || 'Economy', ar: p.subscriptionPlan || 'اقتصادي' };
-        const status: Customer['status'] =
-          p.status === 'subscribed' ? 'active'
-            : p.status === 'subscription_expired' ? 'inactive'
-            : 'cancelled';
-        return {
-          id: `pipe_${p.id}`,
-          name: p.name,
-          nameAr: p.name,
-          email: p.email,
-          phone: p.phone,
-          platform,
-          plan: info.en,
-          planAr: info.ar,
-          usagePercent: 0,
-          words: 0,
-          totalWords: 0,
-          status,
-          logo: p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'CU',
-        };
-      });
-    return [...mapped, ...dbCustomers];
-  }, [pipelineCustomers, dbCustomers]);
+  const combined = useMemo<Customer[]>(() => dbCustomers, [dbCustomers]);
 
   const filtered = combined.filter(c => {
     const q = search.toLowerCase();
