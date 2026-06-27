@@ -168,7 +168,11 @@ export function AdminPipelinePage() {
     setDeleteId(null);
     showToast(t('Customer removed', 'تم حذف العميل'));
   };
-  const addCustomer = (data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>, forcedId?: string): string => {
+  const addCustomer = (
+    data: Omit<PipelineCustomer, 'id' | 'createdAt' | 'viewed' | 'journey' | 'notes' | 'customValues'>,
+    forcedId?: string,
+    showAddedToast = true,
+  ): string => {
     const now = new Date().toISOString();
     // Round-robin auto-assignment
     let assignedMemberIds: string[] = [];
@@ -190,9 +194,11 @@ export function AdminPipelinePage() {
     setCustomers(cs => [nu, ...cs]);
     setShowAddCustomer(false);
     const assignName = assignedMemberIds[0] ? members.find(m => m.id === assignedMemberIds[0])?.name : null;
-    showToast(assignName
-      ? t(`Customer added — assigned to ${assignName}`, `تم إضافة العميل — مُكلّف لـ${assignName}`)
-      : t('Customer added', 'تم إضافة العميل'));
+    if (showAddedToast) {
+      showToast(assignName
+        ? t(`Customer added — assigned to ${assignName}`, `تم إضافة العميل — مُكلّف لـ${assignName}`)
+        : t('Customer added', 'تم إضافة العميل'));
+    }
     return nu.id;
   };
 
@@ -769,7 +775,7 @@ export function AdminPipelinePage() {
       </>)}
 
       {activeTab === 'landing' && (
-        <LandingLeadsTable onCopyToPipeline={(data) => addCustomer(data)} />
+        <LandingLeadsTable onCopyToPipeline={(data, forcedId) => addCustomer(data, forcedId, false)} />
       )}
 
       {/* Add customer modal */}
