@@ -97,7 +97,7 @@ export const router = createBrowserRouter([
   // Public route consumed in a new tab to sign in as a merchant via a
   // short-lived magic-link token_hash issued by the admin-impersonate
   // edge function. The route itself does not require auth.
-  { path: '/admin/impersonate', element: <AdminImpersonateRedirect /> },
+  { path: '/impersonate', element: <AdminImpersonateRedirect /> },
   {
     path: '/dashboard',
     element: <RequireAuth><Layout /></RequireAuth>,
