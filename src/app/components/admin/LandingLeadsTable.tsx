@@ -2,14 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   ChevronRight, MoreHorizontal, Trash2, Edit3, UserPlus, Loader2, Sun, Moon, Globe,
-  CheckCircle2, AlertTriangle, XCircle, Info, RefreshCw, Search, Copy,
+  CheckCircle2, AlertTriangle, XCircle, Info, Search, Copy, UserCheck, Check,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
-  fetchLandingLeads, deleteLandingLead, updateLandingLead, markCopiedToPipeline,
+  fetchLandingLeads, deleteLandingLead, updateLandingLead, markCopiedToPipeline, assignLandingLead,
   type LandingLead, type LandingMatch, type LandingSource,
 } from '../../services/adminLandingLeads';
-import { SOURCE_META, type PipelineCustomer, type LeadSource } from './pipelineData';
+import {
+  SOURCE_META, type PipelineCustomer, type LeadSource,
+  loadMembers, loadSettings, saveSettings, pickRoundRobinMember,
+  getCurrentUserId, type TeamMember,
+} from './pipelineData';
 import { PlatformIcon } from './platformIcons';
 
 const MATCH_META: Record<LandingMatch, { labelAr: string; labelEn: string; bg: string; fg: string; border: string }> = {
@@ -74,12 +78,19 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
   const navigate = useNavigate();
   const [leads, setLeads] = useState<LandingLead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [rowMenuFor, setRowMenuFor] = useState<string | null>(null);
   const [editLead, setEditLead] = useState<LandingLead | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [assignMenuFor, setAssignMenuFor] = useState<string | null>(null);
   const menuRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const assignRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const [members] = useState<TeamMember[]>(() => loadMembers());
+  const currentUserId = getCurrentUserId();
+  const currentUser = useMemo(() => members.find(m => m.id === currentUserId) || members[0], [members, currentUserId]);
+  const isAdminUser = currentUser?.role === 'admin';
+  const eligibleMembers = useMemo(() => members.filter(m => m.role === 'member'), [members]);
 
   const load = async () => {
     try { setLeads(await fetchLandingLeads()); }
@@ -89,6 +100,32 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
   useEffect(() => {
     (async () => { setLoading(true); await load(); setLoading(false); })();
   }, []);
+
+  // Round-robin: when assignment mode is "round_robin", auto-assign any unassigned
+  // landing lead to the next eligible member. Runs once after the list loads.
+  useEffect(() => {
+    if (loading || leads.length === 0) return;
+    const settings = loadSettings();
+    if (settings.assignmentMode !== 'round_robin' || eligibleMembers.length === 0) return;
+    const unassigned = leads.filter(l => !(l.assigned_member_ids || []).length);
+    if (unassigned.length === 0) return;
+    let cursor = settings.roundRobinCursor;
+    const updates: Array<{ id: string; ids: string[] }> = [];
+    for (const l of unassigned) {
+      const { member, nextCursor } = pickRoundRobinMember(members, cursor);
+      if (!member) break;
+      updates.push({ id: l.id, ids: [member.id] });
+      cursor = nextCursor;
+    }
+    if (updates.length === 0) return;
+    saveSettings({ ...settings, roundRobinCursor: cursor });
+    setLeads(ls => ls.map(l => {
+      const u = updates.find(x => x.id === l.id);
+      return u ? { ...l, assigned_member_ids: u.ids } : l;
+    }));
+    updates.forEach(u => { assignLandingLead(u.id, u.ids).catch(console.error); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -101,7 +138,15 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
     );
   }, [leads, query]);
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  const setLeadAssignment = (leadId: string, memberId: string) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      const cur = l.assigned_member_ids || [];
+      const next = cur.includes(memberId) ? cur.filter(x => x !== memberId) : [...cur, memberId];
+      assignLandingLead(leadId, next).catch(console.error);
+      return { ...l, assigned_member_ids: next };
+    }));
+  };
 
   const handleCopy = (lead: LandingLead) => {
     const mapped = mapSource(lead.source);
@@ -142,11 +187,6 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
             placeholder={t('Search by name, email, phone, subject...', 'بحث بالاسم، الإيميل، الجوال، الموضوع...')}
             className="w-full ps-10 pe-4 py-2.5 rounded-xl bg-input-background border border-border text-[14px] outline-none focus:border-[#043CC8] focus:ring-2 focus:ring-[#043CC8]/20 transition-all" />
         </div>
-        <button onClick={onRefresh}
-          className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>
-          <RefreshCw className={`w-4 h-4 text-muted-foreground ${refreshing ? 'animate-spin' : ''}`} />
-          {t('Refresh', 'تحديث')}
-        </button>
       </div>
 
       {/* Monday-style table — matches Customer Pipeline */}
