@@ -3,14 +3,16 @@ import { useApp } from '../../context/AppContext';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { Search, Filter, ChevronDown, Eye, LogIn, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { PlatformIcon } from './platformIcons';
 import { loadCustomers, reconcileCustomers, PipelineCustomer } from './pipelineData';
 import { fetchAdminCustomers, MOCK_CUSTOMERS, type AdminCustomerRow } from '../../services/adminCustomers';
+import { supabase } from '@/integrations/supabase/client';
 
 type Customer = AdminCustomerRow;
 
 export function AdminCustomers() {
-  const { t, language } = useApp();
+  const { t, language, showToast } = useApp();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [filterPlatform, setFilterPlatform] = useState('all');
@@ -21,6 +23,24 @@ export function AdminCustomers() {
     () => reconcileCustomers(loadCustomers())
   );
   const [dbCustomers, setDbCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+
+  const impersonate = async (c: Customer) => {
+    if (c.id.startsWith('pipe_') || c.id.startsWith('mock-')) {
+      showToast(t('No real user linked to this row', 'لا يوجد مستخدم حقيقي لهذا السجل'));
+      return;
+    }
+    setImpersonatingId(c.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-impersonate', { body: { tenantId: c.id } });
+      if (error || !data?.url) throw new Error((error as any)?.message || data?.error || 'Failed');
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch (e: any) {
+      showToast(t('Login as customer failed: ', 'تعذر الدخول كعميل: ') + (e?.message || ''));
+    } finally {
+      setImpersonatingId(null);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -197,8 +217,12 @@ export function AdminCustomers() {
                       <button onClick={() => navigate(`/admin/customers/${c.id}`)} className="p-2 rounded-lg hover:bg-muted transition-colors" title={t('Details', 'التفاصيل')}>
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button className="p-2 rounded-lg hover:bg-muted transition-colors text-[#043CC8]" title={t('Login as Customer', 'الدخول كعميل')}>
-                        <LogIn className="w-4 h-4" />
+                      <button
+                        onClick={() => impersonate(c)}
+                        disabled={impersonatingId === c.id}
+                        className="p-2 rounded-lg hover:bg-muted transition-colors text-[#043CC8] disabled:opacity-50"
+                        title={t('Login as Customer', 'الدخول كعميل')}>
+                        {impersonatingId === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
                       </button>
                     </div>
                   </td>
