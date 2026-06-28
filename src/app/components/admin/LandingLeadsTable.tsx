@@ -42,13 +42,19 @@ function SourceCell({ source }: { source: LandingSource | null }) {
     source === 'ecommerce' ? t('Online Store', 'متجر إلكتروني') :
     source === 'other'     ? t('Other', 'أخرى') :
     meta ? t(meta.label, meta.labelAr) : source;
+  // Icon-only for known social/ad platforms; fall back to a small label for
+  // ecommerce/other where no logo exists.
+  const hasIcon = mapped && mapped !== 'manual' && PLATFORM_ICONS[mapped as string];
+  if (hasIcon) {
+    return (
+      <span className="inline-flex items-center justify-center" title={label as string}>
+        <PlatformIcon id={mapped as string} size={22} alt={label as string} />
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-2 text-[12.5px]" style={{ fontWeight: 600 }}>
-      {mapped && mapped !== 'manual' ? (
-        <PlatformIcon platform={mapped as any} size={16} />
-      ) : (
-        <Globe className="w-4 h-4 text-muted-foreground" />
-      )}
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground" title={label as string}>
+      <Globe className="w-4 h-4" />
       <span>{label}</span>
     </span>
   );
