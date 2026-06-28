@@ -30,6 +30,7 @@ export function AdminCustomerDetails() {
   const [savingNote, setSavingNote] = useState(false);
   const [confirm, setConfirm] = useState<null | { action: string; title: string; message: string }>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [deleteNoteId, setDeleteNoteId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
@@ -42,7 +43,32 @@ export function AdminCustomerDetails() {
       .select('id,author_name,author_id,body,created_at')
       .eq('tenant_id', id)
       .order('created_at', { ascending: false });
-    setNotes((rows as any[]) || []);
+    const list = ((rows as any[]) || []).slice();
+    // Resolve real display names for any legacy notes that stored the email
+    // as the author_name. Look them up by author_id in settings_account.
+    const idsToResolve = Array.from(new Set(
+      list
+        .filter((n) => !n.author_name || /@/.test(String(n.author_name)))
+        .map((n) => n.author_id)
+        .filter((x): x is string => !!x)
+    ));
+    if (idsToResolve.length > 0) {
+      const { data: accs } = await supabase
+        .from('settings_account')
+        .select('user_id, display_name')
+        .in('user_id', idsToResolve);
+      const nameMap = new Map<string, string>();
+      (accs || []).forEach((a: any) => {
+        if (a.display_name) nameMap.set(a.user_id, a.display_name);
+      });
+      list.forEach((n) => {
+        if (!n.author_name || /@/.test(String(n.author_name))) {
+          const resolved = n.author_id ? nameMap.get(n.author_id) : null;
+          if (resolved) n.author_name = resolved;
+        }
+      });
+    }
+    setNotes(list);
   }, [id]);
 
   const loadCustomer = React.useCallback(async () => {
@@ -58,7 +84,7 @@ export function AdminCustomerDetails() {
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
           supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
           supabase.from('admin_activity_events').select('event_type,actor_name,metadata,created_at').eq('tenant_id', id).order('created_at', { ascending: false }).limit(50),
-          supabase.from('settings_chat_design').select('bubble_enabled').eq('tenant_id', id).maybeSingle(),
+          supabase.from('settings_train_ai').select('bubble_visible, bubble_admin_locked').eq('tenant_id', id).maybeSingle(),
         ]);
         const conn = salla || zid;
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
@@ -137,7 +163,8 @@ export function AdminCustomerDetails() {
           status: statusActive ? 'active' : 'inactive', totalWords,
           storeUrl: conn?.store_url || '',
           isTrialPlan,
-          bubbleEnabled: (design as any)?.bubble_enabled !== false,
+          bubbleEnabled: (design as any)?.bubble_visible !== false,
+          bubbleAdminLocked: (design as any)?.bubble_admin_locked === true,
           inputTokens, outputTokens,
           inputWords,
           outputWords,
@@ -226,7 +253,16 @@ export function AdminCustomerDetails() {
     try {
       const { data: u } = await supabase.auth.getUser();
       const meta = (u.user?.user_metadata || {}) as any;
-      const authorName = meta.full_name || meta.name || u.user?.email || 'Admin';
+      let authorName: string = meta.full_name || meta.name || '';
+      if (!authorName && u.user?.id) {
+        const { data: acc } = await supabase
+          .from('settings_account')
+          .select('display_name')
+          .eq('user_id', u.user.id)
+          .maybeSingle();
+        if (acc?.display_name) authorName = acc.display_name;
+      }
+      if (!authorName) authorName = 'Admin';
       const { error } = await supabase.from('admin_customer_notes' as any).insert({
         tenant_id: id,
         author_id: u.user?.id ?? null,
@@ -284,8 +320,6 @@ export function AdminCustomerDetails() {
       { key: 'enable_account', icon: CheckCircle, label: t('Enable Account', 'تفعيل الحساب'),
         color: 'text-green-500 bg-green-500/10 hover:bg-green-500/20',
         disabled: isActive },
-      { key: 'send_email_reset', icon: Mail, label: t('Send Email Reset Link', 'إرسال رابط إعادة تعيين البريد'),
-        color: 'text-[#043CC8] bg-[#043CC8]/10 hover:bg-[#043CC8]/20' },
       { key: 'send_password_reset', icon: Key, label: t('Send Password Reset Link', 'إرسال رابط إعادة تعيين كلمة المرور'),
         color: 'text-[#a855f7] bg-[#a855f7]/10 hover:bg-[#a855f7]/20' },
       { key: 'enable_bubble', icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'),
@@ -528,7 +562,7 @@ export function AdminCustomerDetails() {
                     </span>
                   </div>
                   {currentUserId === n.author_id && (
-                    <button onClick={() => deleteNote(n.id)} className="text-red-500 hover:text-red-600 p-1" title={t('Delete', 'حذف')}>
+                    <button onClick={() => setDeleteNoteId(n.id)} className="text-red-500 hover:text-red-600 p-1" title={t('Delete', 'حذف')}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -537,6 +571,19 @@ export function AdminCustomerDetails() {
               </div>
             ))}
           </div>
+          {deleteNoteId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-sm">
+                <h3 className="text-[16px] mb-2" style={{ fontWeight: 700 }}>{t('Delete note?', 'حذف الملاحظة؟')}</h3>
+                <p className="text-[13px] text-muted-foreground mb-5">{t('This action cannot be undone.', 'لا يمكن التراجع عن هذا الإجراء.')}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeleteNoteId(null)} className="flex-1 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>{t('Cancel', 'إلغاء')}</button>
+                  <button onClick={async () => { const nid = deleteNoteId; setDeleteNoteId(null); if (nid) await deleteNote(nid); }}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 text-white hover:bg-red-600 text-[13px]" style={{ fontWeight: 600 }}>{t('Delete', 'حذف')}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
 
