@@ -17,7 +17,7 @@ import {
   loadMembers, loadSettings, saveSettings, pickRoundRobinMember,
   getCurrentUserId, type TeamMember,
 } from './pipelineData';
-import { PlatformIcon } from './platformIcons';
+import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
 
 const MATCH_META: Record<LandingMatch, { labelAr: string; labelEn: string; bg: string; fg: string; border: string }> = {
   full:    { labelAr: 'مطابق',         labelEn: 'Matched',         bg: 'rgba(0,200,117,0.12)',  fg: '#00A65A', border: 'rgba(0,200,117,0.35)' },
