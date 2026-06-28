@@ -256,7 +256,20 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
               </p>
             </div>
           ) : (
-            <table className="w-full text-[13px]" style={{ minWidth: 1200 }}>
+            <table className="w-full text-[13px] table-fixed" style={{ minWidth: 1080 }}>
+              <colgroup>
+                <col style={{ width: 48 }} />
+                <col />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 220 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 90 }} />
+                <col style={{ width: 120 }} />
+                <col />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 90 }} />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <Th align="center">#</Th>
@@ -312,8 +325,8 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                           })()}
                         </span>
                       </td>
-                      <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }}>{lead.phone}</td>
-                      <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600 }}>{lead.email}</td>
+                      <td className="px-4 py-3 truncate" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }} title={lead.phone}>{lead.phone}</td>
+                      <td className="px-4 py-3 truncate" style={{ color: mismatchColor, fontWeight: 600 }} title={lead.email}>{lead.email}</td>
                       <td className="px-4 py-3 text-center text-[13px]" style={{ color: mismatchColor, fontWeight: mismatchColor ? 600 : undefined }}>
                         {lead.customer_type === 'new' ? t('New Lead', 'عميل جديد') : t('Existing', 'عميل حالي')}
                       </td>
