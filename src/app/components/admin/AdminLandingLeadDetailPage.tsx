@@ -13,6 +13,8 @@ import {
 } from '../../services/adminLandingLeads';
 import { fmtDate, loadCustomers, saveCustomers, type PipelineCustomer } from './pipelineData';
 import { supabase } from '@/integrations/supabase/client';
+import { markLeadOpened } from '../../utils/landingNotifications';
+import { getCurrentUserId } from './pipelineData';
 
 // Format a date in both Gregorian and Hijri (Arabic) calendars.
 function fmtDateBoth(iso: string, language: string): { greg: string; hijri: string } {
@@ -69,6 +71,12 @@ export function AdminLandingLeadDetailPage() {
       finally { setLoading(false); }
     })();
   }, [id]);
+
+  // Clear per-row notifications for this lead as soon as we've loaded it.
+  useEffect(() => {
+    if (!lead) return;
+    markLeadOpened(getCurrentUserId(), lead.id, (lead.notes || []).length);
+  }, [lead?.id, lead?.notes?.length]);
 
   useEffect(() => {
     (async () => {
