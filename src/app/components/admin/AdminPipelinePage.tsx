@@ -183,7 +183,9 @@ export function AdminPipelinePage() {
     const nu: PipelineCustomer = {
       id: forcedId ?? `cus_${Date.now()}`,
       ...data,
-      createdAt: now, viewed: true,
+      // When a lead is copied from the Landing Page (showAddedToast=false),
+      // mark it as unread so the "Customer Pipeline" sidebar badge increments.
+      createdAt: now, viewed: showAddedToast ? true : false,
       notes: [], customValues: {},
       assignedMemberIds,
       journey: [{ id: `j_init_${Date.now()}`, status: data.status, date: now, note: 'Created manually' }],

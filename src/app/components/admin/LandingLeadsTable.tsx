@@ -17,7 +17,7 @@ import {
   loadMembers, loadSettings, saveSettings, pickRoundRobinMember,
   getCurrentUserId, type TeamMember,
 } from './pipelineData';
-import { PlatformIcon } from './platformIcons';
+import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
 
 const MATCH_META: Record<LandingMatch, { labelAr: string; labelEn: string; bg: string; fg: string; border: string }> = {
   full:    { labelAr: 'مطابق',         labelEn: 'Matched',         bg: 'rgba(0,200,117,0.12)',  fg: '#00A65A', border: 'rgba(0,200,117,0.35)' },
@@ -42,13 +42,19 @@ function SourceCell({ source }: { source: LandingSource | null }) {
     source === 'ecommerce' ? t('Online Store', 'متجر إلكتروني') :
     source === 'other'     ? t('Other', 'أخرى') :
     meta ? t(meta.label, meta.labelAr) : source;
+  // Icon-only for known social/ad platforms; fall back to a small label for
+  // ecommerce/other where no logo exists.
+  const hasIcon = mapped && mapped !== 'manual' && PLATFORM_ICONS[mapped as string];
+  if (hasIcon) {
+    return (
+      <span className="inline-flex items-center justify-center" title={label as string}>
+        <PlatformIcon id={mapped as string} size={22} alt={label as string} />
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-2 text-[12.5px]" style={{ fontWeight: 600 }}>
-      {mapped && mapped !== 'manual' ? (
-        <PlatformIcon platform={mapped as any} size={16} />
-      ) : (
-        <Globe className="w-4 h-4 text-muted-foreground" />
-      )}
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground" title={label as string}>
+      <Globe className="w-4 h-4" />
       <span>{label}</span>
     </span>
   );
@@ -250,7 +256,20 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
               </p>
             </div>
           ) : (
-            <table className="w-full text-[13px]" style={{ minWidth: 1200 }}>
+            <table className="w-full text-[13px] table-fixed" style={{ minWidth: 1080 }}>
+              <colgroup>
+                <col style={{ width: 48 }} />
+                <col />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 220 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 90 }} />
+                <col style={{ width: 120 }} />
+                <col />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 90 }} />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <Th align="center">#</Th>
@@ -306,8 +325,8 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                           })()}
                         </span>
                       </td>
-                      <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }}>{lead.phone}</td>
-                      <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600 }}>{lead.email}</td>
+                      <td className="px-4 py-3 truncate" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }} title={lead.phone}>{lead.phone}</td>
+                      <td className="px-4 py-3 truncate" style={{ color: mismatchColor, fontWeight: 600 }} title={lead.email}>{lead.email}</td>
                       <td className="px-4 py-3 text-center text-[13px]" style={{ color: mismatchColor, fontWeight: mismatchColor ? 600 : undefined }}>
                         {lead.customer_type === 'new' ? t('New Lead', 'عميل جديد') : t('Existing', 'عميل حالي')}
                       </td>
