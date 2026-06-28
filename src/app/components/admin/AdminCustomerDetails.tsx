@@ -508,18 +508,32 @@ export function AdminCustomerDetails() {
             <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
               placeholder={t('Add a note...', 'أضف ملاحظة...')}
               className="w-full h-20 px-4 py-3 rounded-xl bg-input-background border border-border focus:border-[#043CC8] outline-none text-[13px] text-foreground resize-none" />
-            <button onClick={handleAddNote} className="mt-2 px-4 py-2 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] transition-colors" style={{ fontWeight: 600 }}>
-              <Plus className="w-3.5 h-3.5 inline me-1" /> {t('Add Note', 'إضافة ملاحظة')}
+            <button onClick={handleAddNote} disabled={savingNote || !noteText.trim()}
+              className="mt-2 px-4 py-2 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] transition-colors disabled:opacity-50" style={{ fontWeight: 600 }}>
+              {savingNote ? <Loader2 className="w-3.5 h-3.5 inline me-1 animate-spin" /> : <Plus className="w-3.5 h-3.5 inline me-1" />}
+              {t('Add Note', 'إضافة ملاحظة')}
             </button>
           </div>
           <div className="space-y-3">
-            {customer.notes.map(n => (
+            {notes.length === 0 && (
+              <p className="text-[12px] text-muted-foreground">{t('No notes yet', 'لا توجد ملاحظات بعد')}</p>
+            )}
+            {notes.map(n => (
               <div key={n.id} className="p-3 rounded-xl bg-muted/30">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[12px]" style={{ fontWeight: 600 }}>{language === 'ar' ? n.staffAr : n.staff}</span>
-                  <span className="text-[10px] text-muted-foreground">{n.date}</span>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px]" style={{ fontWeight: 600 }}>{n.author_name || '—'}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(n.created_at).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-GB')}
+                    </span>
+                  </div>
+                  {currentUserId === n.author_id && (
+                    <button onClick={() => deleteNote(n.id)} className="text-red-500 hover:text-red-600 p-1" title={t('Delete', 'حذف')}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <p className="text-[13px]">{language === 'ar' ? n.contentAr : n.content}</p>
+                <p className="text-[13px] whitespace-pre-wrap">{n.body}</p>
               </div>
             ))}
           </div>
@@ -530,23 +544,32 @@ export function AdminCustomerDetails() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={cardClass}>
           <h3 className="text-[15px] mb-4" style={{ fontWeight: 600 }}>{t('Account Actions', 'إجراءات الحساب')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              { icon: Ban, label: t('Disable Account', 'تعطيل الحساب'), color: 'text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20' },
-              { icon: CheckCircle, label: t('Enable Account', 'تفعيل الحساب'), color: 'text-green-500 bg-green-500/10 hover:bg-green-500/20' },
-              { icon: Mail, label: t('Send Email Reset Link', 'إرسال رابط إعادة تعيين البريد'), color: 'text-[#043CC8] bg-[#043CC8]/10 hover:bg-[#043CC8]/20' },
-              { icon: Key, label: t('Send Password Reset Link', 'إرسال رابط إعادة تعيين كلمة المرور'), color: 'text-[#a855f7] bg-[#a855f7]/10 hover:bg-[#a855f7]/20' },
-              { icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'), color: 'text-[#00FFF4] bg-[#00FFF4]/10 hover:bg-[#00FFF4]/20' },
-              { icon: ShieldOff, label: t('Disable Bubble', 'تعطيل الفقاعة'), color: 'text-orange-500 bg-orange-500/10 hover:bg-orange-500/20' },
-              { icon: RefreshCw, label: t('Refresh Link', 'تحديث الرابط'), color: 'text-cyan-500 bg-cyan-500/10 hover:bg-cyan-500/20' },
-              { icon: Trash2, label: t('Delete Account', 'حذف الحساب'), color: 'text-red-500 bg-red-500/10 hover:bg-red-500/20' },
-            ].map((action, i) => (
-              <button key={i} onClick={() => handleAction(action.label)}
-                className={`flex items-center gap-3 p-4 rounded-xl transition-colors ${action.color}`}>
-                <action.icon className="w-5 h-5 shrink-0" />
-                <span className="text-[13px]" style={{ fontWeight: 600 }}>{action.label}</span>
+            {ACCOUNT_ACTIONS.map((a) => (
+              <button key={a.key}
+                onClick={() => {
+                  if (a.confirm) setConfirm({ action: a.key, title: a.confirmTitle!, message: a.confirmMsg! });
+                  else runAccountAction(a.key);
+                }}
+                disabled={a.disabled || busy !== null}
+                className={`flex items-center gap-3 p-4 rounded-xl transition-colors ${a.color} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                {busy === a.key ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <a.icon className="w-5 h-5 shrink-0" />}
+                <span className="text-[13px]" style={{ fontWeight: 600 }}>{a.label}</span>
               </button>
             ))}
           </div>
+          {confirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-sm">
+                <h3 className="text-[16px] mb-2" style={{ fontWeight: 700 }}>{confirm.title}</h3>
+                <p className="text-[13px] text-muted-foreground mb-5">{confirm.message}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setConfirm(null)} className="flex-1 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>{t('Cancel', 'إلغاء')}</button>
+                  <button onClick={async () => { const a = confirm.action; setConfirm(null); await runAccountAction(a); }}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 text-white hover:bg-red-600 text-[13px]" style={{ fontWeight: 600 }}>{t('Confirm', 'تأكيد')}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </div>
