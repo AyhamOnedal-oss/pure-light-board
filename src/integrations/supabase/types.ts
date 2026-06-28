@@ -1796,6 +1796,7 @@ export type Database = {
       }
       settings_train_ai: {
         Row: {
+          bubble_admin_locked: boolean
           bubble_visible: boolean
           created_at: string
           file_name: string | null
@@ -1807,6 +1808,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bubble_admin_locked?: boolean
           bubble_visible?: boolean
           created_at?: string
           file_name?: string | null
@@ -1818,6 +1820,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bubble_admin_locked?: boolean
           bubble_visible?: boolean
           created_at?: string
           file_name?: string | null
