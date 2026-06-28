@@ -26,6 +26,24 @@ export function AdminCustomerDetails() {
   const [data, setData] = useState<any | null>(null);
   const [impersonating, setImpersonating] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Array<{ id: string; author_name: string | null; author_id: string | null; body: string; created_at: string }>>([]);
+  const [savingNote, setSavingNote] = useState(false);
+  const [confirm, setConfirm] = useState<null | { action: string; title: string; message: string }>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
+
+  const loadNotes = React.useCallback(async () => {
+    if (!id) return;
+    const { data: rows } = await supabase
+      .from('admin_customer_notes' as any)
+      .select('id,author_name,author_id,body,created_at')
+      .eq('tenant_id', id)
+      .order('created_at', { ascending: false });
+    setNotes((rows as any[]) || []);
+  }, [id]);
 
   const loadCustomer = React.useCallback(async () => {
     if (!id) return;
@@ -139,6 +157,7 @@ export function AdminCustomerDetails() {
   }, [id]);
 
   useEffect(() => { loadCustomer(); }, [loadCustomer]);
+  useEffect(() => { loadNotes(); }, [loadNotes]);
 
   if (loading || !data) {
     return (
@@ -198,15 +217,88 @@ export function AdminCustomerDetails() {
     }
   };
 
-  const handleAddNote = () => {
-    if (!noteText.trim()) return;
-    showToast(t('Note added successfully', 'تمت إضافة الملاحظة بنجاح'));
-    setNoteText('');
+  const handleAddNote = async () => {
+    const body = noteText.trim();
+    if (!body || !id) return;
+    setSavingNote(true);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const meta = (u.user?.user_metadata || {}) as any;
+      const authorName = meta.full_name || meta.name || u.user?.email || 'Admin';
+      const { error } = await supabase.from('admin_customer_notes' as any).insert({
+        tenant_id: id,
+        author_id: u.user?.id ?? null,
+        author_name: authorName,
+        body,
+      });
+      if (error) throw error;
+      setNoteText('');
+      await loadNotes();
+      showToast(t('Note added successfully', 'تمت إضافة الملاحظة بنجاح'));
+    } catch (e: any) {
+      showToast(t('Failed to add note: ', 'تعذرت إضافة الملاحظة: ') + (e?.message || ''));
+    } finally {
+      setSavingNote(false);
+    }
   };
 
-  const handleAction = (action: string) => {
-    showToast(`${action} ${t('completed successfully', 'تم بنجاح')}`);
+  const deleteNote = async (noteId: string) => {
+    const { error } = await supabase.from('admin_customer_notes' as any).delete().eq('id', noteId);
+    if (error) { showToast(error.message); return; }
+    await loadNotes();
   };
+
+  const runAccountAction = async (action: string) => {
+    setBusy(action);
+    try {
+      const { data: res, error } = await supabase.functions.invoke('admin-subscription-actions', {
+        body: { tenantId: id, action },
+      });
+      if (error || (res && (res as any).error)) {
+        throw new Error((error as any)?.message || (res as any)?.error || 'failed');
+      }
+      showToast(t('Done', 'تم بنجاح'));
+      if (action === 'delete_account') {
+        navigate('/admin/customers');
+        return;
+      }
+      await loadCustomer();
+    } catch (e: any) {
+      showToast(t('Action failed: ', 'فشل تنفيذ الإجراء: ') + (e?.message || ''));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const ACCOUNT_ACTIONS = (() => {
+    const isActive = data?.status === 'active';
+    const bubbleOn = data?.bubbleEnabled !== false;
+    return [
+      { key: 'disable_account', icon: Ban, label: t('Disable Account', 'تعطيل الحساب'),
+        color: 'text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20',
+        disabled: !isActive, confirm: true,
+        confirmTitle: t('Disable account?', 'تعطيل الحساب؟'),
+        confirmMsg: t('User will not be able to sign in until re-enabled.', 'لن يتمكن المستخدم من الدخول حتى تتم إعادة تفعيل الحساب.') },
+      { key: 'enable_account', icon: CheckCircle, label: t('Enable Account', 'تفعيل الحساب'),
+        color: 'text-green-500 bg-green-500/10 hover:bg-green-500/20',
+        disabled: isActive },
+      { key: 'send_email_reset', icon: Mail, label: t('Send Email Reset Link', 'إرسال رابط إعادة تعيين البريد'),
+        color: 'text-[#043CC8] bg-[#043CC8]/10 hover:bg-[#043CC8]/20' },
+      { key: 'send_password_reset', icon: Key, label: t('Send Password Reset Link', 'إرسال رابط إعادة تعيين كلمة المرور'),
+        color: 'text-[#a855f7] bg-[#a855f7]/10 hover:bg-[#a855f7]/20' },
+      { key: 'enable_bubble', icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'),
+        color: 'text-[#00FFF4] bg-[#00FFF4]/10 hover:bg-[#00FFF4]/20',
+        disabled: bubbleOn },
+      { key: 'disable_bubble', icon: ShieldOff, label: t('Disable Bubble', 'تعطيل الفقاعة'),
+        color: 'text-orange-500 bg-orange-500/10 hover:bg-orange-500/20',
+        disabled: !bubbleOn },
+      { key: 'delete_account', icon: Trash2, label: t('Delete Account', 'حذف الحساب'),
+        color: 'text-red-500 bg-red-500/10 hover:bg-red-500/20',
+        confirm: true,
+        confirmTitle: t('Delete account permanently?', 'حذف الحساب نهائياً؟'),
+        confirmMsg: t('All data for this customer will be removed and cannot be recovered.', 'سيتم حذف جميع بيانات هذا العميل ولا يمكن استعادتها.') },
+    ];
+  })();
 
   return (
     <div className="space-y-6">
