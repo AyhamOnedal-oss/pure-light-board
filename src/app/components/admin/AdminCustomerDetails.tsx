@@ -49,7 +49,7 @@ export function AdminCustomerDetails() {
     if (!id) return;
     setLoading(true);
     try {
-      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }, { data: events }] = await Promise.all([
+      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }, { data: events }, { data: design }] = await Promise.all([
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
@@ -58,6 +58,7 @@ export function AdminCustomerDetails() {
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
           supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
           supabase.from('admin_activity_events').select('event_type,actor_name,metadata,created_at').eq('tenant_id', id).order('created_at', { ascending: false }).limit(50),
+          supabase.from('settings_chat_design').select('bubble_enabled').eq('tenant_id', id).maybeSingle(),
         ]);
         const conn = salla || zid;
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
@@ -136,6 +137,7 @@ export function AdminCustomerDetails() {
           status: statusActive ? 'active' : 'inactive', totalWords,
           storeUrl: conn?.store_url || '',
           isTrialPlan,
+          bubbleEnabled: (design as any)?.bubble_enabled !== false,
           inputTokens, outputTokens,
           inputWords,
           outputWords,
