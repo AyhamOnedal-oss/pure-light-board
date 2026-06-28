@@ -78,6 +78,27 @@ Deno.serve(async (req) => {
       target_email: email,
     });
 
+    // Resolve actor name for the activity log
+    let actorName: string | null = null;
+    const { data: staffRow } = await admin
+      .from('admin_team_members')
+      .select('full_name')
+      .eq('user_id', adminUserId)
+      .maybeSingle();
+    if (staffRow?.full_name) actorName = staffRow.full_name as string;
+    if (!actorName) {
+      const { data: actorUser } = await admin.auth.admin.getUserById(adminUserId);
+      const meta = (actorUser?.user?.user_metadata || {}) as any;
+      actorName = meta.display_name || meta.full_name || (actorUser?.user?.email?.split('@')[0]) || null;
+    }
+    await admin.from('admin_activity_events').insert({
+      tenant_id: tenantId,
+      event_type: 'impersonation',
+      actor_user_id: adminUserId,
+      actor_name: actorName,
+      metadata: { target_email: email },
+    });
+
     // The client opens /admin/impersonate?... in a new tab, which exchanges
     // the token_hash for a session in that tab only (per-tab storage).
     const redirectUrl = `${base}/impersonate?token_hash=${encodeURIComponent(tokenHash)}&email=${encodeURIComponent(email)}&tenant=${encodeURIComponent(tenantId)}`;

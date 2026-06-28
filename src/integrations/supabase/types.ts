@@ -32,6 +32,36 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_activity_events: {
+        Row: {
+          actor_name: string | null
+          actor_user_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json
+          tenant_id: string
+        }
+        Insert: {
+          actor_name?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          tenant_id: string
+        }
+        Update: {
+          actor_name?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          tenant_id?: string
+        }
+        Relationships: []
+      }
       admin_ad_campaigns: {
         Row: {
           clicks: number
