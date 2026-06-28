@@ -199,11 +199,26 @@ export function AdminCustomerDetails() {
 
   const impersonate = async () => {
     setImpersonating(true);
+    // Open a placeholder tab synchronously inside the click handler so
+    // browsers don't treat the later navigation as a programmatic popup.
+    const popup = window.open('about:blank', '_blank');
     try {
       const { data: res, error } = await supabase.functions.invoke('admin-impersonate', { body: { tenantId: id } });
       if (error || !res?.url) throw new Error((error as any)?.message || res?.error || 'Failed');
-      window.open(res.url, '_blank', 'noopener,noreferrer');
+      if (popup && !popup.closed) {
+        popup.location.href = res.url;
+      } else {
+        // Popup was blocked — fall back to same-tab navigation.
+        const goHere = window.confirm(
+          t(
+            'Popup was blocked. Open the customer session in this tab?',
+            'تم حظر النافذة المنبثقة. هل تريد فتح جلسة العميل في هذا التبويب؟',
+          ),
+        );
+        if (goHere) window.location.assign(res.url);
+      }
     } catch (e: any) {
+      try { popup?.close(); } catch { /* ignore */ }
       showToast(t('Login as customer failed: ', 'تعذر الدخول كعميل: ') + (e?.message || ''));
     } finally {
       setImpersonating(false);
@@ -311,7 +326,7 @@ export function AdminCustomerDetails() {
   const ACCOUNT_ACTIONS = (() => {
     const isActive = data?.status === 'active';
     const bubbleOn = data?.bubbleEnabled !== false;
-    return [
+    const actions: any[] = [
       { key: 'disable_account', icon: Ban, label: t('Disable Account', 'تعطيل الحساب'),
         color: 'text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20',
         disabled: !isActive, confirm: true,
@@ -322,18 +337,25 @@ export function AdminCustomerDetails() {
         disabled: isActive },
       { key: 'send_password_reset', icon: Key, label: t('Send Password Reset Link', 'إرسال رابط إعادة تعيين كلمة المرور'),
         color: 'text-[#a855f7] bg-[#a855f7]/10 hover:bg-[#a855f7]/20' },
-      { key: 'enable_bubble', icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'),
-        color: 'text-[#00FFF4] bg-[#00FFF4]/10 hover:bg-[#00FFF4]/20',
-        disabled: bubbleOn },
-      { key: 'disable_bubble', icon: ShieldOff, label: t('Disable Bubble', 'تعطيل الفقاعة'),
+    ];
+    // Strict mutual exclusivity: only one bubble action shown at a time.
+    if (bubbleOn) {
+      actions.push({ key: 'disable_bubble', icon: ShieldOff, label: t('Disable Bubble', 'تعطيل الفقاعة'),
         color: 'text-orange-500 bg-orange-500/10 hover:bg-orange-500/20',
-        disabled: !bubbleOn },
+        title: t('Bubble is currently active — click to disable.', 'الفقاعة مفعّلة حالياً — اضغط للتعطيل.') });
+    } else {
+      actions.push({ key: 'enable_bubble', icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'),
+        color: 'text-[#00FFF4] bg-[#00FFF4]/10 hover:bg-[#00FFF4]/20',
+        title: t('Bubble is currently disabled — click to enable.', 'الفقاعة معطّلة حالياً — اضغط للتفعيل.') });
+    }
+    actions.push(
       { key: 'delete_account', icon: Trash2, label: t('Delete Account', 'حذف الحساب'),
         color: 'text-red-500 bg-red-500/10 hover:bg-red-500/20',
         confirm: true,
         confirmTitle: t('Delete account permanently?', 'حذف الحساب نهائياً؟'),
         confirmMsg: t('All data for this customer will be removed and cannot be recovered.', 'سيتم حذف جميع بيانات هذا العميل ولا يمكن استعادتها.') },
-    ];
+    );
+    return actions;
   })();
 
   return (
@@ -598,6 +620,7 @@ export function AdminCustomerDetails() {
                   else runAccountAction(a.key);
                 }}
                 disabled={a.disabled || busy !== null}
+                title={a.title}
                 className={`flex items-center gap-3 p-4 rounded-xl transition-colors ${a.color} disabled:opacity-40 disabled:cursor-not-allowed`}>
                 {busy === a.key ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <a.icon className="w-5 h-5 shrink-0" />}
                 <span className="text-[13px]" style={{ fontWeight: 600 }}>{a.label}</span>
