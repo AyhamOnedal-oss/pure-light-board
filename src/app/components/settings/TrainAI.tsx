@@ -194,12 +194,17 @@ export function TrainAI() {
           <div className="flex-1">
             <p className="text-[14px]" style={{ fontWeight: 600 }}>{t('Chat Bubble Visibility', 'إظهار فقاعة المحادثة')}</p>
             <p className="text-[13px] text-muted-foreground mt-0.5">{t('Show or hide the chat bubble in your store', 'إظهار أو إخفاء فقاعة المحادثة في متجرك')}</p>
+            {bubbleAdminLocked && (
+              <p className="text-[12px] text-red-500 mt-2" style={{ fontWeight: 600 }}>
+                {t('Bubble has been disabled by admin. Please contact support to re-enable.', 'تم تعطيل الفقاعة من قبل الإدارة. للتفعيل، يرجى التواصل مع الدعم.')}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button onClick={resetBubble} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground" title={t('Reset to default', 'إعادة تعيين')}>
+            <button onClick={resetBubble} disabled={bubbleAdminLocked} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed" title={t('Reset to default', 'إعادة تعيين')}>
               <RotateCcw className="w-4 h-4" />
             </button>
-            <button onClick={toggleBubble} className="shrink-0">
+            <button onClick={toggleBubble} disabled={bubbleAdminLocked} className="shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
               {bubbleVisible ? <ToggleRight className="w-11 h-11 text-[#043CC8]" /> : <ToggleLeft className="w-11 h-11 text-muted-foreground" />}
             </button>
             {hasBubbleChanges && (
