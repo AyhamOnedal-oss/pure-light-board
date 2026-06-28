@@ -31,7 +31,7 @@ export function AdminCustomerDetails() {
     if (!id) return;
     setLoading(true);
     try {
-      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }] = await Promise.all([
+      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }, { data: events }] = await Promise.all([
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
@@ -39,6 +39,7 @@ export function AdminCustomerDetails() {
           supabase.from('dashboard_usage_daily').select('clicks').eq('tenant_id', id),
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
           supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
+          supabase.from('admin_activity_events').select('event_type,actor_name,metadata,created_at').eq('tenant_id', id).order('created_at', { ascending: false }).limit(50),
         ]);
         const conn = salla || zid;
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
@@ -77,6 +78,37 @@ export function AdminCustomerDetails() {
         const statusActive = wsStatus === 'suspended' ? false : (conn?.is_active ?? (wsStatus === 'active' || wsStatus === 'trial'));
         const isTrialPlan = planKey === 'free' || planKey === 'trial' || planKey === '';
 
+        const planArMap: Record<string, string> = {
+          free: 'تجريبي', trial: 'تجريبي', economy: 'اقتصادي', basic: 'أساسي',
+          professional: 'احترافي', pro: 'احترافي', business: 'أعمال',
+        };
+        const fmtDate = (iso: string) => {
+          const d = new Date(iso);
+          const pad = (n: number) => n.toString().padStart(2, '0');
+          return `${pad(d.getHours())}:${pad(d.getMinutes())} ${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+        };
+        const activity = (events || []).map((e: any) => {
+          const m = e.metadata || {};
+          const date = fmtDate(e.created_at);
+          if (e.event_type === 'plan_change') {
+            const to = String(m.to_plan || '').toLowerCase();
+            const toAr = planArMap[to] || m.to_plan || '';
+            const toEn = (m.to_plan || '').toString();
+            return { type: 'success', event: `Upgrade to ${toEn}`, eventAr: `ترقية إلى ${toAr}`, date };
+          }
+          if (e.event_type === 'usage_80') {
+            return { type: 'alert', event: 'Word usage alert - 80%', eventAr: 'تنبيه استنفاد الكلمات - 80%', date };
+          }
+          if (e.event_type === 'resubscribe') {
+            return { type: 'success', event: 'Subscription renewed', eventAr: 'تم تجديد الاشتراك', date };
+          }
+          if (e.event_type === 'impersonation') {
+            const first = (e.actor_name || '').toString().trim().split(/\s+/)[0] || 'Admin';
+            return { type: 'admin', event: `${first} logged in as customer`, eventAr: `${first} دخل كعميل`, date };
+          }
+          return { type: 'success', event: e.event_type, eventAr: e.event_type, date };
+        });
+
         setData({
           id, name, nameAr: name, logo: initials,
           email, owner: '—', ownerAr: '—',
@@ -97,7 +129,7 @@ export function AdminCustomerDetails() {
             usedWords: words, trialWords: 0,
           },
           previousSubs: [],
-          activity: [],
+          activity,
           notes: [],
           tickets: [],
         });
