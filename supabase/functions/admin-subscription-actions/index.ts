@@ -182,63 +182,48 @@ Deno.serve(async (req) => {
 
   if (action === "enable_bubble" || action === "disable_bubble") {
     const enabled = action === "enable_bubble";
-    // upsert to be safe if no design row exists yet
+    // Write to settings_train_ai.bubble_visible (the field the widget and
+    // the merchant-facing toggle in Train AI actually read), and set the
+    // admin lock flag so the merchant cannot re-enable it themselves.
     const { data: existing } = await admin
-      .from("settings_chat_design").select("tenant_id").eq("tenant_id", tenantId).maybeSingle();
+      .from("settings_train_ai").select("tenant_id").eq("tenant_id", tenantId).maybeSingle();
     let err;
     if (existing) {
       ({ error: err } = await admin
-        .from("settings_chat_design")
-        .update({ bubble_enabled: enabled, updated_at: new Date().toISOString() })
+        .from("settings_train_ai")
+        .update({
+          bubble_visible: enabled,
+          bubble_admin_locked: !enabled,
+          updated_at: new Date().toISOString(),
+        })
         .eq("tenant_id", tenantId));
     } else {
       ({ error: err } = await admin
-        .from("settings_chat_design")
-        .insert({ tenant_id: tenantId, bubble_enabled: enabled }));
+        .from("settings_train_ai")
+        .insert({
+          tenant_id: tenantId,
+          mode: "prompt",
+          bubble_visible: enabled,
+          bubble_admin_locked: !enabled,
+        }));
     }
     if (err) return json({ error: err.message }, 500);
     await logActivity(enabled ? "bubble_enabled" : "bubble_disabled");
     return json({ ok: true });
   }
 
-  if (action === "send_password_reset" || action === "send_email_reset") {
+  if (action === "send_password_reset") {
     const owners = await getTenantOwners();
     if (!owners.length) return json({ error: "no_owner" }, 404);
     const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
     let sent = 0;
     for (const o of owners) {
       if (!o.email) continue;
-      if (action === "send_password_reset") {
-        await fetch(`${url}/functions/v1/send-password-reset`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: service, Authorization: `Bearer ${service}` },
-          body: JSON.stringify({ email: o.email, redirectTo: `${APP_URL}/reset-password` }),
-        });
-      } else {
-        // Email reset = send magic link so they can sign in and change email from settings.
-        const { data: linkData } = await admin.auth.admin.generateLink({
-          type: "magiclink", email: o.email,
-          options: { redirectTo: `${APP_URL}/settings` },
-        } as any);
-        const link = (linkData?.properties as any)?.action_link;
-        if (link) {
-          const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
-          if (apiKey) {
-            const from = Deno.env.get("RESEND_FROM_EMAIL") || "Fuqah AI <support@fuqah.net>";
-            const html = `<div dir="rtl" style="font-family:sans-serif;color:#1e3a5f;line-height:1.7">
-              <h2>تحديث البريد الإلكتروني</h2>
-              <p>تم طلب رابط لتسجيل الدخول وتحديث البريد الإلكتروني لحسابك في فقاعة AI.</p>
-              <p><a href="${link}" style="display:inline-block;background:#1e3a6b;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none">تسجيل الدخول وتحديث البريد</a></p>
-              <p style="color:#5a6b85;font-size:13px">إن لم تطلب ذلك يمكنك تجاهل الرسالة.</p>
-            </div>`;
-            await fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ from, to: [o.email], subject: "تحديث البريد الإلكتروني — فقاعة AI", html }),
-            });
-          }
-        }
-      }
+      await fetch(`${url}/functions/v1/send-password-reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: service, Authorization: `Bearer ${service}` },
+        body: JSON.stringify({ email: o.email, redirectTo: `${APP_URL}/reset-password` }),
+      });
       sent++;
     }
     await logActivity(action, { recipients: sent });
