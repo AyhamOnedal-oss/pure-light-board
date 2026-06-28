@@ -80,6 +80,7 @@ export function TrainAI() {
   const [savedPrompt, setSavedPrompt] = useState(DEFAULT_TRAIN.prompt);
   const [bubbleVisible, setBubbleVisible] = useState(DEFAULT_TRAIN.bubbleVisible);
   const [savedBubbleVisible, setSavedBubbleVisible] = useState(DEFAULT_TRAIN.bubbleVisible);
+  const [bubbleAdminLocked, setBubbleAdminLocked] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   // Load from Supabase
@@ -90,13 +91,16 @@ export function TrainAI() {
     (async () => {
       const { data } = await supabase
         .from('settings_train_ai')
-        .select('prompt, bubble_visible')
+        .select('prompt, bubble_visible, bubble_admin_locked')
         .eq('tenant_id', tenantId)
         .maybeSingle();
       if (cancelled) return;
       const loaded = (data?.prompt && data.prompt.trim().length > 0) ? data.prompt : DEFAULT_PROMPT;
       setPrompt(loaded); setSavedPrompt(loaded);
-      setBubbleVisible(data?.bubble_visible ?? true); setSavedBubbleVisible(data?.bubble_visible ?? true);
+      const locked = (data as any)?.bubble_admin_locked === true;
+      setBubbleAdminLocked(locked);
+      const effective = locked ? false : (data?.bubble_visible ?? true);
+      setBubbleVisible(effective); setSavedBubbleVisible(effective);
       setLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -144,10 +148,15 @@ export function TrainAI() {
   };
 
   const toggleBubble = () => {
+    if (bubbleAdminLocked) return;
     setBubbleVisible(!bubbleVisible);
   };
 
   const saveBubble = async () => {
+    if (bubbleAdminLocked) {
+      showToast(t('Bubble is disabled by admin', 'تم تعطيل الفقاعة من قبل الإدارة'));
+      return;
+    }
     const ok = await persist({ prompt: savedPrompt, bubbleVisible });
     if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
     setSavedBubbleVisible(bubbleVisible);
@@ -159,6 +168,7 @@ export function TrainAI() {
   };
 
   const resetBubble = async () => {
+    if (bubbleAdminLocked) return;
     const ok = await persist({ prompt: savedPrompt, bubbleVisible: true });
     if (!ok) { showToast(t('Failed to save', 'فشل الحفظ')); return; }
     setBubbleVisible(true); setSavedBubbleVisible(true);
