@@ -55,7 +55,14 @@ export function AdminCustomerDetails() {
           : 0;
         const inputTokens = (tokens || []).reduce((s: number, r: any) => s + Number(r.prompt_tokens || 0), 0);
         const outputTokens = (tokens || []).reduce((s: number, r: any) => s + Number(r.completion_tokens || 0), 0);
-        const tokensToWords = (n: number) => Math.round(n * 0.75);
+        // Split the already-billed total (`monthly_words_used`) proportionally
+        // by the input/output token ratio so that inputWords + outputWords
+        // always equals الكلمات المستخدمة — works for both Arabic text and
+        // image traffic without picking a fragile per-language constant.
+        const totalTok = inputTokens + outputTokens;
+        const ratioIn = totalTok > 0 ? inputTokens / totalTok : 0.9;
+        const inputWords = words > 0 ? Math.round(words * ratioIn) : 0;
+        const outputWords = words > 0 ? Math.max(0, words - inputWords) : 0;
         const initials = name.split(/\s+/).map((p: string) => p[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'CU';
         const planLabels: Record<string, { en: string; ar: string }> = {
           free: { en: 'Trial', ar: 'تجريبي' }, trial: { en: 'Trial', ar: 'تجريبي' },
@@ -80,9 +87,9 @@ export function AdminCustomerDetails() {
           storeUrl: conn?.store_url || '',
           isTrialPlan,
           inputTokens, outputTokens,
-          inputWords: tokensToWords(inputTokens),
-          outputWords: tokensToWords(outputTokens),
-          totalTokenWords: tokensToWords(inputTokens + outputTokens),
+          inputWords,
+          outputWords,
+          totalTokenWords: words,
           subscription: {
             plan: planLabel.en, planAr: planLabel.ar, status: statusActive ? 'active' : 'inactive',
             start: (plan?.period_start || '').toString().slice(0, 10) || '—',
