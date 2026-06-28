@@ -8,6 +8,10 @@ import {
   LogOut, ChevronUp, Send, UserCog, Megaphone, GitBranch
 } from 'lucide-react';
 import { loadCustomers, countNewLeads } from './pipelineData';
+import { getCurrentUserId } from './pipelineData';
+import { fetchLandingLeads, type LandingLead } from '../../services/adminLandingLeads';
+import { countSidebarBadge } from '../../utils/landingNotifications';
+import { supabase } from '@/integrations/supabase/client';
 import logoDark from '../../../imports/FUQAH-AI-Logo-01@2x.png';
 import logoLight from '../../../imports/FUQAH-AI-Logo-02@2x.png';
 
@@ -20,6 +24,7 @@ export function AdminLayout() {
   const [invoicesOpen, setInvoicesOpen] = useState(false);
   const [customersOpen, setCustomersOpen] = useState(false);
   const [newLeads, setNewLeads] = useState<number>(0);
+  const [landingBadge, setLandingBadge] = useState<number>(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [sendNotifOpen, setSendNotifOpen] = useState(false);
   const [notifTitle, setNotifTitle] = useState('');
@@ -46,6 +51,25 @@ export function AdminLayout() {
     refresh();
     const id = window.setInterval(refresh, 20_000);
     return () => window.clearInterval(id);
+  }, [location.pathname]);
+
+  // Landing page sidebar badge — counts new leads + leads with new notes.
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const leads = (await fetchLandingLeads()) as unknown as LandingLead[];
+        if (!alive) return;
+        setLandingBadge(countSidebarBadge(getCurrentUserId(), leads as any));
+      } catch {}
+    };
+    refresh();
+    const channel = supabase
+      .channel('admin-landing-sidebar')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_landing_leads' }, () => { refresh(); })
+      .subscribe();
+    const id = window.setInterval(refresh, 60_000);
+    return () => { alive = false; window.clearInterval(id); supabase.removeChannel(channel); };
   }, [location.pathname]);
 
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
@@ -188,6 +212,11 @@ export function AdminLayout() {
                 {item.showBadge && newLeads > 0 && (
                   <span className="ms-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-red-500 text-white text-[10px] inline-flex items-center justify-center" style={{ fontWeight: 800 }}>
                     {newLeads}
+                  </span>
+                )}
+                {item.to === '/admin/pipeline/landing' && landingBadge > 0 && (
+                  <span className="ms-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-red-500 text-white text-[10px] inline-flex items-center justify-center animate-pulse" style={{ fontWeight: 800 }}>
+                    {landingBadge}
                   </span>
                 )}
               </NavLink>
