@@ -266,7 +266,7 @@ export function AdminLandingLeadDetailPage() {
                   {t('Submitted', 'تاريخ الإرسال')}
                 </p>
                 <p className="text-[13.5px]" style={{ fontWeight: 600 }}>{greg}</p>
-                {hijri && <p className="text-[11.5px] text-muted-foreground mt-0.5" style={{ direction: 'rtl' }}>{hijri} هـ</p>}
+                {hijri && <p className="text-[11.5px] text-muted-foreground mt-0.5" style={{ direction: 'rtl' }}>{hijri}</p>}
               </div>
             );
           })()}
