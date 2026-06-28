@@ -1628,6 +1628,7 @@ export type Database = {
         Row: {
           allowed_countries: string[]
           auto_open_delay: number
+          bubble_enabled: boolean
           bubble_offset_x: number
           bubble_offset_y: number
           bubble_size: number
@@ -1661,6 +1662,7 @@ export type Database = {
         Insert: {
           allowed_countries?: string[]
           auto_open_delay?: number
+          bubble_enabled?: boolean
           bubble_offset_x?: number
           bubble_offset_y?: number
           bubble_size?: number
@@ -1694,6 +1696,7 @@ export type Database = {
         Update: {
           allowed_countries?: string[]
           auto_open_delay?: number
+          bubble_enabled?: boolean
           bubble_offset_x?: number
           bubble_offset_y?: number
           bubble_size?: number
