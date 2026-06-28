@@ -26,12 +26,30 @@ export function AdminCustomerDetails() {
   const [data, setData] = useState<any | null>(null);
   const [impersonating, setImpersonating] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Array<{ id: string; author_name: string | null; author_id: string | null; body: string; created_at: string }>>([]);
+  const [savingNote, setSavingNote] = useState(false);
+  const [confirm, setConfirm] = useState<null | { action: string; title: string; message: string }>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
+
+  const loadNotes = React.useCallback(async () => {
+    if (!id) return;
+    const { data: rows } = await supabase
+      .from('admin_customer_notes' as any)
+      .select('id,author_name,author_id,body,created_at')
+      .eq('tenant_id', id)
+      .order('created_at', { ascending: false });
+    setNotes((rows as any[]) || []);
+  }, [id]);
 
   const loadCustomer = React.useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }, { data: events }] = await Promise.all([
+      const [{ data: zid }, { data: salla }, { data: ws }, { data: plan }, { data: clicks }, { data: ratings }, { data: tokens }, { data: events }, { data: design }] = await Promise.all([
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
@@ -40,6 +58,7 @@ export function AdminCustomerDetails() {
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
           supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
           supabase.from('admin_activity_events').select('event_type,actor_name,metadata,created_at').eq('tenant_id', id).order('created_at', { ascending: false }).limit(50),
+          supabase.from('settings_chat_design').select('bubble_enabled').eq('tenant_id', id).maybeSingle(),
         ]);
         const conn = salla || zid;
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
@@ -118,6 +137,7 @@ export function AdminCustomerDetails() {
           status: statusActive ? 'active' : 'inactive', totalWords,
           storeUrl: conn?.store_url || '',
           isTrialPlan,
+          bubbleEnabled: (design as any)?.bubble_enabled !== false,
           inputTokens, outputTokens,
           inputWords,
           outputWords,
@@ -139,6 +159,7 @@ export function AdminCustomerDetails() {
   }, [id]);
 
   useEffect(() => { loadCustomer(); }, [loadCustomer]);
+  useEffect(() => { loadNotes(); }, [loadNotes]);
 
   if (loading || !data) {
     return (
@@ -198,15 +219,88 @@ export function AdminCustomerDetails() {
     }
   };
 
-  const handleAddNote = () => {
-    if (!noteText.trim()) return;
-    showToast(t('Note added successfully', 'تمت إضافة الملاحظة بنجاح'));
-    setNoteText('');
+  const handleAddNote = async () => {
+    const body = noteText.trim();
+    if (!body || !id) return;
+    setSavingNote(true);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const meta = (u.user?.user_metadata || {}) as any;
+      const authorName = meta.full_name || meta.name || u.user?.email || 'Admin';
+      const { error } = await supabase.from('admin_customer_notes' as any).insert({
+        tenant_id: id,
+        author_id: u.user?.id ?? null,
+        author_name: authorName,
+        body,
+      });
+      if (error) throw error;
+      setNoteText('');
+      await loadNotes();
+      showToast(t('Note added successfully', 'تمت إضافة الملاحظة بنجاح'));
+    } catch (e: any) {
+      showToast(t('Failed to add note: ', 'تعذرت إضافة الملاحظة: ') + (e?.message || ''));
+    } finally {
+      setSavingNote(false);
+    }
   };
 
-  const handleAction = (action: string) => {
-    showToast(`${action} ${t('completed successfully', 'تم بنجاح')}`);
+  const deleteNote = async (noteId: string) => {
+    const { error } = await supabase.from('admin_customer_notes' as any).delete().eq('id', noteId);
+    if (error) { showToast(error.message); return; }
+    await loadNotes();
   };
+
+  const runAccountAction = async (action: string) => {
+    setBusy(action);
+    try {
+      const { data: res, error } = await supabase.functions.invoke('admin-subscription-actions', {
+        body: { tenantId: id, action },
+      });
+      if (error || (res && (res as any).error)) {
+        throw new Error((error as any)?.message || (res as any)?.error || 'failed');
+      }
+      showToast(t('Done', 'تم بنجاح'));
+      if (action === 'delete_account') {
+        navigate('/admin/customers');
+        return;
+      }
+      await loadCustomer();
+    } catch (e: any) {
+      showToast(t('Action failed: ', 'فشل تنفيذ الإجراء: ') + (e?.message || ''));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const ACCOUNT_ACTIONS = (() => {
+    const isActive = data?.status === 'active';
+    const bubbleOn = data?.bubbleEnabled !== false;
+    return [
+      { key: 'disable_account', icon: Ban, label: t('Disable Account', 'تعطيل الحساب'),
+        color: 'text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20',
+        disabled: !isActive, confirm: true,
+        confirmTitle: t('Disable account?', 'تعطيل الحساب؟'),
+        confirmMsg: t('User will not be able to sign in until re-enabled.', 'لن يتمكن المستخدم من الدخول حتى تتم إعادة تفعيل الحساب.') },
+      { key: 'enable_account', icon: CheckCircle, label: t('Enable Account', 'تفعيل الحساب'),
+        color: 'text-green-500 bg-green-500/10 hover:bg-green-500/20',
+        disabled: isActive },
+      { key: 'send_email_reset', icon: Mail, label: t('Send Email Reset Link', 'إرسال رابط إعادة تعيين البريد'),
+        color: 'text-[#043CC8] bg-[#043CC8]/10 hover:bg-[#043CC8]/20' },
+      { key: 'send_password_reset', icon: Key, label: t('Send Password Reset Link', 'إرسال رابط إعادة تعيين كلمة المرور'),
+        color: 'text-[#a855f7] bg-[#a855f7]/10 hover:bg-[#a855f7]/20' },
+      { key: 'enable_bubble', icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'),
+        color: 'text-[#00FFF4] bg-[#00FFF4]/10 hover:bg-[#00FFF4]/20',
+        disabled: bubbleOn },
+      { key: 'disable_bubble', icon: ShieldOff, label: t('Disable Bubble', 'تعطيل الفقاعة'),
+        color: 'text-orange-500 bg-orange-500/10 hover:bg-orange-500/20',
+        disabled: !bubbleOn },
+      { key: 'delete_account', icon: Trash2, label: t('Delete Account', 'حذف الحساب'),
+        color: 'text-red-500 bg-red-500/10 hover:bg-red-500/20',
+        confirm: true,
+        confirmTitle: t('Delete account permanently?', 'حذف الحساب نهائياً؟'),
+        confirmMsg: t('All data for this customer will be removed and cannot be recovered.', 'سيتم حذف جميع بيانات هذا العميل ولا يمكن استعادتها.') },
+    ];
+  })();
 
   return (
     <div className="space-y-6">
@@ -414,18 +508,32 @@ export function AdminCustomerDetails() {
             <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
               placeholder={t('Add a note...', 'أضف ملاحظة...')}
               className="w-full h-20 px-4 py-3 rounded-xl bg-input-background border border-border focus:border-[#043CC8] outline-none text-[13px] text-foreground resize-none" />
-            <button onClick={handleAddNote} className="mt-2 px-4 py-2 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] transition-colors" style={{ fontWeight: 600 }}>
-              <Plus className="w-3.5 h-3.5 inline me-1" /> {t('Add Note', 'إضافة ملاحظة')}
+            <button onClick={handleAddNote} disabled={savingNote || !noteText.trim()}
+              className="mt-2 px-4 py-2 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] transition-colors disabled:opacity-50" style={{ fontWeight: 600 }}>
+              {savingNote ? <Loader2 className="w-3.5 h-3.5 inline me-1 animate-spin" /> : <Plus className="w-3.5 h-3.5 inline me-1" />}
+              {t('Add Note', 'إضافة ملاحظة')}
             </button>
           </div>
           <div className="space-y-3">
-            {customer.notes.map(n => (
+            {notes.length === 0 && (
+              <p className="text-[12px] text-muted-foreground">{t('No notes yet', 'لا توجد ملاحظات بعد')}</p>
+            )}
+            {notes.map(n => (
               <div key={n.id} className="p-3 rounded-xl bg-muted/30">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[12px]" style={{ fontWeight: 600 }}>{language === 'ar' ? n.staffAr : n.staff}</span>
-                  <span className="text-[10px] text-muted-foreground">{n.date}</span>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px]" style={{ fontWeight: 600 }}>{n.author_name || '—'}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(n.created_at).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-GB')}
+                    </span>
+                  </div>
+                  {currentUserId === n.author_id && (
+                    <button onClick={() => deleteNote(n.id)} className="text-red-500 hover:text-red-600 p-1" title={t('Delete', 'حذف')}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <p className="text-[13px]">{language === 'ar' ? n.contentAr : n.content}</p>
+                <p className="text-[13px] whitespace-pre-wrap">{n.body}</p>
               </div>
             ))}
           </div>
@@ -436,23 +544,32 @@ export function AdminCustomerDetails() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={cardClass}>
           <h3 className="text-[15px] mb-4" style={{ fontWeight: 600 }}>{t('Account Actions', 'إجراءات الحساب')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              { icon: Ban, label: t('Disable Account', 'تعطيل الحساب'), color: 'text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20' },
-              { icon: CheckCircle, label: t('Enable Account', 'تفعيل الحساب'), color: 'text-green-500 bg-green-500/10 hover:bg-green-500/20' },
-              { icon: Mail, label: t('Send Email Reset Link', 'إرسال رابط إعادة تعيين البريد'), color: 'text-[#043CC8] bg-[#043CC8]/10 hover:bg-[#043CC8]/20' },
-              { icon: Key, label: t('Send Password Reset Link', 'إرسال رابط إعادة تعيين كلمة المرور'), color: 'text-[#a855f7] bg-[#a855f7]/10 hover:bg-[#a855f7]/20' },
-              { icon: MousePointerClick, label: t('Enable Bubble', 'تفعيل الفقاعة'), color: 'text-[#00FFF4] bg-[#00FFF4]/10 hover:bg-[#00FFF4]/20' },
-              { icon: ShieldOff, label: t('Disable Bubble', 'تعطيل الفقاعة'), color: 'text-orange-500 bg-orange-500/10 hover:bg-orange-500/20' },
-              { icon: RefreshCw, label: t('Refresh Link', 'تحديث الرابط'), color: 'text-cyan-500 bg-cyan-500/10 hover:bg-cyan-500/20' },
-              { icon: Trash2, label: t('Delete Account', 'حذف الحساب'), color: 'text-red-500 bg-red-500/10 hover:bg-red-500/20' },
-            ].map((action, i) => (
-              <button key={i} onClick={() => handleAction(action.label)}
-                className={`flex items-center gap-3 p-4 rounded-xl transition-colors ${action.color}`}>
-                <action.icon className="w-5 h-5 shrink-0" />
-                <span className="text-[13px]" style={{ fontWeight: 600 }}>{action.label}</span>
+            {ACCOUNT_ACTIONS.map((a) => (
+              <button key={a.key}
+                onClick={() => {
+                  if (a.confirm) setConfirm({ action: a.key, title: a.confirmTitle!, message: a.confirmMsg! });
+                  else runAccountAction(a.key);
+                }}
+                disabled={a.disabled || busy !== null}
+                className={`flex items-center gap-3 p-4 rounded-xl transition-colors ${a.color} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                {busy === a.key ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <a.icon className="w-5 h-5 shrink-0" />}
+                <span className="text-[13px]" style={{ fontWeight: 600 }}>{a.label}</span>
               </button>
             ))}
           </div>
+          {confirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-sm">
+                <h3 className="text-[16px] mb-2" style={{ fontWeight: 700 }}>{confirm.title}</h3>
+                <p className="text-[13px] text-muted-foreground mb-5">{confirm.message}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setConfirm(null)} className="flex-1 py-2.5 rounded-xl border border-border hover:bg-muted text-[13px]" style={{ fontWeight: 500 }}>{t('Cancel', 'إلغاء')}</button>
+                  <button onClick={async () => { const a = confirm.action; setConfirm(null); await runAccountAction(a); }}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 text-white hover:bg-red-600 text-[13px]" style={{ fontWeight: 600 }}>{t('Confirm', 'تأكيد')}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </div>
