@@ -1,49 +1,41 @@
-# Activity Log (سجل النشاط) – real events
+## Fix 3 issues on Admin Customer Details page
 
-Goal: replace the empty `activity: []` array in `AdminCustomerDetails.tsx` with real, per-tenant events for:
-1. **ترقية** – plan upgrade / change
-2. **تنبيه استنفاد الكلمات - 80%** – when usage crosses 80% of the monthly quota
-3. **تم تجديد الاشتراك** – resubscribe / renew trial
-4. **{{firstName}} دخل كعميل** – admin/super-admin impersonation, prefixed with the staff member's first name in Arabic (e.g. "فارس دخل كعميل")
+### 1. Notes — show display name + confirm delete
+- **Add note**: resolve author name from `public.settings_account.display_name` (fallback to user_metadata.full_name, then "Admin"). Never fall back to the email.
+- **Existing notes** with `author_name` containing an email: load the matching display name from `settings_account` by `author_id` and prefer that for rendering.
+- **Delete**: replace the silent delete with a confirmation modal ("حذف الملاحظة؟ لا يمكن التراجع.") reusing the existing confirm-modal pattern used for "حذف الحساب".
 
-## Data model
+### 2. Remove "إرسال رابط إعادة تعيين البريد"
+- Remove the `send_email_reset` entry from `ACCOUNT_ACTIONS` in `AdminCustomerDetails.tsx`.
+- Remove the `send_email_reset` branch from `supabase/functions/admin-subscription-actions/index.ts`.
+- Leave password reset action intact.
 
-Create one unified table `public.admin_activity_events` (RLS: admins read all; service role writes):
-- `tenant_id uuid`
-- `event_type text` — `plan_change` | `usage_80` | `resubscribe` | `impersonation`
-- `actor_user_id uuid` (nullable) — staff who triggered it
-- `actor_name text` (nullable) — snapshot of staff full name at time of event
-- `metadata jsonb` — `{ from_plan, to_plan, words_used, quota, ... }`
-- standard `id`, `created_at`
+### 3. Bubble enable/disable — actually take effect + lock user toggle
+Today the admin action writes `settings_chat_design.bubble_enabled`, but the widget and the user-facing toggle ("إظهار فقاعة المحادثة") read `settings_train_ai.bubble_visible`. That's why nothing changes. Fix end-to-end:
 
-GRANTs + RLS:
-- `GRANT SELECT, INSERT ON public.admin_activity_events TO authenticated; GRANT ALL TO service_role;`
-- Policy: admins/super_admins can SELECT all rows; INSERTs only via service role / edge functions.
+**Database (migration):**
+- Add `bubble_admin_locked boolean NOT NULL DEFAULT false` to `settings_train_ai`.
+- (No new table.) Keep `bubble_visible` as the single source of truth the widget already honours.
 
-## Writers
+**Edge function `admin-subscription-actions`:**
+- `disable_bubble` → `UPDATE settings_train_ai SET bubble_visible = false, bubble_admin_locked = true`.
+- `enable_bubble`  → `UPDATE settings_train_ai SET bubble_visible = true,  bubble_admin_locked = false`.
+- Upsert if no row exists. Keep logging to `admin_activity_events`.
 
-- `supabase/functions/admin-impersonate/index.ts` – after the existing `admin_impersonation_log` insert, also insert an `impersonation` event with `actor_user_id = adminUserId` and `actor_name` resolved from `admin_team_members.full_name` (fallback to `auth.users.email` local-part).
-- `supabase/functions/admin-subscription-actions/index.ts`:
-  - `end` → no activity event (subscription ended; not requested).
-  - `add_words` → keep current `admin_credit_topups` insert; no activity row needed.
-  - `renew_trial` → also insert a `resubscribe` event.
-- **Plan change detection**: add a trigger `on settings_workspace` (and `settings_plans` for paid plan changes) that, when `plan` column changes to a different non-empty value, inserts a `plan_change` event with `from_plan`/`to_plan`.
-- **80% usage**: add a trigger on `settings_plans` `AFTER UPDATE` that compares `monthly_words_used / monthly_word_quota` before/after the row update. If it crosses ≥0.80 within the current `period_start` and no `usage_80` event exists for the same `period_start`, insert one. Triggers are simpler and reliable since `settings_plans.monthly_words_used` is updated on every billing tick.
+**Admin UI (`AdminCustomerDetails.tsx`):**
+- Read `bubble_visible` + `bubble_admin_locked` from `settings_train_ai` instead of `settings_chat_design.bubble_enabled` to compute the enabled/disabled state of the two admin buttons.
 
-## Reader (frontend)
+**User-facing toggle (`ChatCustomization.tsx`):**
+- Also select `bubble_admin_locked` and subscribe to it on realtime.
+- When `bubble_admin_locked === true`:
+  - Force the switch to OFF and `disabled`.
+  - Show inline Arabic message under the toggle: "تم تعطيل الفقاعة من قبل الإدارة. للتفعيل، يرجى التواصل مع الدعم."
+  - Block any save that would set `bubble_visible = true` (defensive guard; the DB still trusts the admin flag).
 
-In `AdminCustomerDetails.tsx` `loadCustomer`:
-- Add a Supabase query: `from('admin_activity_events').select('*').eq('tenant_id', id).order('created_at', { ascending: false }).limit(50)`.
-- Map rows into the existing `activity[]` shape with localized strings:
-  - `plan_change` → en `Upgrade to {to_plan}` / ar `ترقية إلى {to_plan_ar}` – type `success` (green check).
-  - `usage_80` → en `Word usage alert - 80%` / ar `تنبيه استنفاد الكلمات - 80%` – type `alert` (yellow clock).
-  - `resubscribe` → en `Subscription renewed` / ar `تم تجديد الاشتراك` – type `success`.
-  - `impersonation` → en `{firstName} logged in as customer` / ar `{firstName} دخل كعميل` – type `admin` (blue login icon). `firstName` = first whitespace-split token of `actor_name`.
-- Format `date` as `HH:mm YYYY-MM-DD` to match the screenshot.
+### Out of scope
+- No design/visual changes beyond the inline locked-state hint.
+- No changes to widget runtime (it already hides when `bubble_visible = false`).
 
-No UI/markup changes — the existing activity tab already renders this shape; only `customer.activity` is now populated.
-
-## Out of scope
-
-- Backfilling historical events before this migration ships.
-- Adding new event types beyond the four requested.
+### Technical notes
+- Files touched: `src/app/components/admin/AdminCustomerDetails.tsx`, `src/app/components/settings/ChatCustomization.tsx`, `supabase/functions/admin-subscription-actions/index.ts`, one new SQL migration.
+- The existing `settings_chat_design.bubble_enabled` column is left in place but no longer read/written (dead, harmless).
