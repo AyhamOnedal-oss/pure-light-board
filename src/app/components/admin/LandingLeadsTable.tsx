@@ -2,13 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   ChevronRight, MoreHorizontal, Trash2, Edit3, UserPlus, Loader2, Sun, Moon, Globe,
-  CheckCircle2, AlertTriangle, XCircle, Info, Search, Copy, UserCheck, Check,
+  CheckCircle2, AlertTriangle, XCircle, Info, Search, Copy, UserCheck, Check, StickyNote,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
   fetchLandingLeads, deleteLandingLead, updateLandingLead, markCopiedToPipeline, assignLandingLead,
   type LandingLead, type LandingMatch, type LandingSource,
 } from '../../services/adminLandingLeads';
+import {
+  markListSeen, markLeadOpened, isLeadNewFor, unseenNotesCountFor,
+} from '../../utils/landingNotifications';
 import {
   SOURCE_META, type PipelineCustomer, type LeadSource,
   loadMembers, loadSettings, saveSettings, pickRoundRobinMember,
@@ -89,6 +92,8 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
 
   const [members] = useState<TeamMember[]>(() => loadMembers());
   const currentUserId = getCurrentUserId();
+  // Bump to force re-render of per-row indicators after we mark something as seen.
+  const [, setSeenTick] = useState(0);
   const currentUser = useMemo(() => members.find(m => m.id === currentUserId) || members[0], [members, currentUserId]);
   const isAdminUser = currentUser?.role === 'admin';
   const eligibleMembers = useMemo(() => members.filter(m => m.role === 'member'), [members]);
@@ -101,6 +106,14 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
   useEffect(() => {
     (async () => { setLoading(true); await load(); setLoading(false); })();
   }, []);
+
+  // Mark the landing list as seen on mount so the sidebar badge clears once
+  // the admin opens this view. Per-row red dots stay until each row is opened.
+  useEffect(() => {
+    if (loading) return;
+    markListSeen(currentUserId);
+    setSeenTick(t => t + 1);
+  }, [loading, currentUserId]);
 
   // Round-robin: when assignment mode is "round_robin", auto-assign any unassigned
   // landing lead to the next eligible member. Runs once after the list loads.
@@ -264,13 +277,35 @@ export function LandingLeadsTable({ onCopyToPipeline }: LandingLeadsTableProps) 
                     <tr
                       key={lead.id}
                       onClick={() => {
-                        try { localStorage.setItem(`fuqah.landing.seen.${currentUserId}`, String(Date.now())); } catch {}
+                        markLeadOpened(currentUserId, lead.id, (lead.notes || []).length);
+                        setSeenTick(t => t + 1);
                         navigate(`/admin/pipeline/landing/${lead.id}`);
                       }}
                       className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3 text-center text-muted-foreground">{idx + 1}</td>
-                      <td className="px-4 py-3" style={{ fontWeight: 600 }}>{lead.name}</td>
+                      <td className="px-4 py-3" style={{ fontWeight: 600 }}>
+                        <span className="inline-flex items-center gap-2">
+                          {isLeadNewFor(currentUserId, lead) && (
+                            <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" title={t('New', 'جديد')} />
+                          )}
+                          <span>{lead.name}</span>
+                          {(() => {
+                            const n = unseenNotesCountFor(currentUserId, lead);
+                            if (!n) return null;
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                                style={{ background: 'rgba(253,171,61,0.15)', color: '#C6802B', fontWeight: 700 }}
+                                title={t('New notes', 'ملاحظات جديدة')}
+                              >
+                                <StickyNote className="w-3 h-3" />
+                                {n}
+                              </span>
+                            );
+                          })()}
+                        </span>
+                      </td>
                       <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600, direction: 'ltr' }}>{lead.phone}</td>
                       <td className="px-4 py-3" style={{ color: mismatchColor, fontWeight: 600 }}>{lead.email}</td>
                       <td className="px-4 py-3 text-center text-[13px]" style={{ color: mismatchColor, fontWeight: mismatchColor ? 600 : undefined }}>

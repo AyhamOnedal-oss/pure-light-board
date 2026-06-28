@@ -20,6 +20,7 @@ import {
 import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
 import { LandingLeadsTable } from './LandingLeadsTable';
 import { fetchLandingLeads, type LandingLead } from '../../services/adminLandingLeads';
+import { isLeadNewFor, unseenNotesCountFor, markListSeen } from '../../utils/landingNotifications';
 
 const ALL_STATUSES: LeadStatus[] = [
   'new_lead', 'contacted', 'not_interested',
@@ -136,20 +137,21 @@ export function AdminPipelinePage() {
       try { setLandingLeads(await fetchLandingLeads()); } catch (e) { console.error(e); }
     })();
   }, [activeTab]);
-  const landingSeenKey = `fuqah.landing.seen.${currentUserId}`;
-  const landingSeenAt = useMemo(() => {
-    try { return Number(localStorage.getItem(landingSeenKey)) || 0; } catch { return 0; }
-  }, [landingSeenKey, landingLeads.length]);
+  // Header counts use the per-lead opened-state, so they reflect leads
+  // the admin hasn't actually opened yet (not just "not visited the list").
   const landingCounts = useMemo(() => {
     let newCount = 0, notesCount = 0;
     for (const l of landingLeads) {
-      const created = new Date(l.created_at).getTime();
-      if (created > landingSeenAt) newCount++;
-      const latestNote = (l.notes || []).reduce((mx, n) => Math.max(mx, new Date(n.createdAt).getTime()), 0);
-      if (latestNote > landingSeenAt) notesCount++;
+      if (isLeadNewFor(currentUserId, l)) newCount++;
+      if (unseenNotesCountFor(currentUserId, l) > 0) notesCount++;
     }
     return { newCount, notesCount };
-  }, [landingLeads, landingSeenAt]);
+  }, [landingLeads, currentUserId]);
+  // Mark the list as seen once we've loaded leads, so the sidebar badge clears.
+  useEffect(() => {
+    if (activeTab !== 'landing' || landingLeads.length === 0) return;
+    markListSeen(currentUserId);
+  }, [activeTab, landingLeads.length, currentUserId]);
 
   // ---------- Handlers ----------
   const changeStatus = (id: string, status: LeadStatus) => {

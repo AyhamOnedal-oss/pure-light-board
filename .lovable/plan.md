@@ -1,41 +1,30 @@
-## Fix 3 issues on Admin Customer Details page
+## Landing Page notifications
 
-### 1. Notes — show display name + confirm delete
-- **Add note**: resolve author name from `public.settings_account.display_name` (fallback to user_metadata.full_name, then "Admin"). Never fall back to the email.
-- **Existing notes** with `author_name` containing an email: load the matching display name from `settings_account` by `author_id` and prefer that for rendering.
-- **Delete**: replace the silent delete with a confirmation modal ("حذف الملاحظة؟ لا يمكن التراجع.") reusing the existing confirm-modal pattern used for "حذف الحساب".
+Add unread indicators for new leads and new notes across the admin Landing Page area, scoped per admin user (stored in `localStorage`, same pattern as `src/app/utils/notifications.ts`).
 
-### 2. Remove "إرسال رابط إعادة تعيين البريد"
-- Remove the `send_email_reset` entry from `ACCOUNT_ACTIONS` in `AdminCustomerDetails.tsx`.
-- Remove the `send_email_reset` branch from `supabase/functions/admin-subscription-actions/index.ts`.
-- Leave password reset action intact.
+### 1. Sidebar badge (`AdminLayout.tsx`)
+- Next to the "صفحة الهبوط" nav item, show a red dot + count of leads whose `created_at` is newer than the user's last-seen timestamp `fuqah.admin.landing.list.<userId>`.
+- Subscribe to `admin_landing_leads` via Supabase Realtime so the badge updates live.
 
-### 3. Bubble enable/disable — actually take effect + lock user toggle
-Today the admin action writes `settings_chat_design.bubble_enabled`, but the widget and the user-facing toggle ("إظهار فقاعة المحادثة") read `settings_train_ai.bubble_visible`. That's why nothing changes. Fix end-to-end:
+### 2. Landing Page list header (`LandingLeadsTable.tsx` / page wrapper)
+- Next to the "صفحة الهبوط" title, render two pill badges:
+  - **جديد (N)** — count of leads created after last list-seen.
+  - **ملاحظات (N)** — count of leads whose notes array grew since last seen (tracked via `fuqah.admin.landing.notes.<userId>.<leadId>` storing last known notes length/timestamp).
+- On mount, mark list as seen (update `landing.list.<userId>` ts) so sidebar badge clears once admin opens the page. Per-row indicators remain until that row is opened.
 
-**Database (migration):**
-- Add `bubble_admin_locked boolean NOT NULL DEFAULT false` to `settings_train_ai`.
-- (No new table.) Keep `bubble_visible` as the single source of truth the widget already honours.
+### 3. Per-row indicators (`LandingLeadsTable.tsx`)
+- Red dot next to the customer name when the lead is "new" (created after the row's per-lead opened ts `fuqah.admin.landing.open.<userId>.<leadId>`).
+- Small note icon + count next to the name when notes count is greater than the stored seen-notes count for that lead.
+- Opening the lead detail page (`AdminLandingLeadDetailPage`) clears both markers for that lead (sets opened ts = now, seen notes count = current length).
 
-**Edge function `admin-subscription-actions`:**
-- `disable_bubble` → `UPDATE settings_train_ai SET bubble_visible = false, bubble_admin_locked = true`.
-- `enable_bubble`  → `UPDATE settings_train_ai SET bubble_visible = true,  bubble_admin_locked = false`.
-- Upsert if no row exists. Keep logging to `admin_activity_events`.
-
-**Admin UI (`AdminCustomerDetails.tsx`):**
-- Read `bubble_visible` + `bubble_admin_locked` from `settings_train_ai` instead of `settings_chat_design.bubble_enabled` to compute the enabled/disabled state of the two admin buttons.
-
-**User-facing toggle (`ChatCustomization.tsx`):**
-- Also select `bubble_admin_locked` and subscribe to it on realtime.
-- When `bubble_admin_locked === true`:
-  - Force the switch to OFF and `disabled`.
-  - Show inline Arabic message under the toggle: "تم تعطيل الفقاعة من قبل الإدارة. للتفعيل، يرجى التواصل مع الدعم."
-  - Block any save that would set `bubble_visible = true` (defensive guard; the DB still trusts the admin flag).
-
-### Out of scope
-- No design/visual changes beyond the inline locked-state hint.
-- No changes to widget runtime (it already hides when `bubble_visible = false`).
+### 4. Storage keys (extend `src/app/utils/notifications.ts`)
+```
+fuqah.admin.landing.list.<uid>          // last time admin viewed the list
+fuqah.admin.landing.open.<uid>.<leadId> // last time admin opened that lead
+fuqah.admin.landing.notes.<uid>.<leadId>// last seen notes count for that lead
+```
 
 ### Technical notes
-- Files touched: `src/app/components/admin/AdminCustomerDetails.tsx`, `src/app/components/settings/ChatCustomization.tsx`, `supabase/functions/admin-subscription-actions/index.ts`, one new SQL migration.
-- The existing `settings_chat_design.bubble_enabled` column is left in place but no longer read/written (dead, harmless).
+- Use existing `fetchLandingLeads()` + a Realtime channel on `admin_landing_leads` (INSERT/UPDATE) to drive both sidebar and header counts without polling.
+- No DB migration required — purely presentation/state, matches the existing tickets/notes badge pattern.
+- Scope: only files touched are `AdminLayout.tsx`, `LandingLeadsTable.tsx`, `AdminLandingLeadDetailPage.tsx`, and `src/app/utils/notifications.ts` (new key helpers).
