@@ -113,6 +113,18 @@ Deno.serve(async (req) => {
       .from("settings_workspace")
       .update({ status: "trial", updated_at: new Date().toISOString() })
       .eq("id", tenantId);
+    // Resolve actor name
+    let actorName: string | null = null;
+    const { data: staffRow } = await admin
+      .from("admin_team_members").select("full_name").eq("user_id", uid).maybeSingle();
+    if (staffRow?.full_name) actorName = staffRow.full_name as string;
+    await admin.from("admin_activity_events").insert({
+      tenant_id: tenantId,
+      event_type: "resubscribe",
+      actor_user_id: uid,
+      actor_name: actorName,
+      metadata: { end_date: endStr },
+    });
     return json({ ok: true });
   }
 
