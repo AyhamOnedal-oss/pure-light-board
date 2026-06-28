@@ -7,8 +7,7 @@ import {
   ChevronDown, ChevronRight, Globe, Moon, Sun, Bell, Menu, X,
   LogOut, ChevronUp, Send, UserCog, Megaphone, GitBranch
 } from 'lucide-react';
-import { loadCustomers, countNewLeads } from './pipelineData';
-import { getCurrentUserId } from './pipelineData';
+import { loadCustomers, countNewLeads, getCurrentUserId } from './pipelineData';
 import { fetchLandingLeads, type LandingLead } from '../../services/adminLandingLeads';
 import { countSidebarBadge } from '../../utils/landingNotifications';
 import { supabase } from '@/integrations/supabase/client';
