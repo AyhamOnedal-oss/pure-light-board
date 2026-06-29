@@ -1,28 +1,84 @@
-## Two small fixes in `src/app/components/admin/AdminCustomerDetails.tsx`
 
-### 1. Bubble actions — strict mutual exclusivity
+# Zid Reports — Database + Sync + Mock Test Suite (final)
 
-Today both "تفعيل الفقاعة" and "تعطيل الفقاعة" render at all times, only greyed via `disabled:opacity-40`. The user wants it unambiguous: when the bubble is currently **active**, only **تعطيل** is offered (and vice‑versa).
+## Revenue formula (KSA, confirmed)
 
-- Compute `bubbleOn` from `data.bubbleEnabled` exactly as today.
-- In the `ACCOUNT_ACTIONS` builder, drop the action that isn't applicable instead of pushing it as `disabled`:
-  - if `bubbleOn` → include `disable_bubble` only.
-  - if `!bubbleOn` → include `enable_bubble` only.
-- Add a `title` tooltip on the visible button (e.g. "الفقاعة مفعّلة حالياً — اضغط للتعطيل") so the admin understands the current state.
-- Keep the existing edge‑function call (`admin-subscription-actions` already sets `bubble_visible` + `bubble_admin_locked` correctly) and the `loadCustomer()` refresh after the action so the button flips immediately.
+```
+vat            = gross_amount × 0.15        // 15% of gross, deducted first
+net_after_vat  = gross_amount − vat
+zid_commission = net_after_vat × 0.20       // Zid keeps 20% after VAT
+developer_net  = net_after_vat × 0.80       // We receive 80% after VAT
+```
 
-### 2. "Login as Customer" — popup‑blocker safe
+Example (gross = 100): vat = 15, net = 85, zid commission = 17, our share = 68.
 
-Today: `await supabase.functions.invoke(...)` runs first, then `window.open(res.url, ...)`. Because the `window.open` happens after an `await`, Chrome/Safari treat it as a programmatic open and block it the first time. After the user manually allows pop‑ups, the second click works — which matches the reported behaviour.
+Payout rules (stored, displayed informationally):
+- Zid invoices on the 6th of each month, pays on the 10th.
+- Any single transfer under 100 SAR rolls to the next month → `is_below_minimum=true`, `status='deferred'`.
 
-Fix in the `impersonate` handler:
+**إجمالي الإيرادات** = `SUM(developer_net_sar)` where status='paid' in range.
 
-1. Synchronously open a placeholder tab **inside the click handler, before any await**:
-   ```ts
-   const popup = window.open('about:blank', '_blank');
-   ```
-2. Run the edge‑function call.
-3. On success: `popup ? (popup.location.href = res.url) : window.location.assign(res.url)` — so if the browser still blocked the popup we fall back to navigating the current tab (after a confirm) instead of silently failing.
-4. On error: `popup?.close()` and toast the existing error.
+## Three tables
 
-No backend, schema, or other component changes. All work stays inside `AdminCustomerDetails.tsx`.
+### 1. `public.zid_plan_map`
+`zid_plan_code` PK, `name_en`, `name_ar`, `list_price_sar`, `billing_cycle`. ~5 seeded rows.
+
+### 2. `public.zid_subscriptions` (one row per tenant)
+`tenant_id` PK, `zid_store_id`, `zid_plan_code`, `status`, `started_at`, `current_period_end`, `cancelled_at`, `last_synced_at`.
+
+### 3. `public.zid_charges` (append-only ledger)
+`id` PK, `tenant_id`, `zid_charge_id` UNIQUE, `zid_plan_code`, `charged_at`, `status`
+(paid/pending/refunded/deferred), `gross_amount_sar`, `vat_sar`, `zid_commission_sar`,
+`developer_net_sar`, `payout_month`, `is_below_minimum`, `raw` jsonb.
+
+Indexes: `(tenant_id, charged_at)`, `(status, charged_at)`, `(payout_month)`.
+GRANTs to authenticated + service_role. RLS = admin-only SELECT via `admin_has_permission(auth.uid(),'admin_reports')`. Writes via service-role edge functions only.
+
+## Sync layer
+
+- Extend `zid-oauth-webhook` → upsert `zid_subscriptions` on install/uninstall/subscription events; insert `zid_charges` on charge events (math computed in code).
+- New `zid-sync-subscriptions` (hourly pg_cron) → for each active `zid_connections` row, GET `/v1/managers/store/subscriptions` + `/v1/managers/store/charges`, upsert subscriptions, insert missing charges (idempotent on `zid_charge_id`).
+- One-time backfill after deploy.
+
+## Reports page wiring
+
+`AdminReports.tsx` + `adminReports.ts`:
+- Subscribers per plan ← `zid_subscriptions` joined to `zid_plan_map`.
+- إجمالي الإيرادات ← `SUM(developer_net_sar)` paid.
+- المبلغ المعلق ← `SUM(gross_amount_sar)` pending or deferred.
+- Tax line ← `SUM(vat_sar)`. عمولة زد line ← `SUM(zid_commission_sar)`.
+- Monthly chart ← `SUM(developer_net_sar)` by month.
+- "آخر مزامنة" stamp + "تحديث الآن" button calling `zid-sync-subscriptions`.
+- Excel export from the same query result.
+
+## Mock test suite (no live Zid store needed)
+
+### a. Seed fixture function
+New `seed-zid-mock-data` edge function (admin-only) that wipes and re-inserts:
+- 5 fake tenants in `zid_subscriptions` (mix of trial/active/cancelled across all 5 plans).
+- ~30 deterministic rows in `zid_charges` over the last 6 months — mixed statuses, including one < 100 SAR to verify deferred flag.
+
+### b. Webhook replay tests
+`supabase/functions/zid-oauth-webhook/index_test.ts` — POST canned Zid JSON bodies (copied verbatim from docs.zid.sa) for `app.installed`, `app.store.subscription.create`, `app.store.subscription.cancel`, and charge events. Assert rows land in the right tables with correct vat/commission/developer_net values.
+
+### c. Sync idempotency tests
+`supabase/functions/zid-sync-subscriptions/index_test.ts` — stub `fetch` to return Zid-shaped JSON. Assert running the sync twice produces the same row count and `last_synced_at` advances.
+
+### d. Revenue math test
+Deno test that loads fixture data, runs the same SQL the Reports page uses, and asserts:
+- 5 × 100 SAR paid charges → revenue 340, vat 75, commission 85.
+- Pending + deferred sums match expected.
+- Monthly bucketing equals expected per-month totals.
+
+### e. Frontend smoke test
+`AdminReports.test.tsx` — renders the page with the live RPC mocked to fixture output; asserts the KPI cards and plan table show the computed numbers.
+
+## Files touched (build phase)
+
+- Migration: 3 tables + GRANTs + RLS + indexes + seed `zid_plan_map`.
+- `supabase/functions/zid-oauth-webhook/index.ts` — write subs + charges with formula.
+- `supabase/functions/zid-sync-subscriptions/index.ts` — new, hourly via pg_cron.
+- `supabase/functions/seed-zid-mock-data/index.ts` — admin-only fixture seeder.
+- Test files for both edge functions + `AdminReports.test.tsx`.
+- `src/app/services/adminReports.ts` — query the 3 tables.
+- `src/app/components/admin/AdminReports.tsx` — Last synced, refresh button, Excel export, عمولة زد line.
