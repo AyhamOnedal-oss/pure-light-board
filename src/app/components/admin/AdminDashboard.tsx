@@ -4,7 +4,7 @@ import { AnimatedValue } from '../AnimatedNumber';
 import { motion } from 'motion/react';
 import {
   Users, UserCheck, UserX, Trash2, MousePointerClick, Clock,
-  Download, Calendar, ChevronDown
+  Download, Calendar, ChevronDown, Pencil
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -20,6 +20,9 @@ import {
   type AdminKpis,
   type HealthCheck,
   fetchSupabaseUsage,
+  fetchAdminServerUsage,
+  setOpenAiWordBudget,
+  type AdminServerUsage,
 } from '../../services/adminDashboard';
 
 type AdminDonutDatum = { name: string; value: number; color: string };
