@@ -2259,6 +2259,14 @@ export type Database = {
           tenant_id: string
         }[]
       }
+      admin_new_subs_monthly: {
+        Args: { _year?: number }
+        Returns: {
+          count: number
+          month: number
+          platform: string
+        }[]
+      }
       dashboard_metrics: {
         Args: { _from: string; _tenant: string; _to: string }
         Returns: Json

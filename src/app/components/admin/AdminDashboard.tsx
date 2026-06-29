@@ -4,7 +4,7 @@ import { AnimatedValue } from '../AnimatedNumber';
 import { motion } from 'motion/react';
 import {
   Users, UserCheck, UserX, Trash2, MousePointerClick, Clock,
-  Download, Calendar, ChevronDown, TrendingUp, TrendingDown
+  Download, Calendar, ChevronDown
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -397,12 +397,6 @@ export function AdminDashboard() {
                   ? <span className={textMuted}>—</span>
                   : <><AnimatedValue value={kpi.value} />{kpi.suffix || ''}</>}
               </p>
-              {!kpisLoading && kpi.change !== null && (
-                <div className={`flex items-center gap-1 ${kpi.up ? 'text-green-500' : 'text-red-500'}`}>
-                  {kpi.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                  <span className="text-[11px]" style={{ fontWeight: 600 }}>{kpi.change}%</span>
-                </div>
-              )}
             </div>
           </motion.div>
         ))}
