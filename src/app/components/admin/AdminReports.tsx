@@ -215,7 +215,7 @@ export function AdminReports() {
       </div>
 
       {/* KPIs */}
-      <div className={`grid gap-4 ${isAll ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6' : 'grid-cols-1 sm:grid-cols-3'}`}>
+      <div className={`grid gap-4 ${(isAll || isZid) ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6' : 'grid-cols-1 sm:grid-cols-3'}`}>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={`${cardClass} relative overflow-hidden`}>
           <Users className="w-5 h-5 mb-2 text-[#043CC8]" />
           <p className="text-[11px] text-muted-foreground mb-1">{t('Total Subscribers', 'إجمالي المشتركين')}</p>
