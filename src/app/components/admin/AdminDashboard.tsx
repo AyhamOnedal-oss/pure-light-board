@@ -629,7 +629,31 @@ export function AdminDashboard() {
             {serverUsage.map((s, i) => (
               <div key={`srv-${i}`} title={s.tooltip}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[13px]" style={{ fontWeight: 500 }}>{s.name}</span>
+                  <span className="text-[13px] flex items-center gap-1.5" style={{ fontWeight: 500 }}>
+                    {s.name}
+                    {s.name === 'OpenAI' && (
+                      <button
+                        type="button"
+                        title={t('Edit monthly word budget', 'تعديل سقف الكلمات الشهري')}
+                        onClick={async () => {
+                          const current = serverUsageLive?.openai?.budget_words ?? 0;
+                          const input = window.prompt(
+                            t('Set OpenAI monthly word budget (used to compute % bar)',
+                              'أدخل سقف الكلمات الشهري لـ OpenAI (يُستخدم لحساب نسبة الاستهلاك)'),
+                            String(current)
+                          );
+                          if (input == null) return;
+                          const n = Number(input.replace(/[, ]/g, ''));
+                          if (!Number.isFinite(n) || n < 0) return;
+                          const ok = await setOpenAiWordBudget(Math.floor(n));
+                          if (ok) loadServerUsage();
+                        }}
+                        className="opacity-60 hover:opacity-100 transition-opacity"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    )}
+                  </span>
                   <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>{s.usage}%</span>
                 </div>
                 <div className="h-2.5 rounded-full bg-muted overflow-hidden">
