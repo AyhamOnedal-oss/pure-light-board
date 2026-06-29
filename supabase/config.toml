@@ -67,9 +67,3 @@ verify_jwt = false
 
 [functions.health-check]
 verify_jwt = false
-
-[functions.zid-sync-subscriptions]
-verify_jwt = false
-
-[functions.seed-zid-mock-data]
-verify_jwt = true
