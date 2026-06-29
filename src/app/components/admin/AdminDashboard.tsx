@@ -134,6 +134,15 @@ export function AdminDashboard() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
+  // ---- Live server usage (Resend + OpenAI; Supabase via admin-server-usage too) ----
+  const [serverUsageLive, setServerUsageLive] = useState<AdminServerUsage | null>(null);
+  const loadServerUsage = () => fetchAdminServerUsage().then(u => setServerUsageLive(u));
+  useEffect(() => {
+    loadServerUsage();
+    const id = setInterval(loadServerUsage, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // ---- Date range derived from the top-right filter ----
   const range = useMemo<{ from: string | null; to: string | null }>(() => {
     const now = new Date();
