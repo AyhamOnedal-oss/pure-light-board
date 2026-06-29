@@ -4,7 +4,7 @@ import { AnimatedValue } from '../AnimatedNumber';
 import { motion } from 'motion/react';
 import {
   Users, UserCheck, UserX, Trash2, MousePointerClick, Clock,
-  Download, Calendar, ChevronDown
+  Download, Calendar, ChevronDown, Pencil
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -20,6 +20,9 @@ import {
   type AdminKpis,
   type HealthCheck,
   fetchSupabaseUsage,
+  fetchAdminServerUsage,
+  setOpenAiWordBudget,
+  type AdminServerUsage,
 } from '../../services/adminDashboard';
 
 type AdminDonutDatum = { name: string; value: number; color: string };
@@ -129,6 +132,15 @@ export function AdminDashboard() {
     load();
     const id = setInterval(load, 5 * 60_000);
     return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  // ---- Live server usage (Resend + OpenAI; Supabase via admin-server-usage too) ----
+  const [serverUsageLive, setServerUsageLive] = useState<AdminServerUsage | null>(null);
+  const loadServerUsage = () => fetchAdminServerUsage().then(u => setServerUsageLive(u));
+  useEffect(() => {
+    loadServerUsage();
+    const id = setInterval(loadServerUsage, 5 * 60_000);
+    return () => clearInterval(id);
   }, []);
 
   // ---- Date range derived from the top-right filter ----
@@ -278,8 +290,23 @@ export function AdminDashboard() {
         tooltip: `${usedGb.toFixed(2)} GB / ${capGb.toFixed(0)} GB`,
       };
     }
+    if (s.name === 'Resend' && serverUsageLive?.resend) {
+      const r = serverUsageLive.resend;
+      return { name: s.name, usage: r.percent, fill: s.color, tooltip: `${r.sent.toLocaleString()} / ${r.cap.toLocaleString()} ${t('emails this month','بريد هذا الشهر')}` };
+    }
+    if (s.name === 'OpenAI' && serverUsageLive?.openai) {
+      const o = serverUsageLive.openai;
+      return {
+        name: s.name,
+        usage: Number(o.percent ?? 0),
+        fill: s.color,
+        tooltip: o.budget_words > 0
+          ? `${o.used_words.toLocaleString()} / ${o.budget_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`
+          : `${o.used_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`,
+      };
+    }
     return { name: s.name, usage: s.usage_percent, fill: s.color, tooltip: undefined as string | undefined };
-  }), [data.servers, supaUsage]);
+  }), [data.servers, supaUsage, serverUsageLive, language]);
 
   // First Subscription Type pie  ← admin_dash_first_sub_type
   const firstSubData = useMemo(() => {
@@ -602,7 +629,31 @@ export function AdminDashboard() {
             {serverUsage.map((s, i) => (
               <div key={`srv-${i}`} title={s.tooltip}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[13px]" style={{ fontWeight: 500 }}>{s.name}</span>
+                  <span className="text-[13px] flex items-center gap-1.5" style={{ fontWeight: 500 }}>
+                    {s.name}
+                    {s.name === 'OpenAI' && (
+                      <button
+                        type="button"
+                        title={t('Edit monthly word budget', 'تعديل سقف الكلمات الشهري')}
+                        onClick={async () => {
+                          const current = serverUsageLive?.openai?.budget_words ?? 0;
+                          const input = window.prompt(
+                            t('Set OpenAI monthly word budget (used to compute % bar)',
+                              'أدخل سقف الكلمات الشهري لـ OpenAI (يُستخدم لحساب نسبة الاستهلاك)'),
+                            String(current)
+                          );
+                          if (input == null) return;
+                          const n = Number(input.replace(/[, ]/g, ''));
+                          if (!Number.isFinite(n) || n < 0) return;
+                          const ok = await setOpenAiWordBudget(Math.floor(n));
+                          if (ok) loadServerUsage();
+                        }}
+                        className="opacity-60 hover:opacity-100 transition-opacity"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    )}
+                  </span>
                   <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>{s.usage}%</span>
                 </div>
                 <div className="h-2.5 rounded-full bg-muted overflow-hidden">

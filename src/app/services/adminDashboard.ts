@@ -177,10 +177,10 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
       supabase.from('admin_dash_words_monthly').select('*').order('month'),
       (supabase.rpc as any)('admin_new_subs_monthly', { _year: new Date().getFullYear() }),
       supabase.from('admin_dash_plan_distribution').select('*'),
-      supabase.from('admin_dash_platform_subs').select('*'),
-      supabase.from('admin_dash_first_sub_type').select('*'),
+      (supabase.rpc as any)('admin_platform_subs'),
+      (supabase.rpc as any)('admin_first_sub_type'),
       supabase.from('admin_dash_customer_source').select('*'),
-      supabase.from('admin_dash_uninstalls').select('*'),
+      (supabase.rpc as any)('admin_uninstalls_compare'),
       supabase.from('zid_connections').select('tenant_id, store_name, created_at').gte('created_at', weekAgoIso).order('created_at', { ascending: false }),
       supabase.from('salla_connections').select('tenant_id, store_name, created_at').gte('created_at', weekAgoIso).order('created_at', { ascending: false }),
       supabase.from('admin_dash_servers').select('*').order('display_order'),
@@ -277,11 +277,11 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
       })(),
       // Real per-platform plan counts from settings_workspace; no mock fallback.
       planDistribution: liveplanDist,
-      platformSubs: pick(platSubsRes.data as PlatformSubs[] | null, MOCK.platformSubs),
-      firstSubType: pick(firstRes.data as FirstSubType[] | null, MOCK.firstSubType),
+      platformSubs: ((platSubsRes.data as PlatformSubs[] | null) ?? []),
+      firstSubType: ((firstRes.data as FirstSubType[] | null) ?? []),
       // Real distinct-tenant counts per platform; no mock fallback.
       customerSource: liveCustomerSource,
-      uninstalls: pick(uninstRes.data as Uninstalls[] | null, MOCK.uninstalls),
+      uninstalls: ((uninstRes.data as Uninstalls[] | null) ?? []),
       // Real new Zid/Salla subscribers in the last 7 days; empty array if none.
       newSubscribers: liveNewSubscribers,
       servers: pick(serversRes.data as ServerRow[] | null, MOCK.servers),
@@ -344,5 +344,35 @@ export async function fetchSupabaseUsage(): Promise<{ bytes: number; included_by
   } catch (err) {
     console.warn('[adminDashboard] fetchSupabaseUsage failed:', err);
     return null;
+  }
+}
+
+// --- Live server-usage bars (Supabase + Resend + OpenAI) ---
+export interface AdminServerUsage {
+  supabase: { bytes: number; included_bytes: number; percent: number } | null;
+  resend:   { sent: number; cap: number; percent: number; ok: boolean } | null;
+  openai:   { budget_words: number; used_tokens: number; used_words: number; percent: number } | null;
+  hostinger: null;
+}
+
+export async function fetchAdminServerUsage(): Promise<AdminServerUsage | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('admin-server-usage', { method: 'GET' });
+    if (error) throw error;
+    return data as AdminServerUsage;
+  } catch (err) {
+    console.warn('[adminDashboard] fetchAdminServerUsage failed:', err);
+    return null;
+  }
+}
+
+export async function setOpenAiWordBudget(words: number): Promise<boolean> {
+  try {
+    const { error } = await supabase.rpc('admin_set_openai_word_budget' as any, { _words: words });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.warn('[adminDashboard] setOpenAiWordBudget failed:', err);
+    return false;
   }
 }
