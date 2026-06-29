@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import { corsHeaders, jsonResponse, hmacSha256Hex, timingSafeEqualHex } from "../_shared/cors.ts";
 import { sendResendEmail, formatRiyadhDate } from "../_shared/resend.ts";
 import { storeDisconnectedHtml } from "../_shared/email-templates-ar.ts";
+import { computeZidCharge, normalizeZidPlanCode, normalizeZidStatus } from "../_shared/zid-billing.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -48,6 +49,16 @@ Deno.serve(async (req) => {
         .from("zid_connections")
         .update({ is_active: false, connection_status: "disconnected" })
         .eq("store_uuid", storeUuid);
+      // Mark subscription cancelled for the same tenant
+      try {
+        const { data: conn0 } = await supabase
+          .from("zid_connections").select("tenant_id").eq("store_uuid", storeUuid).maybeSingle();
+        if (conn0?.tenant_id) {
+          await supabase.from("zid_subscriptions")
+            .update({ status: "cancelled", cancelled_at: new Date().toISOString(), last_synced_at: new Date().toISOString() })
+            .eq("tenant_id", conn0.tenant_id);
+        }
+      } catch (e) { console.error("zid-webhook: cancel sub failed", e); }
       try {
         const { data: conn } = await supabase
           .from("zid_connections")
@@ -78,14 +89,63 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error("zid-webhook: disconnect email failed", e);
       }
-    } else if (eventType.startsWith("subscription.") || eventType.startsWith("app.subscription.")) {
+    } else if (
+      eventType.startsWith("subscription.") ||
+      eventType.startsWith("app.subscription.") ||
+      eventType.startsWith("app.store.subscription.")
+    ) {
       const { data: existing } = await supabase
         .from("zid_connections")
-        .select("metadata")
+        .select("tenant_id,metadata")
         .eq("store_uuid", storeUuid)
         .maybeSingle();
       const metadata = { ...(existing?.metadata ?? {}), subscription: payload };
       await supabase.from("zid_connections").update({ metadata }).eq("store_uuid", storeUuid);
+      if (existing?.tenant_id) {
+        const data = payload.data ?? payload.subscription ?? payload;
+        const planRaw = data.plan_code ?? data.plan?.code ?? data.plan?.name ?? data.plan_name;
+        const status = normalizeZidStatus(data.status ?? eventType.split(".").pop());
+        const periodEnd = data.current_period_end ?? data.expires_at ?? data.end_at ?? null;
+        const startedAt = data.started_at ?? data.created_at ?? new Date().toISOString();
+        await supabase.from("zid_subscriptions").upsert({
+          tenant_id: existing.tenant_id,
+          zid_store_id: storeUuid,
+          zid_plan_code: normalizeZidPlanCode(planRaw),
+          status,
+          started_at: startedAt,
+          current_period_end: periodEnd,
+          cancelled_at: status === "cancelled" ? new Date().toISOString() : null,
+          last_synced_at: new Date().toISOString(),
+        }, { onConflict: "tenant_id" });
+      }
+    } else if (
+      eventType.startsWith("charge.") ||
+      eventType.startsWith("app.charge.") ||
+      eventType.startsWith("app.store.charge.") ||
+      eventType.startsWith("payment.")
+    ) {
+      const { data: conn } = await supabase
+        .from("zid_connections").select("tenant_id").eq("store_uuid", storeUuid).maybeSingle();
+      if (conn?.tenant_id) {
+        const data = payload.data ?? payload.charge ?? payload;
+        const zidChargeId = String(data.id ?? data.charge_id ?? data.uuid ?? `${storeUuid}-${Date.now()}`);
+        const gross = Number(data.amount ?? data.price ?? data.total ?? 0);
+        const planRaw = data.plan_code ?? data.plan?.code ?? data.plan?.name;
+        const chargedAtIso = data.paid_at ?? data.charged_at ?? data.created_at ?? new Date().toISOString();
+        const chargedAt = new Date(chargedAtIso);
+        const status = eventType.includes("refund") ? "refunded"
+          : eventType.includes("pending") ? "pending" : "paid";
+        const math = computeZidCharge(gross, chargedAt);
+        await supabase.from("zid_charges").upsert({
+          tenant_id: conn.tenant_id,
+          zid_charge_id: zidChargeId,
+          zid_plan_code: normalizeZidPlanCode(planRaw),
+          charged_at: chargedAt.toISOString(),
+          status,
+          ...math,
+          raw: payload,
+        }, { onConflict: "zid_charge_id" });
+      }
     }
   } catch (e) {
     console.error("zid-webhook: handler error", e);

@@ -2115,6 +2115,75 @@ export type Database = {
         }
         Relationships: []
       }
+      zid_charges: {
+        Row: {
+          charged_at: string
+          created_at: string
+          developer_net_sar: number
+          gross_amount_sar: number
+          id: string
+          is_below_minimum: boolean
+          payout_month: string | null
+          raw: Json | null
+          status: string
+          tenant_id: string
+          updated_at: string
+          vat_sar: number
+          zid_charge_id: string
+          zid_commission_sar: number
+          zid_plan_code: string | null
+        }
+        Insert: {
+          charged_at: string
+          created_at?: string
+          developer_net_sar?: number
+          gross_amount_sar?: number
+          id?: string
+          is_below_minimum?: boolean
+          payout_month?: string | null
+          raw?: Json | null
+          status?: string
+          tenant_id: string
+          updated_at?: string
+          vat_sar?: number
+          zid_charge_id: string
+          zid_commission_sar?: number
+          zid_plan_code?: string | null
+        }
+        Update: {
+          charged_at?: string
+          created_at?: string
+          developer_net_sar?: number
+          gross_amount_sar?: number
+          id?: string
+          is_below_minimum?: boolean
+          payout_month?: string | null
+          raw?: Json | null
+          status?: string
+          tenant_id?: string
+          updated_at?: string
+          vat_sar?: number
+          zid_charge_id?: string
+          zid_commission_sar?: number
+          zid_plan_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zid_charges_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "settings_workspace"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zid_charges_zid_plan_code_fkey"
+            columns: ["zid_plan_code"]
+            isOneToOne: false
+            referencedRelation: "zid_plan_map"
+            referencedColumns: ["zid_plan_code"]
+          },
+        ]
+      }
       zid_connections: {
         Row: {
           authorization_token: string | null
@@ -2215,6 +2284,90 @@ export type Database = {
           tenant_id?: string | null
         }
         Relationships: []
+      }
+      zid_plan_map: {
+        Row: {
+          billing_cycle: string
+          created_at: string
+          list_price_sar: number
+          name_ar: string
+          name_en: string
+          updated_at: string
+          zid_plan_code: string
+        }
+        Insert: {
+          billing_cycle?: string
+          created_at?: string
+          list_price_sar?: number
+          name_ar: string
+          name_en: string
+          updated_at?: string
+          zid_plan_code: string
+        }
+        Update: {
+          billing_cycle?: string
+          created_at?: string
+          list_price_sar?: number
+          name_ar?: string
+          name_en?: string
+          updated_at?: string
+          zid_plan_code?: string
+        }
+        Relationships: []
+      }
+      zid_subscriptions: {
+        Row: {
+          cancelled_at: string | null
+          created_at: string
+          current_period_end: string | null
+          last_synced_at: string
+          started_at: string | null
+          status: string
+          tenant_id: string
+          updated_at: string
+          zid_plan_code: string | null
+          zid_store_id: string | null
+        }
+        Insert: {
+          cancelled_at?: string | null
+          created_at?: string
+          current_period_end?: string | null
+          last_synced_at?: string
+          started_at?: string | null
+          status?: string
+          tenant_id: string
+          updated_at?: string
+          zid_plan_code?: string | null
+          zid_store_id?: string | null
+        }
+        Update: {
+          cancelled_at?: string | null
+          created_at?: string
+          current_period_end?: string | null
+          last_synced_at?: string
+          started_at?: string | null
+          status?: string
+          tenant_id?: string
+          updated_at?: string
+          zid_plan_code?: string | null
+          zid_store_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zid_subscriptions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "settings_workspace"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zid_subscriptions_zid_plan_code_fkey"
+            columns: ["zid_plan_code"]
+            isOneToOne: false
+            referencedRelation: "zid_plan_map"
+            referencedColumns: ["zid_plan_code"]
+          },
+        ]
       }
       zid_token_refresh_errors: {
         Row: {
