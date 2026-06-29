@@ -1,84 +1,74 @@
+# Admin Dashboard KPI redefinitions
 
-# Zid Reports — Database + Sync + Mock Test Suite (final)
+Rewrite the `admin_kpis` RPC so the top cards reflect real merchant data instead of `auth.users`. No UI restructure — only labels, numbers, and the RPC behind them change.
 
-## Revenue formula (KSA, confirmed)
+## 1. إجمالي العملاء (Total Customers)
 
+**New definition:** distinct `tenant_id` that appears in `zid_connections` ∪ `salla_connections`. Employees, admin staff, and bare `auth.users` rows no longer count.
+
+```sql
+SELECT count(*) FROM (
+  SELECT tenant_id FROM public.zid_connections
+  UNION
+  SELECT tenant_id FROM public.salla_connections
+) t;
 ```
-vat            = gross_amount × 0.15        // 15% of gross, deducted first
-net_after_vat  = gross_amount − vat
-zid_commission = net_after_vat × 0.20       // Zid keeps 20% after VAT
-developer_net  = net_after_vat × 0.80       // We receive 80% after VAT
-```
 
-Example (gross = 100): vat = 15, net = 85, zid commission = 17, our share = 68.
+Date range (when provided) filters on `created_at` of the connection row.
 
-Payout rules (stored, displayed informationally):
-- Zid invoices on the 6th of each month, pays on the 10th.
-- Any single transfer under 100 SAR rolls to the next month → `is_below_minimum=true`, `status='deferred'`.
+## 2. عملاء غير مكتملين  (rename from "غير نشطين")
 
-**إجمالي الإيرادات** = `SUM(developer_net_sar)` where status='paid' in range.
+Rename label everywhere in `AdminDashboard.tsx` from "العملاء غير النشطين" → "العملاء غير المكتملين" (English fallback: "Incomplete Customers").
 
-## Three tables
+**New definition:** union of the 4 sources, deduped by lowercased email + digits-only phone:
 
-### 1. `public.zid_plan_map`
-`zid_plan_code` PK, `name_en`, `name_ar`, `list_price_sar`, `billing_cycle`. ~5 seeded rows.
+| # | Source | Condition |
+|---|--------|-----------|
+| A | `admin_landing_leads` | `match_status <> 'full'` (lead, contacted, declined) |
+| B | `settings_workspace` + `settings_plans` | `plan IN ('free','trial')` AND trial expired (`period_start + 14 days < now()` or no active connection) |
+| C | `settings_workspace` | `plan IN ('free','trial')` AND still inside trial window |
+| D | `zid_connections`/`salla_connections` | connection exists AND `settings_workspace.plan IN ('free','trial')` AND tenant has never had a paid plan event |
 
-### 2. `public.zid_subscriptions` (one row per tenant)
-`tenant_id` PK, `zid_store_id`, `zid_plan_code`, `status`, `started_at`, `current_period_end`, `cancelled_at`, `last_synced_at`.
+Dedup key: `coalesce(lower(email),'') || '|' || regexp_replace(coalesce(phone,''),'\D','','g')`. Records with no email and no phone count once each.
 
-### 3. `public.zid_charges` (append-only ledger)
-`id` PK, `tenant_id`, `zid_charge_id` UNIQUE, `zid_plan_code`, `charged_at`, `status`
-(paid/pending/refunded/deferred), `gross_amount_sar`, `vat_sar`, `zid_commission_sar`,
-`developer_net_sar`, `payout_month`, `is_below_minimum`, `raw` jsonb.
+Cancelled subscriptions are excluded (those belong to the uninstalls KPI).
 
-Indexes: `(tenant_id, charged_at)`, `(status, charged_at)`, `(payout_month)`.
-GRANTs to authenticated + service_role. RLS = admin-only SELECT via `admin_has_permission(auth.uid(),'admin_reports')`. Writes via service-role edge functions only.
+## 3. إلغاء التثبيت (Total Uninstalls)
 
-## Sync layer
+**New definition:** count of uninstall webhook events from real paid customers only.
 
-- Extend `zid-oauth-webhook` → upsert `zid_subscriptions` on install/uninstall/subscription events; insert `zid_charges` on charge events (math computed in code).
-- New `zid-sync-subscriptions` (hourly pg_cron) → for each active `zid_connections` row, GET `/v1/managers/store/subscriptions` + `/v1/managers/store/charges`, upsert subscriptions, insert missing charges (idempotent on `zid_charge_id`).
-- One-time backfill after deploy.
+- Zid: rows in `zid_events` where `event_type IN ('app.uninstalled','uninstall')`.
+- Salla: rows in `salla_events` where `event_type = 'app.uninstalled'`.
+- Filter: only include events for tenants whose `settings_workspace.plan IN ('economy','basic','professional','business')` (or whose `settings_plans.monthly_word_quota` exceeds the trial default). Trial uninstalls are excluded per the user's rule.
+- Date range filters on `event.created_at`.
 
-## Reports page wiring
+Comparison (`prev_total_uninstalls`) uses the same shifted window logic already in `admin_kpis`.
 
-`AdminReports.tsx` + `adminReports.ts`:
-- Subscribers per plan ← `zid_subscriptions` joined to `zid_plan_map`.
-- إجمالي الإيرادات ← `SUM(developer_net_sar)` paid.
-- المبلغ المعلق ← `SUM(gross_amount_sar)` pending or deferred.
-- Tax line ← `SUM(vat_sar)`. عمولة زد line ← `SUM(zid_commission_sar)`.
-- Monthly chart ← `SUM(developer_net_sar)` by month.
-- "آخر مزامنة" stamp + "تحديث الآن" button calling `zid-sync-subscriptions`.
-- Excel export from the same query result.
+## 4. Other KPI cards
 
-## Mock test suite (no live Zid store needed)
+Untouched in this change: `total_bubble_clicks`, `avg_response_seconds`, `active_customers`. They keep the current formula.
 
-### a. Seed fixture function
-New `seed-zid-mock-data` edge function (admin-only) that wipes and re-inserts:
-- 5 fake tenants in `zid_subscriptions` (mix of trial/active/cancelled across all 5 plans).
-- ~30 deterministic rows in `zid_charges` over the last 6 months — mixed statuses, including one < 100 SAR to verify deferred flag.
+## Files to change
 
-### b. Webhook replay tests
-`supabase/functions/zid-oauth-webhook/index_test.ts` — POST canned Zid JSON bodies (copied verbatim from docs.zid.sa) for `app.installed`, `app.store.subscription.create`, `app.store.subscription.cancel`, and charge events. Assert rows land in the right tables with correct vat/commission/developer_net values.
+1. **Migration** — replace `public.admin_kpis(_from, _to)`:
+   - Rewrite `v_total` query to use the connections union.
+   - Replace the `v_uninstalls` query with the events-table count filtered by paid plan.
+   - Add `v_incomplete` + `v_prev_incomplete` computed via the 4-source union with the dedup key above.
+   - Extend the returned JSON with `incomplete_customers` + `prev_incomplete_customers`.
+   - Keep existing keys for backwards compatibility, but `inactive_customers` now mirrors `incomplete_customers` so old code still renders.
 
-### c. Sync idempotency tests
-`supabase/functions/zid-sync-subscriptions/index_test.ts` — stub `fetch` to return Zid-shaped JSON. Assert running the sync twice produces the same row count and `last_synced_at` advances.
+2. **`src/app/services/adminDashboard.ts`**
+   - Add `incomplete_customers` + `prev_incomplete_customers` to `AdminKpis`.
+   - Leave mock fallback in place but stop reading `inactive_customers_change` semantics for the new card.
 
-### d. Revenue math test
-Deno test that loads fixture data, runs the same SQL the Reports page uses, and asserts:
-- 5 × 100 SAR paid charges → revenue 340, vat 75, commission 85.
-- Pending + deferred sums match expected.
-- Monthly bucketing equals expected per-month totals.
+3. **`src/app/components/admin/AdminDashboard.tsx`**
+   - Rename the card label from "العملاء غير النشطين" / "Inactive Customers" to "العملاء غير المكتملين" / "Incomplete Customers".
+   - Bind that card's value to `incomplete_customers` (with `inactive_customers` fallback for the mock state).
+   - Bind `total_customers` and `total_uninstalls` to the new RPC values (already wired — verify no client-side overrides remain).
 
-### e. Frontend smoke test
-`AdminReports.test.tsx` — renders the page with the live RPC mocked to fixture output; asserts the KPI cards and plan table show the computed numbers.
+## Technical notes
 
-## Files touched (build phase)
-
-- Migration: 3 tables + GRANTs + RLS + indexes + seed `zid_plan_map`.
-- `supabase/functions/zid-oauth-webhook/index.ts` — write subs + charges with formula.
-- `supabase/functions/zid-sync-subscriptions/index.ts` — new, hourly via pg_cron.
-- `supabase/functions/seed-zid-mock-data/index.ts` — admin-only fixture seeder.
-- Test files for both edge functions + `AdminReports.test.tsx`.
-- `src/app/services/adminReports.ts` — query the 3 tables.
-- `src/app/components/admin/AdminReports.tsx` — Last synced, refresh button, Excel export, عمولة زد line.
+- The dedup union for "incomplete" runs entirely inside the RPC (one `WITH` CTE per source, then `SELECT count(DISTINCT key)`) to avoid extra round-trips.
+- Paid-plan detection lives in a single CTE so steps 2 and 3 share the same definition; changing the paid-tier list later requires editing one place.
+- `zid_events` / `salla_events` already exist and are written by the OAuth webhooks today, so no new tables are needed.
+- No changes to charts further down the dashboard (`Subscriptions by Platform`, `Customer Source Comparison`, etc.).
