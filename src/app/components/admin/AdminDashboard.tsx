@@ -176,8 +176,8 @@ export function AdminDashboard() {
   // KPI cards ← admin_kpis() (with mock fallback for inactive_customers)
   const kpis = useMemo(() => {
     const totalCustomers = liveKpis?.total_customers ?? 0;
-    const inactiveCustomers = liveKpis ? 0 : 0; // shown as "—" until real metric exists
-    const activeCustomers = Math.max(0, totalCustomers - inactiveCustomers);
+    const incompleteCustomers = liveKpis?.incomplete_customers ?? 0;
+    const activeCustomers = Math.max(0, totalCustomers - incompleteCustomers);
     const uninstalls = liveKpis?.total_uninstalls ?? 0;
     const clicks = liveKpis?.total_bubble_clicks ?? 0;
     const avg = liveKpis?.avg_response_seconds ?? 0;
@@ -190,13 +190,14 @@ export function AdminDashboard() {
     };
 
     const totalC = pct(totalCustomers, liveKpis?.prev_total_customers ?? 0);
+    const incC   = pct(incompleteCustomers, liveKpis?.prev_incomplete_customers ?? 0);
     const uninC  = pct(uninstalls,     liveKpis?.prev_total_uninstalls ?? 0);
     const clickC = pct(clicks,         liveKpis?.prev_total_bubble_clicks ?? 0);
     const avgC   = pct(avg,            liveKpis?.prev_avg_response_seconds ?? 0);
 
     return [
       { icon: Users,             label: t('Total Customers',     'إجمالي العملاء'),        value: totalCustomers,    color: '#043CC8', change: totalC.change, up: totalC.up },
-      { icon: UserX,             label: t('Inactive Customers',  'العملاء غير النشطين'),  value: inactiveCustomers, color: '#ff4466', change: null,          up: true },
+      { icon: UserX,             label: t('Incomplete Customers','العملاء غير المكتملين'), value: incompleteCustomers, color: '#ff4466', change: incC.change, up: !incC.up },
       { icon: Trash2,            label: t('Total Uninstalls',    'إجمالي إلغاء التثبيت'), value: uninstalls,        color: '#f97316', change: uninC.change,  up: !uninC.up },
       { icon: UserCheck,         label: t('Active Customers',    'العملاء النشطون'),       value: activeCustomers,   color: '#22c55e', change: totalC.change, up: totalC.up },
       { icon: MousePointerClick, label: t('Total Bubble Clicks', 'إجمالي نقرات الفقاعة'), value: clicks,            color: '#a855f7', change: clickC.change, up: clickC.up },

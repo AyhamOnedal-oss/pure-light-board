@@ -68,6 +68,8 @@ export interface AdminKpis {
   prev_total_customers: number;
   total_uninstalls: number;
   prev_total_uninstalls: number;
+  incomplete_customers: number;
+  prev_incomplete_customers: number;
   total_bubble_clicks: number;
   prev_total_bubble_clicks: number;
   avg_response_seconds: number;
