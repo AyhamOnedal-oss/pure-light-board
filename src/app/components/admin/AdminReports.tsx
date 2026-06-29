@@ -3,9 +3,9 @@ import { useApp } from '../../context/AppContext';
 import { useParams } from 'react-router';
 import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
-import { Download, Calendar, ChevronDown, DollarSign, Users, Clock, TrendingUp } from 'lucide-react';
+import { Download, Calendar, ChevronDown, DollarSign, Users, Clock, TrendingUp, RefreshCw, Database, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, AreaChart, Area } from 'recharts';
-import { fetchAdminReports, type AdminReportsData } from '../../services/adminReports';
+import { fetchAdminReports, triggerZidSync, seedZidMockData, type AdminReportsData } from '../../services/adminReports';
 
 const dateFilters = [
   { key: 'current_month', en: 'Current Month', ar: 'الشهر الحالي' },
@@ -46,6 +46,9 @@ export function AdminReports() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [data, setData] = useState<AdminReportsData>({ zidPlans: [], sallaPlans: [], revenueByMonth: [] });
+  const [syncing, setSyncing] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -53,7 +56,7 @@ export function AdminReports() {
       .then(d => { if (alive) setData(d); })
       .catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [reloadKey]);
 
   const zidPlans = data.zidPlans;
   const sallaPlans = data.sallaPlans;
@@ -81,13 +84,72 @@ export function AdminReports() {
   }, [zidPlans, sallaPlans, isZid, isSalla]);
 
   const totalSubs = plans.reduce((s, p) => s + p.subscribers, 0);
-  const totalRevenue = plans.reduce((s, p) => s + p.total, 0);
-  const pendingAmount = Math.round(totalRevenue * 0.12); // Mock: 12% pending
-  const tax = Math.round(totalRevenue * 0.15);
-  const revenueExTax = totalRevenue - tax;
-  const netProfit = Math.round(revenueExTax * 0.7);
+  // For Zid we use the ledger (developer_net after VAT + commission).
+  // For Salla (until ledger ships) we use the legacy plan-price estimate.
+  const zidRevenue = data.zidRevenue ?? 0;
+  const zidPending = data.zidPending ?? 0;
+  const zidVat = data.zidVat ?? 0;
+  const zidCommission = data.zidCommission ?? 0;
+  const sallaRevenue = data.sallaPlans.reduce((s, p) => s + p.total, 0);
+  const sallaPending = Math.round(sallaRevenue * 0.12);
+  const totalRevenue = isSalla ? sallaRevenue : isZid ? zidRevenue : zidRevenue + sallaRevenue;
+  const pendingAmount = isSalla ? sallaPending : isZid ? zidPending : zidPending + sallaPending;
+  const tax = isSalla ? Math.round(sallaRevenue * 0.15) : isZid ? zidVat : zidVat + Math.round(sallaRevenue * 0.15);
+  const commission = isSalla ? 0 : zidCommission;
+  const revenueExTax = totalRevenue;
+  const netProfit = Math.round(totalRevenue * 0.7);
 
   const title = isAll ? t('All Reports', 'جميع التقارير') : isZid ? t('Zid Reports', 'تقارير زد') : t('Salla Reports', 'تقارير سلة');
+
+  const lastSyncedLabel = data.zidLastSyncedAt
+    ? new Date(data.zidLastSyncedAt).toLocaleString(language === 'ar' ? 'ar-SA' : 'en-US', {
+        dateStyle: 'medium', timeStyle: 'short',
+      })
+    : t('Never', 'لم تتم بعد');
+
+  async function handleSync() {
+    setSyncing(true);
+    const r = await triggerZidSync();
+    setSyncing(false);
+    if (!r.ok) alert(t('Sync failed: ', 'فشلت المزامنة: ') + (r.error || ''));
+    setReloadKey(k => k + 1);
+  }
+
+  async function handleSeedMock() {
+    if (!confirm(t('Seed mock Zid data? This will reset fixture tenants.', 'تعبئة بيانات زد التجريبية؟ سيتم إعادة تعيين المتاجر الوهمية.'))) return;
+    setSeeding(true);
+    const r = await seedZidMockData();
+    setSeeding(false);
+    if (!r.ok) alert(t('Seed failed: ', 'فشل التعبئة: ') + (r.error || ''));
+    setReloadKey(k => k + 1);
+  }
+
+  function exportCsv() {
+    const rows: string[][] = [];
+    rows.push([t('Plan', 'الخطة'), t('Price', 'السعر'), t('Subscribers', 'المشتركين'), t('Total Amount', 'إجمالي المبلغ')]);
+    for (const p of plans) {
+      rows.push([
+        language === 'ar' ? p.nameAr : p.name,
+        String(p.price),
+        String(p.subscribers),
+        String(p.total),
+      ]);
+    }
+    rows.push([t('Total', 'الإجمالي'), '', String(totalSubs), String(totalRevenue)]);
+    rows.push([]);
+    rows.push([t('Revenue (after VAT & commission)', 'الإيرادات (بعد الضريبة والعمولة)'), String(totalRevenue)]);
+    rows.push([t('Pending', 'المعلق'), String(pendingAmount)]);
+    rows.push([t('VAT', 'الضريبة'), String(tax)]);
+    if (!isSalla) rows.push([t('Zid Commission', 'عمولة زد'), String(commission)]);
+    const csv = '\ufeff' + rows.map(r => r.map(c => `"${(c ?? '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fuqah-reports-${platform}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6">
@@ -95,9 +157,30 @@ export function AdminReports() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-[22px]" style={{ fontWeight: 700 }}>{title}</h1>
-          <p className="text-[13px] text-muted-foreground">{t('Financial and subscription reports', 'التقارير المالية والاشتراكات')}</p>
+          <p className="text-[13px] text-muted-foreground">
+            {t('Financial and subscription reports', 'التقارير المالية والاشتراكات')}
+            {!isSalla && (
+              <span className="ms-2 text-[12px] text-muted-foreground/80">
+                · {t('Last synced', 'آخر مزامنة')}: {lastSyncedLabel}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {!isSalla && (
+            <>
+              <button onClick={handleSync} disabled={syncing}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card border border-border hover:bg-muted transition-colors text-[13px] disabled:opacity-60" style={{ fontWeight: 500 }}>
+                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                {t('Sync now', 'تحديث الآن')}
+              </button>
+              <button onClick={handleSeedMock} disabled={seeding}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card border border-border hover:bg-muted transition-colors text-[13px] disabled:opacity-60" style={{ fontWeight: 500 }}>
+                {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                {t('Seed mock', 'بيانات تجريبية')}
+              </button>
+            </>
+          )}
           <div className="relative">
             <button onClick={() => setShowDatePicker(!showDatePicker)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card border border-border hover:bg-muted transition-colors text-[13px]" style={{ fontWeight: 500 }}>
@@ -125,7 +208,7 @@ export function AdminReports() {
               </>
             )}
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] transition-colors text-[13px]" style={{ fontWeight: 600 }}>
+          <button onClick={exportCsv} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] transition-colors text-[13px]" style={{ fontWeight: 600 }}>
             <Download className="w-4 h-4" /> {t('Export Excel', 'تصدير Excel')}
           </button>
         </div>
@@ -148,7 +231,7 @@ export function AdminReports() {
           <p className="text-[11px] text-muted-foreground mb-1">{t('Pending Amount', 'المبلغ المعلق')}</p>
           <p className="text-[22px]" style={{ fontWeight: 700 }}><AnimatedValue value={pendingAmount} /> <span className="text-[12px] text-muted-foreground">{t('SAR', 'ر.س')}</span></p>
         </motion.div>
-        {isAll && (
+        {(isAll || isZid) && (
           <>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className={`${cardClass} relative overflow-hidden`}>
               <DollarSign className="w-5 h-5 mb-2 text-red-400" />
@@ -157,8 +240,8 @@ export function AdminReports() {
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={`${cardClass} relative overflow-hidden`}>
               <TrendingUp className="w-5 h-5 mb-2 text-[#a855f7]" />
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Revenue Ex. Tax', 'الإيرادات بدون ضريبة')}</p>
-              <p className="text-[22px]" style={{ fontWeight: 700 }}><AnimatedValue value={revenueExTax} /> <span className="text-[12px] text-muted-foreground">{t('SAR', 'ر.س')}</span></p>
+              <p className="text-[11px] text-muted-foreground mb-1">{t('Zid Commission (20%)', 'عمولة زد (20%)')}</p>
+              <p className="text-[22px]" style={{ fontWeight: 700 }}><AnimatedValue value={commission} /> <span className="text-[12px] text-muted-foreground">{t('SAR', 'ر.س')}</span></p>
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className={`${cardClass} relative overflow-hidden`}>
               <DollarSign className="w-5 h-5 mb-2 text-[#00FFF4]" />
