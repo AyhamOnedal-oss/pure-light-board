@@ -175,7 +175,7 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
     ] = await Promise.all([
       supabase.from('admin_dash_kpi_snapshots').select('*').order('snapshot_date', { ascending: false }).limit(1),
       supabase.from('admin_dash_words_monthly').select('*').order('month'),
-      supabase.from('admin_dash_new_subs_monthly').select('*').order('month'),
+      (supabase.rpc as any)('admin_new_subs_monthly', { _year: new Date().getFullYear() }),
       supabase.from('admin_dash_plan_distribution').select('*'),
       supabase.from('admin_dash_platform_subs').select('*'),
       supabase.from('admin_dash_first_sub_type').select('*'),
@@ -264,7 +264,17 @@ export async function fetchAdminDashboard(): Promise<AdminDashboardData> {
     return {
       kpi: (kpiRes.data && kpiRes.data[0]) ? (kpiRes.data[0] as unknown as KpiSnapshot) : MOCK.kpi,
       wordsMonthly: pick(wordsRes.data as WordsMonthly[] | null, MOCK.wordsMonthly),
-      newSubsMonthly: pick(subsMonthRes.data as NewSubsMonthly[] | null, MOCK.newSubsMonthly),
+      newSubsMonthly: (() => {
+        const rows = (subsMonthRes.data as Array<{ month: number; platform: string; count: number }> | null) ?? [];
+        if (rows.length === 0) return [];
+        const year = new Date().getFullYear();
+        return rows.map(r => ({
+          year,
+          month: r.month,
+          platform: r.platform as Platform,
+          count: r.count,
+        }));
+      })(),
       // Real per-platform plan counts from settings_workspace; no mock fallback.
       planDistribution: liveplanDist,
       platformSubs: pick(platSubsRes.data as PlatformSubs[] | null, MOCK.platformSubs),
