@@ -290,8 +290,23 @@ export function AdminDashboard() {
         tooltip: `${usedGb.toFixed(2)} GB / ${capGb.toFixed(0)} GB`,
       };
     }
+    if (s.name === 'Resend' && serverUsageLive?.resend) {
+      const r = serverUsageLive.resend;
+      return { name: s.name, usage: r.percent, fill: s.color, tooltip: `${r.sent.toLocaleString()} / ${r.cap.toLocaleString()} ${t('emails this month','بريد هذا الشهر')}` };
+    }
+    if (s.name === 'OpenAI' && serverUsageLive?.openai) {
+      const o = serverUsageLive.openai;
+      return {
+        name: s.name,
+        usage: Number(o.percent ?? 0),
+        fill: s.color,
+        tooltip: o.budget_words > 0
+          ? `${o.used_words.toLocaleString()} / ${o.budget_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`
+          : `${o.used_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`,
+      };
+    }
     return { name: s.name, usage: s.usage_percent, fill: s.color, tooltip: undefined as string | undefined };
-  }), [data.servers, supaUsage]);
+  }), [data.servers, supaUsage, serverUsageLive, language]);
 
   // First Subscription Type pie  ← admin_dash_first_sub_type
   const firstSubData = useMemo(() => {
