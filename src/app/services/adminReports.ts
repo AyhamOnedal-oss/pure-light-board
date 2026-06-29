@@ -30,28 +30,6 @@ export interface AdminReportsData {
 const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
-export const MOCK_REPORTS: AdminReportsData = {
-  zidPlans: [
-    { name: 'Trial', nameAr: 'تجريبي', price: 0, subscribers: 120, total: 0 },
-    { name: 'Economy', nameAr: 'اقتصادي', price: 99, subscribers: 185, total: 18315 },
-    { name: 'Basic', nameAr: 'أساسي', price: 199, subscribers: 165, total: 32835 },
-    { name: 'Professional', nameAr: 'احترافي', price: 399, subscribers: 112, total: 44688 },
-    { name: 'Business', nameAr: 'أعمال', price: 799, subscribers: 58, total: 46342 },
-  ],
-  sallaPlans: [
-    { name: 'Trial', nameAr: 'تجريبي', price: 0, subscribers: 95, total: 0 },
-    { name: 'Economy', nameAr: 'اقتصادي', price: 99, subscribers: 127, total: 12573 },
-    { name: 'Basic', nameAr: 'أساسي', price: 199, subscribers: 120, total: 23880 },
-    { name: 'Professional', nameAr: 'احترافي', price: 399, subscribers: 86, total: 34314 },
-    { name: 'Business', nameAr: 'أعمال', price: 799, subscribers: 39, total: 31161 },
-  ],
-  revenueByMonth: MONTHS_EN.map((m, i) => ({
-    name: m, nameAr: MONTHS_AR[i],
-    zid: [28000,31000,35000,38000,42000,45000,48000,46000,50000,52000,55000,58000][i],
-    salla: [22000,24000,27000,29000,32000,35000,37000,36000,39000,41000,43000,45000][i],
-  })),
-};
-
 export async function fetchAdminReports(): Promise<AdminReportsData> {
   return computeFromZidTables();
 }
