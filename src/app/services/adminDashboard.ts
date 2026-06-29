@@ -346,3 +346,33 @@ export async function fetchSupabaseUsage(): Promise<{ bytes: number; included_by
     return null;
   }
 }
+
+// --- Live server-usage bars (Supabase + Resend + OpenAI) ---
+export interface AdminServerUsage {
+  supabase: { bytes: number; included_bytes: number; percent: number } | null;
+  resend:   { sent: number; cap: number; percent: number; ok: boolean } | null;
+  openai:   { budget_words: number; used_tokens: number; used_words: number; percent: number } | null;
+  hostinger: null;
+}
+
+export async function fetchAdminServerUsage(): Promise<AdminServerUsage | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('admin-server-usage', { method: 'GET' });
+    if (error) throw error;
+    return data as AdminServerUsage;
+  } catch (err) {
+    console.warn('[adminDashboard] fetchAdminServerUsage failed:', err);
+    return null;
+  }
+}
+
+export async function setOpenAiWordBudget(words: number): Promise<boolean> {
+  try {
+    const { error } = await supabase.rpc('admin_set_openai_word_budget' as any, { _words: words });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.warn('[adminDashboard] setOpenAiWordBudget failed:', err);
+    return false;
+  }
+}
