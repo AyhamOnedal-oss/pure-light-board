@@ -1,74 +1,53 @@
-# Admin Dashboard KPI redefinitions
+## Context: What the two widgets actually show today
 
-Rewrite the `admin_kpis` RPC so the top cards reflect real merchant data instead of `auth.users`. No UI restructure — only labels, numbers, and the RPC behind them change.
+**حالة الخوادم (Server Status)** — already real.
+- Source: `public.admin_health_checks`, written by the `health-check` edge function which pings Supabase, Hostinger, Resend, and OpenAI and records `status` (`up`/`degraded`/`down`), `error`, and `checked_at` per provider.
+- UI: green = متصل, amber = تقريباً متصل, red = غير متصل. Defaults to "up" if no row exists for a provider.
+- No change requested.
 
-## 1. إجمالي العملاء (Total Customers)
+**المشتركون الجدد عبر الوقت (New Subscribers Over Time)** — currently NOT live.
+- Source today: static `admin_dash_new_subs_monthly` seed table.
+- Does not filter for paid plans.
 
-**New definition:** distinct `tenant_id` that appears in `zid_connections` ∪ `salla_connections`. Employees, admin staff, and bare `auth.users` rows no longer count.
+## Changes
 
-```sql
-SELECT count(*) FROM (
-  SELECT tenant_id FROM public.zid_connections
-  UNION
-  SELECT tenant_id FROM public.salla_connections
-) t;
-```
+### 1. Remove the up/down arrows on the 6 KPI cards
+File: `src/app/components/admin/AdminDashboard.tsx`
+- Delete the `<TrendingUp />` / `<TrendingDown />` block (~lines 400–405) and the `change %` text next to it.
+- Drop unused imports `TrendingUp`, `TrendingDown`.
+- Keep `AnimatedValue` and the KPI number itself.
 
-Date range (when provided) filters on `created_at` of the connection row.
+### 2. Make "New Subscribers Over Time" live, paid-only, current calendar year, deduped by store
 
-## 2. عملاء غير مكتملين  (rename from "غير نشطين")
+Definition of "paid": tenant whose `settings_workspace.plan` is one of `economy`, `basic`, `professional`, `business`, `pro` (same list used for Uninstalls).
 
-Rename label everywhere in `AdminDashboard.tsx` from "العملاء غير النشطين" → "العملاء غير المكتملين" (English fallback: "Incomplete Customers").
+**Dedup key:** the platform's own store identifier, not `tenant_id`.
+- Zid: `zid_connections.store_uuid` (permanent across uninstall → reinstall, regardless of which Fuqah workspace the merchant logs into).
+- Salla: `salla_connections.store_id`.
+- Fallback: use `tenant_id` when the store ID is null (defensive; shouldn't happen for real installs).
 
-**New definition:** union of the 4 sources, deduped by lowercased email + digits-only phone:
+**New SQL RPC** `public.admin_new_subs_monthly(_year int default extract(year from now() at time zone 'Asia/Riyadh')::int)` returning `{ month int, platform text, count int }`:
 
-| # | Source | Condition |
-|---|--------|-----------|
-| A | `admin_landing_leads` | `match_status <> 'full'` (lead, contacted, declined) |
-| B | `settings_workspace` + `settings_plans` | `plan IN ('free','trial')` AND trial expired (`period_start + 14 days < now()` or no active connection) |
-| C | `settings_workspace` | `plan IN ('free','trial')` AND still inside trial window |
-| D | `zid_connections`/`salla_connections` | connection exists AND `settings_workspace.plan IN ('free','trial')` AND tenant has never had a paid plan event |
+1. CTE `paid_tenants` = `settings_workspace.id` where `plan IN ('economy','basic','professional','business','pro')`.
+2. CTE `zid_first` = for each `coalesce(store_uuid, tenant_id::text)`, the `min(created_at)` from `zid_connections` rows whose `tenant_id` is in `paid_tenants`.
+3. CTE `salla_first` = same for `salla_connections` keyed on `coalesce(store_id, tenant_id::text)`.
+4. Restrict each row to `extract(year from min_created_at at time zone 'Asia/Riyadh') = _year`.
+5. Group by `month` + `platform`; zero-fill the 12 months with `generate_series(1,12)` × `('zid','salla')`.
+6. `SECURITY DEFINER`, gated by `admin_has_permission(auth.uid(), 'admin_dashboard')`.
 
-Dedup key: `coalesce(lower(email),'') || '|' || regexp_replace(coalesce(phone,''),'\D','','g')`. Records with no email and no phone count once each.
+So a store that was installed in Feb, uninstalled, then reinstalled in Aug counts as **1 install in Feb** — it is not double-counted, and reinstalls do not show as new subscribers.
 
-Cancelled subscriptions are excluded (those belong to the uninstalls KPI).
+**Frontend wiring** in `src/app/services/adminDashboard.ts`:
+- Replace the `admin_dash_new_subs_monthly` table read with `supabase.rpc('admin_new_subs_monthly', { _year: new Date().getFullYear() })`.
+- Keep the existing `NewSubsMonthly` shape so `AdminDashboard.tsx` keeps working unchanged.
 
-## 3. إلغاء التثبيت (Total Uninstalls)
-
-**New definition:** count of uninstall webhook events from real paid customers only.
-
-- Zid: rows in `zid_events` where `event_type IN ('app.uninstalled','uninstall')`.
-- Salla: rows in `salla_events` where `event_type = 'app.uninstalled'`.
-- Filter: only include events for tenants whose `settings_workspace.plan IN ('economy','basic','professional','business')` (or whose `settings_plans.monthly_word_quota` exceeds the trial default). Trial uninstalls are excluded per the user's rule.
-- Date range filters on `event.created_at`.
-
-Comparison (`prev_total_uninstalls`) uses the same shifted window logic already in `admin_kpis`.
-
-## 4. Other KPI cards
-
-Untouched in this change: `total_bubble_clicks`, `avg_response_seconds`, `active_customers`. They keep the current formula.
-
-## Files to change
-
-1. **Migration** — replace `public.admin_kpis(_from, _to)`:
-   - Rewrite `v_total` query to use the connections union.
-   - Replace the `v_uninstalls` query with the events-table count filtered by paid plan.
-   - Add `v_incomplete` + `v_prev_incomplete` computed via the 4-source union with the dedup key above.
-   - Extend the returned JSON with `incomplete_customers` + `prev_incomplete_customers`.
-   - Keep existing keys for backwards compatibility, but `inactive_customers` now mirrors `incomplete_customers` so old code still renders.
-
-2. **`src/app/services/adminDashboard.ts`**
-   - Add `incomplete_customers` + `prev_incomplete_customers` to `AdminKpis`.
-   - Leave mock fallback in place but stop reading `inactive_customers_change` semantics for the new card.
-
-3. **`src/app/components/admin/AdminDashboard.tsx`**
-   - Rename the card label from "العملاء غير النشطين" / "Inactive Customers" to "العملاء غير المكتملين" / "Incomplete Customers".
-   - Bind that card's value to `incomplete_customers` (with `inactive_customers` fallback for the mock state).
-   - Bind `total_customers` and `total_uninstalls` to the new RPC values (already wired — verify no client-side overrides remain).
+### Out of scope
+- Server Status widget (already real).
+- KPI values themselves — only the arrow/percent removal.
+- The seed table `admin_dash_new_subs_monthly` is left in place but unused by this chart.
 
 ## Technical notes
 
-- The dedup union for "incomplete" runs entirely inside the RPC (one `WITH` CTE per source, then `SELECT count(DISTINCT key)`) to avoid extra round-trips.
-- Paid-plan detection lives in a single CTE so steps 2 and 3 share the same definition; changing the paid-tier list later requires editing one place.
-- `zid_events` / `salla_events` already exist and are written by the OAuth webhooks today, so no new tables are needed.
-- No changes to charts further down the dashboard (`Subscriptions by Platform`, `Customer Source Comparison`, etc.).
+- A merchant who reinstalls under a different Fuqah workspace would still count once, because the platform `store_uuid`/`store_id` is the same.
+- Paid-plan list lives in one CTE so changing the tier list later requires editing one place.
+- All time bucketing uses Asia/Riyadh so "this year" matches the dashboard's locale.
