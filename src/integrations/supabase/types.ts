@@ -925,6 +925,27 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       admin_team_members: {
         Row: {
           created_at: string
@@ -2246,6 +2267,13 @@ export type Database = {
     }
     Functions: {
       admin_db_usage: { Args: never; Returns: Json }
+      admin_first_sub_type: {
+        Args: never
+        Returns: {
+          count: number
+          plan: string
+        }[]
+      }
       admin_has_any_access: { Args: { _user_id: string }; Returns: boolean }
       admin_has_permission: {
         Args: { _key: string; _user_id: string }
@@ -2264,6 +2292,26 @@ export type Database = {
         Returns: {
           count: number
           month: number
+          platform: string
+        }[]
+      }
+      admin_openai_usage: { Args: never; Returns: Json }
+      admin_platform_subs: {
+        Args: never
+        Returns: {
+          count: number
+          platform: string
+          status: string
+        }[]
+      }
+      admin_set_openai_word_budget: {
+        Args: { _words: number }
+        Returns: number
+      }
+      admin_uninstalls_compare: {
+        Args: never
+        Returns: {
+          count: number
           platform: string
         }[]
       }
