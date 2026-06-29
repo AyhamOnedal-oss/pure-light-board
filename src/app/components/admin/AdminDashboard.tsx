@@ -4,7 +4,7 @@ import { AnimatedValue } from '../AnimatedNumber';
 import { motion } from 'motion/react';
 import {
   Users, UserCheck, UserX, Trash2, MousePointerClick, Clock,
-  Download, Calendar, ChevronDown, TrendingUp, TrendingDown
+  Download, Calendar, ChevronDown
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
