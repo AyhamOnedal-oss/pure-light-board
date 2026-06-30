@@ -315,16 +315,6 @@ export function TestChat() {
         )}
       </div>
 
-      {/* Orange usage warning */}
-      <div className="px-4 py-2.5 rounded-xl bg-orange-500/8 border border-orange-500/15 inline-flex w-fit max-w-full">
-        <p className="text-[12px] text-orange-500" style={{ fontWeight: 600 }}>
-          ⚠️ {t(
-            'Words used in this test are counted as input and output usage.',
-            'الكلمات المستخدمة في هذا الاختبار تُحسب كاستخدام إدخال وإخراج.'
-          )}
-        </p>
-      </div>
-
       <div className="flex items-end gap-3">
         <div dir="ltr" className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden h-[500px] flex flex-col w-full max-w-[700px]">
           {/* Header */}

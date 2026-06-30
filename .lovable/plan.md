@@ -1,48 +1,58 @@
 ## Goal
+1. Remove the yellow warning banner from Test Chat ("الكلمات المستخدمة في هذا الاختبار تُحسب كاستخدام إدخال وإخراج").
+2. Replace every "words / كلمات" concept in the **user dashboard** (not admin) with "conversations / محادثات", using token data as the underlying source.
 
-When admin edits an OpenAI Key row (model, project_id, or per‑1M prices) — or replaces the OpenAI key itself — every usage record **from that moment forward** for every client must be calculated with the new values. Past `merchant_token_daily` rows must remain untouched (frozen at the price that was active that day).
+## Conversion formula
+Per user spec: **1 conversation ≈ 50,000 input tokens + 5,000 output tokens.**
 
-Today the pricing fields on `admin_openai_keys` are mutable and `openai-usage-sync` reads "the current row" at sync time. If the admin edits prices, the next sync silently recomputes historical days with the new price (because `cost_usd` is overwritten on upsert). There is no concept of "effective from".
+To stay conservative (don't undercount usage against quota), we compute:
+```
+conversations = ceil( max( input_tokens / 50_000 , output_tokens / 5_000 ) )
+```
+Centralized in one helper `tokensToConversations(input, output)` in `src/app/utils/conversations.ts` so we can tweak later in one place.
 
-## What we'll change
+## Files to change (UI / logic in user panel only)
 
-### 1. Add price/model versioning (DB)
+### 1. `src/app/components/settings/TestChat.tsx`
+- Delete the `<Alert>` block (lines ~318–326) carrying the bilingual "Words used…" notice. No replacement.
 
-New table `admin_openai_key_versions`:
-- `id`, `key_id` (FK → `admin_openai_keys.id`), `slot`, `project_id`, `default_model`, `input_price_per_1m`, `output_price_per_1m`, `tokens_per_word`, `effective_from timestamptz`, `effective_to timestamptz NULL`, `created_by`, `created_at`.
-- Trigger on `admin_openai_keys` (AFTER INSERT/UPDATE of the priced columns): close the current open version (`effective_to = now()`) and insert a new row with `effective_from = now()`. Same trigger fires when `project_id` or `default_model` changes — that's the "I rotated the key / switched model in n8n" cutover.
-- Backfill: one initial version per existing key with `effective_from = now() - interval '30 days'` so old rows still resolve.
-- Standard grants + RLS (admins read; service_role full; no anon).
+### 2. New `src/app/utils/conversations.ts`
+- Export `tokensToConversations(input, output)` and `INPUT_PER_CONVO = 50_000`, `OUTPUT_PER_CONVO = 5_000`.
 
-### 2. Make the sync function version‑aware
+### 3. `src/app/services/metrics.ts`
+- Pull `input_tokens` / `output_tokens` per tenant from `merchant_token_daily` for the current and previous period (alongside existing `dashboard_usage_daily` query).
+- Replace the `wordsUsed` field on the returned object with `conversationsUsed` (keep the same numeric type and trend slot). Delta % computed against previous period the same way.
+- Remove references to `ai_words_used` for the user-facing metric (the DB column stays; we just stop surfacing it).
 
-`supabase/functions/openai-usage-sync/index.ts`:
-- Load **all** versions (not just current rows) into a per‑`project_id` timeline.
-- For each daily usage bucket, pick the version whose `[effective_from, effective_to)` covers that bucket's day. If a day straddles a cutover, attribute the whole day to the version active at the *end* of that day (Usage API returns daily buckets — fine‑grained enough for monthly billing).
-- Compute `cost_usd` and `words_approx` with that version's price + `tokens_per_word`.
-- Already‑written rows for past days are not re‑touched: change upsert to **insert‑if‑missing** for `merchant_token_daily` (and `admin_openai_unattributed_daily`) on days strictly before today (Riyadh tz). Today's row is still upserted so partial‑day data keeps refreshing under the currently‑active version.
-- After a save the admin can also trigger a one‑off "advance watermark to now" via the existing flow (no recompute of history).
+### 4. `src/app/components/DashboardPage.tsx`
+- Replace the "Words Consumed / الكلمات المستهلكة" tile (line 174) with **"Conversations / المحادثات"** bound to `metrics.conversationsUsed`.
+- Keep the same icon style or swap `FileText` → `MessagesSquare` from lucide for clarity.
+- Update the inline comment on line 24.
 
-### 3. UI cutover signal (OpenAIKeysCard)
+### 5. `src/app/components/settings/PlansPage.tsx`
+- Stop reading `monthly_word_quota` / `monthly_words_used` for display. Instead:
+  - Read `input_tokens` + `output_tokens` for current billing month from `merchant_token_daily` → `conversationsUsed`.
+  - Convert `monthly_word_quota` (legacy words) → `conversationsQuota` using the same ratio so the existing plan rows still render. (Formula: `quota_words / ((50000+5000)/2)` ≈ `quota_words / 27_500`.) Alternatively, if `settings_plans` already has a conversation column we can add a `monthly_conversation_quota` field — see "Schema (optional)" below.
+- Update all labels: "إجمالي الكلمات" → "إجمالي المحادثات", "استخدام الكلمات" → "استخدام المحادثات", "الكلمات المستخدمة" → "المحادثات المستخدمة", donut legend "مستخدم/متبقي" stays.
+- `formatNumber` and the `useAnimatedNumber` calls operate on the new conversation counts (no `/1000` k-format — conversation numbers are small).
 
-`src/app/components/admin/OpenAIKeysCard.tsx`:
-- On save, after the `update`, call the edge function `openai-usage-sync` once (fire‑and‑forget) so a fresh sync immediately starts using the new version.
-- Show a small "active since {timestamp}" line under each row using the latest version's `effective_from`.
-- Confirmation modal before saving: "All new conversations from now on will be billed at the new model/price. Past data stays as is." (AR + EN).
+### 6. `src/app/context/AppContext.tsx`
+- Update the 80%-usage notification:
+  - `titleAr: 'اقتراب من حد المحادثات'`
+  - `messageAr: 'لقد استخدمت 80% من حصة المحادثات الشهرية.'`
+  - English equivalents updated too.
+- Threshold logic switches from words-based to conversations-based (uses the helper).
 
-### 4. Customer panel (MerchantConsumptionTable)
+### 7. Optional schema addition (recommended, not required)
+Add a nullable `monthly_conversation_quota INTEGER` to `public.settings_plans`, backfilled as `ROUND(monthly_word_quota / 27500)`. UI prefers this column when present; falls back to the derived value otherwise. This keeps the door open to retire word quotas entirely later without another UI pass.
 
-No schema change — rows already carry `model` + frozen `cost_usd`. Add a tiny tooltip in the header explaining that historical rows reflect the price active that day, future rows reflect the latest active version.
+## Out of scope (intentionally untouched)
+- Admin panel ("الكلمات" cards, `admin_dash_words_monthly`, `MerchantConsumptionTable`, `OpenAIKeysCard`, `adminCustomers.ts`).
+- Edge functions and OpenAI usage sync (still token-based internally).
+- DB columns `monthly_word_quota`, `monthly_words_used`, `ai_words_used` (kept; admin still uses them).
 
-## Out of scope
-
-- No recompute of historical `cost_usd` (intentional — that's the user's requirement).
-- No changes to `chat-ai` / `classify-conversation` (they only set the `user` attribution; pricing lives in sync).
-- IQ‑Test still inherits Key #1's currently‑active version (same as today).
-
-## Files touched
-
-- new migration: `admin_openai_key_versions` + trigger + backfill + grants/RLS
-- `supabase/functions/openai-usage-sync/index.ts` — version timeline + don't‑overwrite‑past logic
-- `src/app/components/admin/OpenAIKeysCard.tsx` — confirm modal, post‑save sync ping, "active since" label
-- `src/app/components/admin/MerchantConsumptionTable.tsx` — header tooltip only
+## Verification
+- Test Chat: banner gone, page layout unchanged.
+- Dashboard: tile shows "المحادثات" with a small integer (e.g. 12) instead of word count.
+- Plans page: quota progress + donut reflect conversation counts; percentage math sane against `merchant_token_daily` totals for the tenant.
+- 80% notification fires when `conversationsUsed / conversationsQuota ≥ 0.8`.

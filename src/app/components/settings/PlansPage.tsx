@@ -4,6 +4,7 @@ import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CreditCard, Zap } from 'lucide-react';
+import { tokensToConversations, wordsToConversationsQuota } from '../../utils/conversations';
 
 type UsageDatum = { name: string; value: number; color: string };
 
@@ -42,8 +43,8 @@ export function PlansPage() {
     price: '0 SAR/mo',
     start: new Date().toISOString().slice(0, 10),
     end: '—',
-    totalWords: 100000,
-    usedWords: 0,
+    totalConversations: 0,
+    usedConversations: 0,
   });
 
   useEffect(() => {
@@ -62,13 +63,28 @@ export function PlansPage() {
       const start = plan?.period_start ?? new Date().toISOString().slice(0, 10);
       const endDate = new Date(start);
       endDate.setMonth(endDate.getMonth() + 1);
+      // Sum tokens from the current billing period to compute conversations used.
+      const { data: tokenRows } = await supabase
+        .from('merchant_token_daily')
+        .select('input_tokens, output_tokens')
+        .eq('tenant_id', tenantId)
+        .gte('day', start)
+        .lte('day', endDate.toISOString().slice(0, 10));
+      if (cancelled) return;
+      let inTok = 0, outTok = 0;
+      for (const r of tokenRows ?? []) {
+        inTok += Number((r as any).input_tokens ?? 0);
+        outTok += Number((r as any).output_tokens ?? 0);
+      }
+      const usedConversations = tokensToConversations(inTok, outTok);
+      const totalConversations = wordsToConversationsQuota(plan?.monthly_word_quota ?? 100000);
       setPlanData({
         name: workspace?.plan ? (workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)) : 'Free',
         price: workspace?.plan === 'professional' ? '299 SAR/mo' : workspace?.plan === 'growth' ? '199 SAR/mo' : workspace?.plan === 'starter' ? '99 SAR/mo' : '0 SAR/mo',
         start,
         end: endDate.toISOString().slice(0, 10),
-        totalWords: plan?.monthly_word_quota ?? 100000,
-        usedWords: plan?.monthly_words_used ?? 0,
+        totalConversations,
+        usedConversations,
       });
       setChartLoaded(true);
     })();
@@ -77,19 +93,21 @@ export function PlansPage() {
 
   const currentPlan = planData;
 
-  const remaining = currentPlan.totalWords - currentPlan.usedWords;
-  const usagePercent = currentPlan.totalWords > 0 ? Math.round((currentPlan.usedWords / currentPlan.totalWords) * 100) : 0;
+  const remaining = Math.max(0, currentPlan.totalConversations - currentPlan.usedConversations);
+  const usagePercent = currentPlan.totalConversations > 0
+    ? Math.min(100, Math.round((currentPlan.usedConversations / currentPlan.totalConversations) * 100))
+    : 0;
 
   const usageData = useMemo(() => [
-    { name: t('Used', 'مستخدم'), value: currentPlan.usedWords, color: '#043CC8' },
+    { name: t('Used', 'مستخدم'), value: currentPlan.usedConversations, color: '#043CC8' },
     { name: t('Remaining', 'متبقي'), value: remaining, color: theme === 'dark' ? '#ffffff' : '#1a1a2e' },
-  ], [currentPlan.usedWords, remaining, theme, language]);
+  ], [currentPlan.usedConversations, remaining, theme, language]);
 
   // Animated count-up values
   const animatedPercent = useAnimatedNumber(usagePercent, 2000, 200);
-  const animatedUsedK = useAnimatedNumber(Math.round(currentPlan.usedWords / 1000), 2200, 300);
-  const animatedRemainingK = useAnimatedNumber(Math.round(remaining / 1000), 2200, 400);
-  const animatedTotal = useAnimatedNumber(currentPlan.totalWords, 2000, 200);
+  const animatedUsed = useAnimatedNumber(currentPlan.usedConversations, 2200, 300);
+  const animatedRemaining = useAnimatedNumber(remaining, 2200, 400);
+  const animatedTotal = useAnimatedNumber(currentPlan.totalConversations, 2000, 200);
 
   const history = [
     { name: currentPlan.name, price: currentPlan.price, start: currentPlan.start, end: currentPlan.end, status: 'active' },
@@ -120,7 +138,7 @@ export function PlansPage() {
               [t('Price', 'السعر'), currentPlan.price],
               [t('Start Date', 'تاريخ البدء'), currentPlan.start],
               [t('End Date', 'تاريخ الانتهاء'), currentPlan.end],
-              [t('Total Words', 'إجمالي الكلمات'), null],
+              [t('Total Conversations', 'إجمالي المحادثات'), null],
             ].map(([label, value]) => (
               <div key={label as string} className="flex justify-between items-center py-2 border-b border-border last:border-0">
                 <span className="text-[12px] text-muted-foreground">{label}</span>
@@ -139,7 +157,7 @@ export function PlansPage() {
               <Zap className="w-4.5 h-4.5 text-[#043CC8]" />
             </div>
             <div>
-              <p className="text-[12px] text-muted-foreground">{t('Word Usage', 'استخدام الكلمات')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('Conversations Usage', 'استخدام المحادثات')}</p>
               <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{animatedPercent}% {t('used', 'مستخدم')}</p>
             </div>
           </div>
@@ -163,11 +181,11 @@ export function PlansPage() {
 
           <div className="flex justify-center gap-8 mt-1">
             <div className="text-center">
-              <p className="text-[16px] text-[#043CC8]" style={{ fontWeight: 700 }}>{animatedUsedK.toLocaleString()}K</p>
+              <p className="text-[16px] text-[#043CC8]" style={{ fontWeight: 700 }}>{animatedUsed.toLocaleString()}</p>
               <p className="text-[11px] text-muted-foreground">{t('Used', 'مستخدم')}</p>
             </div>
             <div className="text-center">
-              <p className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>{animatedRemainingK.toLocaleString()}K</p>
+              <p className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>{animatedRemaining.toLocaleString()}</p>
               <p className="text-[11px] text-muted-foreground">{t('Remaining', 'متبقي')}</p>
             </div>
           </div>

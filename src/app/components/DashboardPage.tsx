@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { AnimatedValue, useAnimatedNumber } from './AnimatedNumber';
 import {
-  MessageSquare, CheckCircle, Ticket, FileText, MousePointerClick,
+  MessageSquare, CheckCircle, Ticket, MessagesSquare, MousePointerClick,
   Star, AlertCircle, HelpCircle, Lightbulb, TrendingUp, X,
   Check, Trash2, CircleHelp, Clock, ThumbsUp, ThumbsDown
 } from 'lucide-react';
@@ -171,7 +171,7 @@ export function DashboardPage() {
     { icon: MessageSquare, label: t('Conversations', 'المحادثات'), value: formatNumber(metrics.conversations), color: '#043CC8', plain: false },
     { icon: CheckCircle, label: t('Completion Rate', 'نسبة الإكمال'), value: `${(metrics.completionRate * 100).toFixed(1)}%`, color: '#10b981', plain: false },
     { icon: Ticket, label: t('Tickets', 'التذاكر'), value: formatNumber(metrics.ticketsTotal), color: '#f59e0b', plain: false },
-    { icon: FileText, label: t('Words Consumed', 'الكلمات المستهلكة'), value: formatNumber(metrics.wordsUsed), color: '#8b5cf6', plain: false },
+    { icon: MessagesSquare, label: t('Conversations Used', 'المحادثات المستهلكة'), value: formatNumber(metrics.conversationsUsed), color: '#8b5cf6', plain: false },
     { icon: MousePointerClick, label: t('Bubble Clicks', 'نقرات الفقاعة'), value: formatNumber(metrics.widgetClicks), color: '#00C9BD', plain: false },
     { icon: Clock, label: t('Avg Response Time', 'متوسط وقت الاستجابة'), value: formatSeconds(metrics.avgResponseSeconds), color: '#ec4899', plain: true },
   ];
