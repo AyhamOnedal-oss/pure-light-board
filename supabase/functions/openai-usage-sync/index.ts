@@ -40,6 +40,37 @@ type KeyRow = {
   tokens_per_word: number;
 };
 
+type VersionRow = {
+  key_id: string;
+  slot: string;
+  project_id: string | null;
+  input_price_per_1m: number;
+  output_price_per_1m: number;
+  tokens_per_word: number;
+  effective_from: string; // ISO
+  effective_to: string | null;
+};
+
+function pickVersionForDay(
+  versions: VersionRow[],
+  projectId: string,
+  dayIso: string, // YYYY-MM-DD
+): VersionRow | null {
+  // Use the end-of-day timestamp so a full-day bucket attributes to the
+  // version active at the end of that day (the new version after a cutover).
+  const endOfDay = new Date(`${dayIso}T23:59:59.999Z`).getTime();
+  let best: VersionRow | null = null;
+  for (const v of versions) {
+    if ((v.project_id ?? "") !== projectId) continue;
+    const from = new Date(v.effective_from).getTime();
+    const to = v.effective_to ? new Date(v.effective_to).getTime() : Infinity;
+    if (from <= endOfDay && endOfDay < to) {
+      if (!best || from > new Date(best.effective_from).getTime()) best = v;
+    }
+  }
+  return best;
+}
+
 type ParsedUser = { tenant: string | null; scope: "chat" | "iqtest" | "other" };
 
 function parseUser(userId: string | null | undefined): ParsedUser {
@@ -109,14 +140,24 @@ Deno.serve(async (req) => {
     .select("slot, project_id, input_price_per_1m, output_price_per_1m, tokens_per_word");
   if (keysErr) return json({ error: "keys_load_failed", detail: keysErr.message }, 500);
 
+  const { data: versions, error: versErr } = await supabase
+    .from("admin_openai_key_versions")
+    .select("key_id, slot, project_id, input_price_per_1m, output_price_per_1m, tokens_per_word, effective_from, effective_to");
+  if (versErr) return json({ error: "versions_load_failed", detail: versErr.message }, 500);
+  const versionRows = (versions ?? []) as VersionRow[];
+
   const startTime = await getLastStart();
   const newStart = Math.floor(Date.now() / 1000);
 
-  // Map project_id → key row for pricing lookups.
+  // Map project_id → current key row (fallback when no version covers a day).
   const keyByProject: Record<string, KeyRow> = {};
   for (const k of (keys ?? []) as KeyRow[]) {
     if (k.project_id) keyByProject[k.project_id] = k;
   }
+
+  const todayRiyadh = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }),
+  ).toISOString().slice(0, 10);
 
   // If projects are configured, query each one. Otherwise query org-wide.
   const projectsToPoll: (string | null)[] = (keys ?? [])
@@ -190,34 +231,45 @@ Deno.serve(async (req) => {
   }
 
   // Upsert merchant rows with cost + word approximations.
+  // Past days (< todayRiyadh): insert only if missing (don't rewrite history).
+  // Today: upsert so partial-day data keeps refreshing.
   let upserted = 0;
   for (const row of merchantRows.values()) {
     if (!row.tenant_id) continue;
+    const v = pickVersionForDay(versionRows, row.project_id, row.day);
     const k = keyByProject[row.project_id];
-    const inPx = k?.input_price_per_1m ?? 0;
-    const outPx = k?.output_price_per_1m ?? 0;
-    const tpw = k?.tokens_per_word ?? 3.3;
+    const inPx = v?.input_price_per_1m ?? k?.input_price_per_1m ?? 0;
+    const outPx = v?.output_price_per_1m ?? k?.output_price_per_1m ?? 0;
+    const tpw = v?.tokens_per_word ?? k?.tokens_per_word ?? 3.3;
     const cost = (row.input_tokens / 1_000_000) * inPx + (row.output_tokens / 1_000_000) * outPx;
     const words = (row.input_tokens + row.output_tokens) / Math.max(0.1, tpw);
-    const { error } = await supabase
-      .from("merchant_token_daily")
-      .upsert(
-        {
-          tenant_id: row.tenant_id,
-          day: row.day,
-          project_id: row.project_id,
-          model: row.model,
-          scope: row.scope,
-          input_tokens: row.input_tokens,
-          output_tokens: row.output_tokens,
-          requests: row.requests,
-          cost_usd: Number(cost.toFixed(6)),
-          words_approx: Math.round(words),
-          attribution: "exact",
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "tenant_id,day,project_id,model,scope" },
-      );
+    const payload = {
+      tenant_id: row.tenant_id,
+      day: row.day,
+      project_id: row.project_id,
+      model: row.model,
+      scope: row.scope,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      requests: row.requests,
+      cost_usd: Number(cost.toFixed(6)),
+      words_approx: Math.round(words),
+      attribution: "exact",
+      updated_at: new Date().toISOString(),
+    };
+    let error;
+    if (row.day < todayRiyadh) {
+      // Insert-if-missing for past days
+      const ins = await supabase
+        .from("merchant_token_daily")
+        .upsert(payload, { onConflict: "tenant_id,day,project_id,model,scope", ignoreDuplicates: true });
+      error = ins.error;
+    } else {
+      const ups = await supabase
+        .from("merchant_token_daily")
+        .upsert(payload, { onConflict: "tenant_id,day,project_id,model,scope" });
+      error = ups.error;
+    }
     if (error) console.error("upsert merchant_token_daily failed", error.message);
     else upserted++;
   }
@@ -225,25 +277,33 @@ Deno.serve(async (req) => {
   // Upsert unattributed rows so total org spend is never lost.
   let upsertedOrphan = 0;
   for (const row of orphanRows.values()) {
+    const v = pickVersionForDay(versionRows, row.project_id, row.day);
     const k = keyByProject[row.project_id];
-    const inPx = k?.input_price_per_1m ?? 0;
-    const outPx = k?.output_price_per_1m ?? 0;
+    const inPx = v?.input_price_per_1m ?? k?.input_price_per_1m ?? 0;
+    const outPx = v?.output_price_per_1m ?? k?.output_price_per_1m ?? 0;
     const cost = (row.input_tokens / 1_000_000) * inPx + (row.output_tokens / 1_000_000) * outPx;
-    const { error } = await supabase
-      .from("admin_openai_unattributed_daily")
-      .upsert(
-        {
-          day: row.day,
-          project_id: row.project_id,
-          model: row.model,
-          input_tokens: row.input_tokens,
-          output_tokens: row.output_tokens,
-          requests: row.requests,
-          cost_usd: Number(cost.toFixed(6)),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "day,project_id,model" },
-      );
+    const payload = {
+      day: row.day,
+      project_id: row.project_id,
+      model: row.model,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      requests: row.requests,
+      cost_usd: Number(cost.toFixed(6)),
+      updated_at: new Date().toISOString(),
+    };
+    let error;
+    if (row.day < todayRiyadh) {
+      const ins = await supabase
+        .from("admin_openai_unattributed_daily")
+        .upsert(payload, { onConflict: "day,project_id,model", ignoreDuplicates: true });
+      error = ins.error;
+    } else {
+      const ups = await supabase
+        .from("admin_openai_unattributed_daily")
+        .upsert(payload, { onConflict: "day,project_id,model" });
+      error = ups.error;
+    }
     if (error) console.error("upsert orphan failed", error.message);
     else upsertedOrphan++;
   }
