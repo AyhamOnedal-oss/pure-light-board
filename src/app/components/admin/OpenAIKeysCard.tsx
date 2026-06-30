@@ -1,34 +1,30 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Pencil, Loader2, Key, X, AlertTriangle } from 'lucide-react';
+import { Pencil, Loader2, Key, X, AlertTriangle, Plus } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '@/integrations/supabase/client';
 
 type KeyRow = {
-  id: string;
+  id: string | null;
   slot: string;
-  label: string | null;
-  project_id: string | null;
   default_model: string | null;
   input_price_per_1m: number;
   output_price_per_1m: number;
-  tokens_per_word: number;
   notes: string | null;
 };
 
-const SLOT_USAGE_AR: Record<string, string> = {
-  chat: 'المحادثات الأساسية في الشات',
-  classifier: 'تحليل المحادثات بعد الإغلاق',
-};
-const SLOT_USAGE_EN: Record<string, string> = {
-  chat: 'Primary chat conversations',
-  classifier: 'Post-close conversation analysis',
-};
+const SLOTS: { slot: string; usage_ar: string; usage_en: string }[] = [
+  { slot: 'chat',       usage_ar: 'المحادثات الأساسية في الشات', usage_en: 'Primary chat conversations' },
+  { slot: 'classifier', usage_ar: 'تحليل المحادثات بعد الإغلاق',  usage_en: 'Post-close conversation analysis' },
+];
+
+const emptyRow = (slot: string): KeyRow => ({
+  id: null, slot, default_model: '', input_price_per_1m: 0, output_price_per_1m: 0, notes: '',
+});
 
 export function OpenAIKeysCard() {
   const { t, language, dir, showToast } = useApp();
   const [rows, setRows] = useState<KeyRow[]>([]);
-  const [activeSince, setActiveSince] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<KeyRow | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -36,22 +32,12 @@ export function OpenAIKeysCard() {
 
   const load = React.useCallback(async () => {
     setLoading(true);
-    const [{ data, error }, { data: versions }] = await Promise.all([
-      supabase
-        .from('admin_openai_keys' as any)
-        .select('id,slot,label,project_id,default_model,input_price_per_1m,output_price_per_1m,tokens_per_word,notes')
-        .order('slot'),
-      supabase
-        .from('admin_openai_key_versions' as any)
-        .select('key_id, effective_from')
-        .is('effective_to', null),
-    ]);
-    if (!error) setRows((data as any) || []);
-    const since: Record<string, string> = {};
-    for (const v of (versions as any[] | null) ?? []) {
-      since[v.key_id] = v.effective_from;
-    }
-    setActiveSince(since);
+    const { data } = await supabase
+      .from('admin_openai_keys' as any)
+      .select('id,slot,default_model,input_price_per_1m,output_price_per_1m,notes');
+    const bySlot = new Map<string, KeyRow>();
+    for (const r of (data as any[] | null) ?? []) bySlot.set((r as any).slot, r as KeyRow);
+    setRows(SLOTS.map((s) => bySlot.get(s.slot) ?? emptyRow(s.slot)));
     setLoading(false);
   }, []);
 
@@ -60,38 +46,25 @@ export function OpenAIKeysCard() {
   const doSave = async () => {
     if (!editing) return;
     setSaving(true);
-    const { error } = await supabase
-      .from('admin_openai_keys' as any)
-      .update({
-        label: editing.label,
-        project_id: editing.project_id,
-        default_model: editing.default_model,
-        input_price_per_1m: editing.input_price_per_1m,
-        output_price_per_1m: editing.output_price_per_1m,
-        tokens_per_word: editing.tokens_per_word,
-        notes: editing.notes,
-      })
-      .eq('id', editing.id);
+    const payload: any = {
+      slot: editing.slot,
+      default_model: editing.default_model || null,
+      input_price_per_1m: Math.max(0, Math.round(Number(editing.input_price_per_1m) || 0)),
+      output_price_per_1m: Math.max(0, Math.round(Number(editing.output_price_per_1m) || 0)),
+      notes: editing.notes || null,
+    };
+    const q = editing.id
+      ? supabase.from('admin_openai_keys' as any).update(payload).eq('id', editing.id)
+      : supabase.from('admin_openai_keys' as any).upsert(payload, { onConflict: 'slot' });
+    const { error } = await q;
     setSaving(false);
     setConfirming(false);
-    if (error) {
-      showToast(t('Save failed', 'فشل الحفظ'), 'error');
-      return;
-    }
-    // Kick a sync immediately so the new pricing/model takes effect now.
+    if (error) { showToast(t('Save failed', 'فشل الحفظ'), 'error'); return; }
+    // Re-sync so the new pricing/model is applied to all merchants from now on
     supabase.functions.invoke('openai-usage-sync', { body: {} }).catch(() => {});
-    showToast(t('Saved', 'تم الحفظ'), 'success');
+    showToast(t('Saved & synced', 'تم الحفظ والمزامنة'), 'success');
     setEditing(null);
     load();
-  };
-
-  const fmtSince = (iso?: string) => {
-    if (!iso) return '';
-    try {
-      return new Date(iso).toLocaleString(language === 'ar' ? 'ar-SA' : 'en-GB', {
-        year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit',
-      });
-    } catch { return ''; }
   };
 
   return (
@@ -124,32 +97,35 @@ export function OpenAIKeysCard() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id} className="border-b border-border/50 hover:bg-muted/30">
-                  <td className="py-2.5" style={{ fontWeight: 600 }}>{i + 1}</td>
-                  <td className="py-2.5">{language === 'ar' ? (SLOT_USAGE_AR[r.slot] ?? r.label ?? r.slot) : (SLOT_USAGE_EN[r.slot] ?? r.label ?? r.slot)}</td>
-                  <td className="py-2.5"><code className="text-[11px] bg-muted/50 px-1.5 py-0.5 rounded">{r.default_model || '—'}</code></td>
-                  <td className="py-2.5">${Number(r.input_price_per_1m).toFixed(2)}</td>
-                  <td className="py-2.5">${Number(r.output_price_per_1m).toFixed(2)}</td>
-                  <td className="py-2.5 text-muted-foreground text-[11px] max-w-[240px]">
-                    <div className="truncate">{r.notes || '—'}</div>
-                    {activeSince[r.id] && (
-                      <div className="text-[10px] opacity-70 mt-0.5">
-                        {t('Active since', 'فعّال منذ')} {fmtSince(activeSince[r.id])}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-2.5 text-center">
-                    <button
-                      onClick={() => setEditing({ ...r })}
-                      className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                      title={t('Edit', 'تعديل')}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((r, i) => {
+                const meta = SLOTS.find((s) => s.slot === r.slot)!;
+                const empty = !r.id;
+                return (
+                  <tr key={r.slot} className="border-b border-border/50 hover:bg-muted/30">
+                    <td className="py-2.5" style={{ fontWeight: 600 }}>{i + 1}</td>
+                    <td className="py-2.5">{language === 'ar' ? meta.usage_ar : meta.usage_en}</td>
+                    <td className="py-2.5">
+                      {empty
+                        ? <span className="text-muted-foreground italic">{t('Not set', 'غير مضبوط')}</span>
+                        : <code className="text-[11px] bg-muted/50 px-1.5 py-0.5 rounded">{r.default_model || '—'}</code>}
+                    </td>
+                    <td className="py-2.5">{empty ? '—' : `$${Math.round(Number(r.input_price_per_1m))}`}</td>
+                    <td className="py-2.5">{empty ? '—' : `$${Math.round(Number(r.output_price_per_1m))}`}</td>
+                    <td className="py-2.5 text-muted-foreground text-[11px] max-w-[240px]">
+                      <div className="truncate">{r.notes || '—'}</div>
+                    </td>
+                    <td className="py-2.5 text-center">
+                      <button
+                        onClick={() => setEditing({ ...r })}
+                        className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                        title={empty ? t('Add', 'إضافة') : t('Edit', 'تعديل')}
+                      >
+                        {empty ? <Plus className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               <tr className="bg-muted/20">
                 <td className="py-2.5" style={{ fontWeight: 600 }}>3</td>
                 <td className="py-2.5">{t('IQ Test (uses Chat key)', 'اختبار الذكاء (يستخدم مفتاح الشات)')}</td>
@@ -166,18 +142,17 @@ export function OpenAIKeysCard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !saving && setEditing(null)}>
           <div className="bg-card rounded-2xl border border-border p-5 w-full max-w-md mx-4" dir={dir} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h4 className="text-[14px]" style={{ fontWeight: 600 }}>{t('Edit Key', 'تعديل المفتاح')} — {editing.slot}</h4>
+              <h4 className="text-[14px]" style={{ fontWeight: 600 }}>
+                {(editing.id ? t('Edit Key', 'تعديل المفتاح') : t('Add Key', 'إضافة مفتاح'))} — {editing.slot}
+              </h4>
               <button onClick={() => setEditing(null)} disabled={saving} className="p-1 rounded hover:bg-muted"><X className="w-4 h-4" /></button>
             </div>
             <div className="space-y-3 text-[12px]">
-              <Field label={t('Label', 'الاسم')} value={editing.label ?? ''} onChange={(v) => setEditing({ ...editing, label: v })} />
-              <Field label={t('Model', 'النموذج')} value={editing.default_model ?? ''} onChange={(v) => setEditing({ ...editing, default_model: v })} />
-              <Field label={t('Project ID', 'معرّف المشروع')} value={editing.project_id ?? ''} onChange={(v) => setEditing({ ...editing, project_id: v })} />
+              <Field label={t('Model', 'النموذج')} value={editing.default_model ?? ''} onChange={(v) => setEditing({ ...editing, default_model: v })} placeholder="gpt-5.4-nano" />
               <div className="grid grid-cols-2 gap-3">
-                <Field label={t('Input /1M $', 'مدخلات /1M $')} type="number" value={String(editing.input_price_per_1m)} onChange={(v) => setEditing({ ...editing, input_price_per_1m: Number(v) })} />
-                <Field label={t('Output /1M $', 'مخرجات /1M $')} type="number" value={String(editing.output_price_per_1m)} onChange={(v) => setEditing({ ...editing, output_price_per_1m: Number(v) })} />
+                <Field label={t('Input /1M $', 'مدخلات /1M $')} integer value={String(editing.input_price_per_1m)} onChange={(v) => setEditing({ ...editing, input_price_per_1m: Number((v || '0').replace(/[^0-9]/g, '')) })} />
+                <Field label={t('Output /1M $', 'مخرجات /1M $')} integer value={String(editing.output_price_per_1m)} onChange={(v) => setEditing({ ...editing, output_price_per_1m: Number((v || '0').replace(/[^0-9]/g, '')) })} />
               </div>
-              <Field label={t('Tokens / word', 'توكنز / كلمة')} type="number" value={String(editing.tokens_per_word)} onChange={(v) => setEditing({ ...editing, tokens_per_word: Number(v) })} />
               <Field label={t('Notes', 'ملاحظات')} value={editing.notes ?? ''} onChange={(v) => setEditing({ ...editing, notes: v })} />
             </div>
             <div className="flex gap-2 mt-5 justify-end">
@@ -201,8 +176,8 @@ export function OpenAIKeysCard() {
                 </h4>
                 <p className="text-[12px] text-muted-foreground leading-relaxed">
                   {t(
-                    'All new conversations from now on will be calculated with the new model and prices. Past usage stays as it was billed at the time.',
-                    'كل المحادثات الجديدة من الآن فصاعدًا ستُحسب بالنموذج والأسعار الجديدة، أمّا الاستخدام السابق فيبقى كما هو محسوب بأسعاره وقت الاستهلاك.'
+                    'All merchant usage from now on will be calculated with the new model and prices. Past usage stays as it was billed at the time.',
+                    'كل استهلاك التجار من الآن فصاعدًا سيُحسب بالنموذج والأسعار الجديدة، أمّا الاستهلاك السابق فيبقى كما هو محسوب بأسعاره وقت الاستهلاك.'
                   )}
                 </p>
               </div>
@@ -221,14 +196,17 @@ export function OpenAIKeysCard() {
   );
 }
 
-function Field({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+function Field({ label, value, onChange, integer, placeholder }: { label: string; value: string; onChange: (v: string) => void; integer?: boolean; placeholder?: string }) {
   return (
     <label className="block">
       <div className="text-muted-foreground text-[11px] mb-1">{label}</div>
       <input
-        type={type}
-        step={type === 'number' ? 'any' : undefined}
+        type={integer ? 'number' : 'text'}
+        inputMode={integer ? 'numeric' : undefined}
+        step={integer ? 1 : undefined}
+        min={integer ? 0 : undefined}
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-[12px] focus:outline-none focus:border-[#043CC8]"
       />
