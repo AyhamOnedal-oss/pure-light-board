@@ -853,6 +853,81 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_openai_keys: {
+        Row: {
+          default_model: string
+          id: string
+          input_price_per_1m: number
+          key_hint: string | null
+          label: string
+          notes: string | null
+          output_price_per_1m: number
+          project_id: string | null
+          slot: string
+          tokens_per_word: number
+          updated_at: string
+        }
+        Insert: {
+          default_model: string
+          id?: string
+          input_price_per_1m?: number
+          key_hint?: string | null
+          label: string
+          notes?: string | null
+          output_price_per_1m?: number
+          project_id?: string | null
+          slot: string
+          tokens_per_word?: number
+          updated_at?: string
+        }
+        Update: {
+          default_model?: string
+          id?: string
+          input_price_per_1m?: number
+          key_hint?: string | null
+          label?: string
+          notes?: string | null
+          output_price_per_1m?: number
+          project_id?: string | null
+          slot?: string
+          tokens_per_word?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_openai_unattributed_daily: {
+        Row: {
+          cost_usd: number
+          day: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          project_id: string
+          requests: number
+          updated_at: string
+        }
+        Insert: {
+          cost_usd?: number
+          day: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          project_id?: string
+          requests?: number
+          updated_at?: string
+        }
+        Update: {
+          cost_usd?: number
+          day?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          project_id?: string
+          requests?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       admin_reports_plans: {
         Row: {
           created_at: string
@@ -1492,6 +1567,78 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      iqtest_usage_today: {
+        Row: {
+          input_tokens: number
+          output_tokens: number
+          requests: number
+          riyadh_day: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          input_tokens?: number
+          output_tokens?: number
+          requests?: number
+          riyadh_day: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          input_tokens?: number
+          output_tokens?: number
+          requests?: number
+          riyadh_day?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      merchant_token_daily: {
+        Row: {
+          attribution: string
+          cost_usd: number
+          day: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          project_id: string
+          requests: number
+          scope: string
+          tenant_id: string
+          updated_at: string
+          words_approx: number
+        }
+        Insert: {
+          attribution?: string
+          cost_usd?: number
+          day: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          project_id?: string
+          requests?: number
+          scope?: string
+          tenant_id: string
+          updated_at?: string
+          words_approx?: number
+        }
+        Update: {
+          attribution?: string
+          cost_usd?: number
+          day?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          project_id?: string
+          requests?: number
+          scope?: string
+          tenant_id?: string
+          updated_at?: string
+          words_approx?: number
+        }
+        Relationships: []
       }
       pending_salla_connections: {
         Row: {
@@ -2287,6 +2434,20 @@ export type Database = {
           tenant_id: string
         }[]
       }
+      admin_merchant_tokens: {
+        Args: { _from?: string; _tenant: string; _to?: string }
+        Returns: {
+          cost_usd: number
+          day: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          project_id: string
+          requests: number
+          scope: string
+          words_approx: number
+        }[]
+      }
       admin_new_subs_monthly: {
         Args: { _year?: number }
         Returns: {
@@ -2307,6 +2468,19 @@ export type Database = {
       admin_set_openai_word_budget: {
         Args: { _words: number }
         Returns: number
+      }
+      admin_tokens_global_monthly: {
+        Args: { _year: number }
+        Returns: {
+          cost_usd: number
+          input_tokens: number
+          month: number
+          output_tokens: number
+          project_id: string
+          requests: number
+          slot: string
+          words_approx: number
+        }[]
       }
       admin_uninstalls_compare: {
         Args: never
@@ -2341,6 +2515,21 @@ export type Database = {
         Args: { p_day?: string; p_tenant_id: string }
         Returns: undefined
       }
+      iqtest_can_use: {
+        Args: { _tenant: string }
+        Returns: {
+          allowed: boolean
+          input_cap: number
+          input_used: number
+          output_cap: number
+          output_used: number
+          resets_at: string
+        }[]
+      }
+      iqtest_increment: {
+        Args: { _input_tokens: number; _output_tokens: number; _tenant: string }
+        Returns: undefined
+      }
       is_email_deleted: { Args: { _email: string }; Returns: boolean }
       is_tenant_member: {
         Args: { _tenant_id: string; _user_id: string }
@@ -2350,6 +2539,7 @@ export type Database = {
         Args: { _key: string; _tenant: string; _user: string }
         Returns: boolean
       }
+      riyadh_today: { Args: never; Returns: string }
       tenant_exists: { Args: { _tenant_id: string }; Returns: boolean }
       tenant_role_at_least: {
         Args: {
