@@ -267,9 +267,13 @@ Deno.serve(async (req) => {
 
   // Use Lovable AI Gateway with openai/gpt-5-mini for cheap, accurate classification.
   // Falls back to OPENAI_API_KEY direct call if the gateway key is missing.
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  const openaiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!lovableKey && !openaiKey) {
+  // Dedicated classifier key per the admin OpenAI billing split.
+  // Falls back to OPENAI_API_KEY so existing deploys keep working.
+  // Lovable Gateway is intentionally NOT used here so every token is
+  // visible on the OpenAI Usage API and attributable to the tenant.
+  const openaiKey =
+    Deno.env.get("OPENAI_CLASSIFIER_KEY") ?? Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) {
     console.error("classify-conversation: neither LOVABLE_API_KEY nor OPENAI_API_KEY set");
     return json({ error: "no_api_key" }, 500);
   }
@@ -517,19 +521,17 @@ Deno.serve(async (req) => {
     console.error("classify-conversation: fallback applied:", reason);
   }
 
-  const useGateway = !!lovableKey;
-  const url = useGateway
-    ? "https://ai.gateway.lovable.dev/v1/chat/completions"
-    : "https://api.openai.com/v1/chat/completions";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (useGateway) {
-    headers["Lovable-API-Key"] = lovableKey!;
-  } else {
-    headers["Authorization"] = `Bearer ${openaiKey}`;
-  }
+  const url = "https://api.openai.com/v1/chat/completions";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${openaiKey}`,
+  };
   const requestBody: Record<string, unknown> = {
-    model: useGateway ? "openai/gpt-5-mini" : "gpt-4.1-mini-2025-04-14",
+    model: "gpt-4.1-mini-2025-04-14",
     response_format: { type: "json_object" },
+    // Per-tenant attribution for the OpenAI Usage API. The openai-usage-sync
+    // edge function reads this back into merchant_token_daily.
+    user: tenant_id,
     messages: [
       { role: "system", content: systemPrompt },
       {
@@ -541,8 +543,7 @@ Deno.serve(async (req) => {
       },
     ],
   };
-  // gpt-5-mini does not accept a custom temperature; only the legacy model does.
-  if (!useGateway) requestBody.temperature = 0.2;
+  requestBody.temperature = 0.2;
 
   let openaiRes: Response;
   try {

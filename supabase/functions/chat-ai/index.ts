@@ -20,6 +20,22 @@ function pickN8nUrl(platform: string | null | undefined): string {
   return N8N_WEBHOOK_URL;
 }
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+// Dedicated keys per the admin OpenAI billing split. Fall back to the legacy
+// single key so existing deploys keep working until the new keys are added.
+const OPENAI_CHAT_KEY       = Deno.env.get("OPENAI_CHAT_KEY")       || OPENAI_API_KEY;
+const OPENAI_CLASSIFIER_KEY = Deno.env.get("OPENAI_CLASSIFIER_KEY") || OPENAI_API_KEY;
+
+// Per-request tenant attribution for OpenAI Usage API.
+// Set early from body.tenant_id and refined after resolveTenant() succeeds.
+// We append ":iqtest" for merchant test-chat traffic so the daily IQ-test cap
+// (300k input / 3k output tokens, Asia/Riyadh) is tracked separately.
+let currentTenantForUsage: string = "unknown";
+let currentIsTestForUsage: boolean = false;
+function usageUser(): string {
+  return currentIsTestForUsage
+    ? `${currentTenantForUsage}:iqtest`
+    : currentTenantForUsage;
+}
 
 // Upload a base64 data: URL to the private chat-attachments bucket and return
 // a signed HTTPS URL (valid for 1h). Returns null on any failure so the caller
@@ -177,12 +193,14 @@ async function callOpenAI(
     signal,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${OPENAI_CLASSIFIER_KEY}`,
     },
     body: JSON.stringify({
       model,
       temperature: 0,
       response_format: { type: "json_object" },
+      // Per-tenant attribution for OpenAI Usage API.
+      user: usageUser(),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt   },
@@ -415,6 +433,12 @@ Deno.serve(async (req) => {
     const visitor = body.visitor && typeof body.visitor === "object" ? body.visitor : null;
     let conversation_id: string | null = body.conversation_id ?? null;
     const is_test: boolean = body.is_test === true;
+    // Pre-resolve tenant attribution from the body so vision usage gets
+    // attributed even if resolveTenant() runs after the vision call.
+    if (typeof body.tenant_id === "string" && body.tenant_id.length >= 32) {
+      currentTenantForUsage = body.tenant_id;
+    }
+    currentIsTestForUsage = is_test;
 
     // Image attachments (optional). Each item: { url, name, content_type, size, storage_path }
     const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -504,13 +528,32 @@ Deno.serve(async (req) => {
     // object, colors, suggested search query). We pass this to n8n so the
     // agent can search the merchant catalog by what the image depicts,
     // even when the image is a logo/icon/drawing rather than a real photo.
-    if (hasAttachments && OPENAI_API_KEY) {
+    if (hasAttachments && OPENAI_CHAT_KEY) {
       try {
+        // IQ-test daily cap (Asia/Riyadh). Enforced ONLY for vision calls
+        // originating from the merchant Test Chat (is_test === true).
+        if (is_test && currentTenantForUsage !== "unknown") {
+          try {
+            const { data: cap } = await supabase
+              .rpc("iqtest_can_use", { _tenant: currentTenantForUsage });
+            const row = Array.isArray(cap) ? cap[0] : cap;
+            if (row && row.allowed === false) {
+              visionFallbackReply =
+                "تم تجاوز الحد اليومي لاختبار المحادثة. الرجاء المحاولة بعد منتصف الليل بتوقيت الرياض.";
+              throw new Error("iqtest_cap_reached");
+            }
+          } catch (e) {
+            if (String((e as any)?.message ?? "") === "iqtest_cap_reached") throw e;
+            console.error("iqtest_cap_check_failed", String((e as any)?.message ?? e));
+          }
+        }
         const VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-4.1";
         const isGpt5 = /^gpt-5/i.test(VISION_MODEL);
         const visionBody: Record<string, unknown> = {
           model: VISION_MODEL,
           response_format: { type: "json_object" },
+          // Attribution: see openai-usage-sync edge function.
+          user: usageUser(),
           messages: [
             {
               role: "system",
@@ -567,7 +610,7 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Authorization: `Bearer ${OPENAI_CHAT_KEY}`,
           },
           body: JSON.stringify(visionBody),
         });
@@ -575,6 +618,19 @@ Deno.serve(async (req) => {
           const vdata = await visionRes.json();
           const raw: string = vdata?.choices?.[0]?.message?.content?.trim() ?? "";
           const usage = vdata?.usage ?? {};
+          // Instant increment for the IQ-test cap. Authoritative numbers
+          // arrive later via openai-usage-sync into merchant_token_daily.
+          if (is_test && currentTenantForUsage !== "unknown") {
+            try {
+              await supabase.rpc("iqtest_increment", {
+                _tenant: currentTenantForUsage,
+                _input_tokens: Number(usage.prompt_tokens ?? 0) || 0,
+                _output_tokens: Number(usage.completion_tokens ?? 0) || 0,
+              });
+            } catch (e) {
+              console.error("iqtest_increment_failed", String((e as any)?.message ?? e));
+            }
+          }
           console.log("vision_token_usage", {
             conversation_id,
             attachments: attachmentsIn.length,
@@ -851,6 +907,10 @@ Deno.serve(async (req) => {
     if (!tenant_id || !is_active) {
       return jsonResponse({ error: "tenant_not_found" }, 404);
     }
+    // Refine attribution to the resolved tenant for any subsequent OpenAI
+    // calls (classifiers). Vision already used the body.tenant_id fallback.
+    currentTenantForUsage = tenant_id;
+    currentIsTestForUsage = is_test;
 
     // Skip rate limit for merchant test-chat sessions
     if (!is_test && !(await checkRateLimit(tenant_id))) {
