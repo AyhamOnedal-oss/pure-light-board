@@ -24,6 +24,7 @@ import {
   setOpenAiWordBudget,
   type AdminServerUsage,
 } from '../../services/adminDashboard';
+import { OpenAIKeysCard } from './OpenAIKeysCard';
 
 type AdminDonutDatum = { name: string; value: number; color: string };
 
@@ -533,6 +534,9 @@ export function AdminDashboard() {
           </div>
         </motion.div>
       </div>
+
+      {/* OpenAI Keys management — between Words/Tokens panel and Current Plans card */}
+      <OpenAIKeysCard />
 
       {/* #2 Subscriptions by Platform + #4 First Subscription Type */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
+import { MerchantConsumptionTable } from './MerchantConsumptionTable';
 
 const COLORS = ['#043CC8', '#e2e8f0'];
 
@@ -391,7 +392,8 @@ export function AdminCustomerDetails() {
 
       {/* Tab Content */}
       {activeTab === 'info' && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={cardClass}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div className={cardClass}>
           <h3 className="text-[15px] mb-5" style={{ fontWeight: 600 }}>{t('Store Information', 'معلومات المتجر')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
@@ -438,6 +440,8 @@ export function AdminCustomerDetails() {
               <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.outputWords} /></p>
             </div>
           </div>
+          </div>
+          {id && <MerchantConsumptionTable tenantId={id} />}
         </motion.div>
       )}
 
