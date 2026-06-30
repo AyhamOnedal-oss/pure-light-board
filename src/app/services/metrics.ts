@@ -436,6 +436,7 @@ export async function fetchDashboardMetrics(
     feedbackRows,
     usageTrendRows,
     ticketTrendRows,
+    tokenTrendRes,
   ] = await Promise.all([
     count('conversations_main', (q) => inRange(q.eq('tenant_id', tenantId).eq('is_test', false))),
     count('conversations_messages', (q) => inRange(q.eq('tenant_id', tenantId).eq('sender', 'customer'))),
@@ -500,6 +501,12 @@ export async function fetchDashboardMetrics(
       .eq('tenant_id', tenantId)
       .gte('created_at', prevFromIso)
       .lte('created_at', toIso),
+    supabase
+      .from('merchant_token_daily')
+      .select('day, input_tokens, output_tokens')
+      .eq('tenant_id', tenantId)
+      .gte('day', prevFromDate)
+      .lte('day', toDate),
   ]);
 
   const wordsUsed = (wordsRows.data ?? []).reduce(
@@ -586,8 +593,8 @@ export async function fetchDashboardMetrics(
     return ((cur - prev) / prev) * 100;
   };
   const sums = {
-    cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
-    prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+    cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0, inTok: 0, outTok: 0 },
+    prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0, inTok: 0, outTok: 0 },
   };
   for (const r of usageTrendRows.data ?? []) {
     const d = (r as any).day as string;
@@ -603,6 +610,14 @@ export async function fetchDashboardMetrics(
       bucket.respDays += 1;
     }
   }
+  for (const r of tokenTrendRes.data ?? []) {
+    const d = (r as any).day as string;
+    const bucket = d >= fromDate ? sums.cur : sums.prev;
+    bucket.inTok += Number((r as any).input_tokens ?? 0);
+    bucket.outTok += Number((r as any).output_tokens ?? 0);
+  }
+  const curConvosUsed = tokensToConversations(sums.cur.inTok, sums.cur.outTok);
+  const prevConvosUsed = tokensToConversations(sums.prev.inTok, sums.prev.outTok);
   let curTickets = 0;
   let prevTickets = 0;
   for (const r of ticketTrendRows.data ?? []) {
@@ -624,6 +639,7 @@ export async function fetchDashboardMetrics(
       prevRate <= 0 ? (curRate > 0 ? 100 : null) : ((curRate - prevRate) / prevRate) * 100,
     ticketsTotal: pct(curTickets, prevTickets),
     wordsUsed: pct(sums.cur.words, sums.prev.words),
+    conversationsUsed: pct(curConvosUsed, prevConvosUsed),
     widgetClicks: pct(sums.cur.clicks, sums.prev.clicks),
     avgResponseSeconds: respGrowth,
     messages: pct(sums.cur.msgs, sums.prev.msgs),
@@ -634,6 +650,7 @@ export async function fetchDashboardMetrics(
     messagesIn,
     messagesOut,
     wordsUsed,
+    conversationsUsed: curConvosUsed,
     widgetClicks,
     avgResponseSeconds,
     ticketsTotal,
