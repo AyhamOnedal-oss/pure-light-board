@@ -6,6 +6,7 @@
  * `useDashboardMetrics` for realtime updates.
  */
 import { supabase } from '../../integrations/supabase/client';
+import { tokensToConversations } from '../utils/conversations';
 
 export interface DateRange {
   from: Date;
@@ -67,6 +68,8 @@ export interface DashboardMetrics {
   messagesIn: number;
   messagesOut: number;
   wordsUsed: number;
+  /** Conversation count derived from merchant token usage (1 convo ≈ 50k in + 5k out). */
+  conversationsUsed: number;
   widgetClicks: number;
   avgResponseSeconds: number;
   ticketsTotal: number;
@@ -85,6 +88,7 @@ export interface DashboardMetrics {
     completionRate: number | null;
     ticketsTotal: number | null;
     wordsUsed: number | null;
+    conversationsUsed: number | null;
     widgetClicks: number | null;
     avgResponseSeconds: number | null;
     messages: number | null;
@@ -96,6 +100,7 @@ export const EMPTY_METRICS: DashboardMetrics = {
   messagesIn: 0,
   messagesOut: 0,
   wordsUsed: 0,
+  conversationsUsed: 0,
   widgetClicks: 0,
   avgResponseSeconds: 0,
   ticketsTotal: 0,
@@ -110,6 +115,7 @@ export const EMPTY_METRICS: DashboardMetrics = {
     completionRate: null,
     ticketsTotal: null,
     wordsUsed: null,
+    conversationsUsed: null,
     widgetClicks: null,
     avgResponseSeconds: null,
     messages: null,
