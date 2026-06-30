@@ -262,7 +262,7 @@ export async function fetchDashboardMetrics(
   });
   if (!rpc.error && rpc.data) {
     const m = rpc.data as any;
-    const [{ data: trendRows }, { data: msgTimingRows }, completionRes] = await Promise.all([
+    const [{ data: trendRows }, { data: msgTimingRows }, completionRes, { data: tokenRows }] = await Promise.all([
       supabase
         .from('dashboard_usage_daily')
         .select('day, clicks, conversations_opened, conversations_resolved, messages_in, messages_out, ai_words_used, avg_response_seconds')
@@ -286,6 +286,12 @@ export async function fetchDashboardMetrics(
         .gte('created_at', fromIso)
         .lte('created_at', toIso)
         .limit(2000),
+      supabase
+        .from('merchant_token_daily')
+        .select('day, input_tokens, output_tokens')
+        .eq('tenant_id', tenantId)
+        .gte('day', prevFromDate)
+        .lte('day', toDate),
     ]);
     // Average per-conversation completion_score (0..100) → 0..1 for UI.
     let avgCompletion: number | null = null;
@@ -328,8 +334,8 @@ export async function fetchDashboardMetrics(
       return ((cur - prev) / prev) * 100;
     };
     const sums = {
-      cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
-      prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0 },
+      cur: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0, inTok: 0, outTok: 0 },
+      prev: { opened: 0, resolved: 0, msgs: 0, words: 0, clicks: 0, respSum: 0, respDays: 0, inTok: 0, outTok: 0 },
     };
     for (const r of trendRows ?? []) {
       const d = (r as any).day as string;
@@ -342,6 +348,14 @@ export async function fetchDashboardMetrics(
       const rs = (r as any).avg_response_seconds ?? 0;
       if (rs > 0) { bucket.respSum += rs; bucket.respDays += 1; }
     }
+    for (const r of tokenRows ?? []) {
+      const d = (r as any).day as string;
+      const bucket = d >= fromDate ? sums.cur : sums.prev;
+      bucket.inTok += Number((r as any).input_tokens ?? 0);
+      bucket.outTok += Number((r as any).output_tokens ?? 0);
+    }
+    const curConvosUsed = tokensToConversations(sums.cur.inTok, sums.cur.outTok);
+    const prevConvosUsed = tokensToConversations(sums.prev.inTok, sums.prev.outTok);
     const curRate = sums.cur.opened > 0 ? sums.cur.resolved / sums.cur.opened : 0;
     const prevRate = sums.prev.opened > 0 ? sums.prev.resolved / sums.prev.opened : 0;
     // Prefer real message-timing computation; fall back to the daily aggregate.
@@ -365,6 +379,7 @@ export async function fetchDashboardMetrics(
       messagesIn: m.messagesIn ?? 0,
       messagesOut: m.messagesOut ?? 0,
       wordsUsed: m.wordsUsed ?? 0,
+      conversationsUsed: curConvosUsed,
       widgetClicks: m.widgetClicks ?? 0,
       avgResponseSeconds: curResp || 0,
       ticketsTotal: m.ticketsTotal ?? 0,
@@ -392,6 +407,7 @@ export async function fetchDashboardMetrics(
           prevRate <= 0 ? (curRate > 0 ? 100 : null) : ((curRate - prevRate) / prevRate) * 100,
         ticketsTotal: pct(curTk, prevTk),
         wordsUsed: pct(sums.cur.words, sums.prev.words),
+        conversationsUsed: pct(curConvosUsed, prevConvosUsed),
         widgetClicks: pct(sums.cur.clicks, sums.prev.clicks),
         avgResponseSeconds: respGrowth,
         messages: pct(sums.cur.msgs, sums.prev.msgs),
