@@ -145,7 +145,10 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
     const jwt = authHeader.replace(/^Bearer\s+/i, "");
-    if (!jwt) return json({ error: "missing_auth" }, 401);
+    // Fire-and-forget caller: never return an error status when auth is
+    // missing/stale — it surfaces as a runtime error in the client. Skip
+    // silently instead.
+    if (!jwt) return json({ ok: true, skipped: "missing_auth" });
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -154,9 +157,17 @@ Deno.serve(async (req) => {
     const userClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "invalid_auth" }, 401);
-    const user = userData.user;
+    // Use getClaims first — it validates the JWT signature without requiring
+    // the auth session to still exist on the server (the caller may have
+    // signed out between minting the token and us running).
+    const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(jwt);
+    if (claimsErr || !claimsData?.claims?.sub) {
+      return json({ ok: true, skipped: "invalid_auth" });
+    }
+    const user = {
+      id: claimsData.claims.sub as string,
+      email: (claimsData.claims as any).email as string | undefined,
+    };
     const email = (user.email ?? "").toLowerCase();
     if (!email) return json({ error: "no_email" }, 400);
 
