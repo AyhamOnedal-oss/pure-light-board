@@ -416,32 +416,10 @@ export function AdminCustomerDetails() {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-            <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Trial Words', 'كلمات تجريبية')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.trialWords} /></p>
-            </div>
-            <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Paid Words', 'كلمات مدفوعة')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.paidWords} /></p>
-            </div>
-            <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Usage', 'الاستخدام')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}>{customer.usagePercent}%</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-            <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Input Words', 'كلمات المدخلات')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.inputWords} /></p>
-            </div>
-            <div className="p-4 rounded-xl bg-muted/30 text-center">
-              <p className="text-[11px] text-muted-foreground mb-1">{t('Output Words', 'كلمات المخرجات')}</p>
-              <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.outputWords} /></p>
-            </div>
+          <div className="mt-4">
+            {id && <MerchantConsumptionTable tenantId={id} />}
           </div>
           </div>
-          {id && <MerchantConsumptionTable tenantId={id} />}
         </motion.div>
       )}
 
