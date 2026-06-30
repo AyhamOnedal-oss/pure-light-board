@@ -853,6 +853,59 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_openai_key_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          default_model: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          input_price_per_1m: number
+          key_id: string
+          output_price_per_1m: number
+          project_id: string | null
+          slot: string
+          tokens_per_word: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          default_model?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          input_price_per_1m?: number
+          key_id: string
+          output_price_per_1m?: number
+          project_id?: string | null
+          slot: string
+          tokens_per_word?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          default_model?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          input_price_per_1m?: number
+          key_id?: string
+          output_price_per_1m?: number
+          project_id?: string | null
+          slot?: string
+          tokens_per_word?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_openai_key_versions_key_id_fkey"
+            columns: ["key_id"]
+            isOneToOne: false
+            referencedRelation: "admin_openai_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_openai_keys: {
         Row: {
           default_model: string
@@ -2454,6 +2507,20 @@ export type Database = {
           count: number
           month: number
           platform: string
+        }[]
+      }
+      admin_openai_active_version: {
+        Args: { _at: string; _project_id: string }
+        Returns: {
+          default_model: string
+          effective_from: string
+          effective_to: string
+          input_price_per_1m: number
+          key_id: string
+          output_price_per_1m: number
+          project_id: string
+          slot: string
+          tokens_per_word: number
         }[]
       }
       admin_openai_usage: { Args: never; Returns: Json }
