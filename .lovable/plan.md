@@ -1,53 +1,139 @@
-## Context: What the two widgets actually show today
 
-**حالة الخوادم (Server Status)** — already real.
-- Source: `public.admin_health_checks`, written by the `health-check` edge function which pings Supabase, Hostinger, Resend, and OpenAI and records `status` (`up`/`degraded`/`down`), `error`, and `checked_at` per provider.
-- UI: green = متصل, amber = تقريباً متصل, red = غير متصل. Defaults to "up" if no row exists for a provider.
-- No change requested.
+## Final decisions (locked)
 
-**المشتركون الجدد عبر الوقت (New Subscribers Over Time)** — currently NOT live.
-- Source today: static `admin_dash_new_subs_monthly` seed table.
-- Does not filter for paid plans.
+- **2 OpenAI keys** total. Key 1 = chat + vision + Test Chat. Key 2 = post-closure analysis. No third key.
+- **Vision uses direct OpenAI** (never Lovable Gateway).
+- **Billing unit = conversations**. Plan quotas: Economy 250 / Basic 500 / Professional 750 / Business 1000 conversations/month. Editable in admin.
+- **Test Chat**: Key 1, does NOT count as a billed conversation, daily cap **300,000 input / 3,000 output tokens**, resets **00:00 Asia/Riyadh**. Limit-hit Arabic message: "لقد وصلت إلى الحد اليومي لاختبار الذكاء. يمكنك المحاولة مجدداً غداً."
+- **On renewal/plan change**: current period archived to `subscription_periods`, live counters reset.
 
-## Changes
+## Per-merchant token attribution (the honest model)
 
-### 1. Remove the up/down arrows on the 6 KPI cards
-File: `src/app/components/admin/AdminDashboard.tsx`
-- Delete the `<TrendingUp />` / `<TrendingDown />` block (~lines 400–405) and the `change %` text next to it.
-- Drop unused imports `TrendingUp`, `TrendingDown`.
-- Keep `AnimatedValue` and the KPI number itself.
+| Source | Method | Accuracy |
+|---|---|---|
+| Vision in `chat-ai` | Direct log per call with `tenant_id` | Exact |
+| Post-closure analysis (Key 2) | Direct log per call with `tenant_id` | Exact |
+| Test Chat (Key 1) | Direct log per call with `tenant_id`, `is_test=true` | Exact |
+| n8n AI Agent reasoning tokens | n8n returns `tokenUsageEstimate` → logged | Exact (what n8n exposes) |
+| n8n tool-call tokens (Salla/Zid HTTP fetches) | Hourly OpenAI Usage API diff, pro-rata by daily chat turns | Reconciled; monthly accurate, daily ±few % per tenant |
 
-### 2. Make "New Subscribers Over Time" live, paid-only, current calendar year, deduped by store
+Total per key always reconciles to your actual OpenAI bill within 1 hour.
 
-Definition of "paid": tenant whose `settings_workspace.plan` is one of `economy`, `basic`, `professional`, `business`, `pro` (same list used for Uninstalls).
+## Database (single migration)
 
-**Dedup key:** the platform's own store identifier, not `tenant_id`.
-- Zid: `zid_connections.store_uuid` (permanent across uninstall → reinstall, regardless of which Fuqah workspace the merchant logs into).
-- Salla: `salla_connections.store_id`.
-- Fallback: use `tenant_id` when the store ID is null (defensive; shouldn't happen for real installs).
+```sql
+openai_keys(key_no PK, use_label, model, vision_model,
+            input_price_per_1m, output_price_per_1m,
+            openai_project_id, notes, updated_at, updated_by)
 
-**New SQL RPC** `public.admin_new_subs_monthly(_year int default extract(year from now() at time zone 'Asia/Riyadh')::int)` returning `{ month int, platform text, count int }`:
+openai_call_log(id PK, created_at, tenant_id, key_no,
+                source CHECK IN ('chat','vision','test_chat','analysis','goal_score','report'),
+                model, input_tokens, output_tokens,
+                conversation_id, is_test, request_id)
 
-1. CTE `paid_tenants` = `settings_workspace.id` where `plan IN ('economy','basic','professional','business','pro')`.
-2. CTE `zid_first` = for each `coalesce(store_uuid, tenant_id::text)`, the `min(created_at)` from `zid_connections` rows whose `tenant_id` is in `paid_tenants`.
-3. CTE `salla_first` = same for `salla_connections` keyed on `coalesce(store_id, tenant_id::text)`.
-4. Restrict each row to `extract(year from min_created_at at time zone 'Asia/Riyadh') = _year`.
-5. Group by `month` + `platform`; zero-fill the 12 months with `generate_series(1,12)` × `('zid','salla')`.
-6. `SECURITY DEFINER`, gated by `admin_has_permission(auth.uid(), 'admin_dashboard')`.
+openai_usage_daily(day, key_no, model,
+                   input_tokens, output_tokens, requests,
+                   PRIMARY KEY (day, key_no, model))
 
-So a store that was installed in Feb, uninstalled, then reinstalled in Aug counts as **1 install in Feb** — it is not double-counted, and reinstalls do not show as new subscribers.
+merchant_token_daily(tenant_id, day, key_no, source, model,
+                     input_tokens, output_tokens, conversations,
+                     PRIMARY KEY (tenant_id, day, key_no, source, model))
 
-**Frontend wiring** in `src/app/services/adminDashboard.ts`:
-- Replace the `admin_dash_new_subs_monthly` table read with `supabase.rpc('admin_new_subs_monthly', { _year: new Date().getFullYear() })`.
-- Keep the existing `NewSubsMonthly` shape so `AdminDashboard.tsx` keeps working unchanged.
+plan_quotas(plan PK, monthly_conversations)
 
-### Out of scope
-- Server Status widget (already real).
-- KPI values themselves — only the arrow/percent removal.
-- The seed table `admin_dash_new_subs_monthly` is left in place but unused by this chart.
+tenant_conversation_usage(tenant_id PK, period_start,
+                          conversations_used, monthly_limit)
 
-## Technical notes
+test_chat_quota(tenant_id PK, day,
+                day_input_tokens, day_output_tokens,
+                daily_input_cap default 300000,
+                daily_output_cap default 3000,
+                period_input_tokens, period_output_tokens)
 
-- A merchant who reinstalls under a different Fuqah workspace would still count once, because the platform `store_uuid`/`store_id` is the same.
-- Paid-plan list lives in one CTE so changing the tier list later requires editing one place.
-- All time bucketing uses Asia/Riyadh so "this year" matches the dashboard's locale.
+subscription_periods(id PK, tenant_id, plan, started_at, ended_at,
+                     conversations_used,
+                     chat_input_tokens, chat_output_tokens, chat_cost_usd,
+                     analysis_input_tokens, analysis_output_tokens, analysis_cost_usd,
+                     test_chat_input_tokens, test_chat_output_tokens, test_chat_cost_usd,
+                     reason)
+```
+
+GRANTs → RLS → policies for each. `openai_keys`, `openai_usage_daily`, `plan_quotas`: admin-only. `merchant_token_daily`, `tenant_conversation_usage`, `test_chat_quota`, `subscription_periods`: tenant-readable (own rows).
+
+Seed:
+- `openai_keys`: (1, "Chat + Vision + Test", "gpt-5.4-nano", "gpt-5.4-mini", 0.20, 1.25), (2, "Post-closure Analysis", "gpt-5.4-nano", null, 0.20, 1.25).
+- `plan_quotas`: 250 / 500 / 750 / 1000.
+
+SQL function `archive_and_reset_period(tenant_id, reason)` called on every plan change / renewal / expiry.
+
+## Enforcement rules
+
+- **Conversation count**: trigger on `conversations_main` → resolved/closed; if `is_test=false`, increment `tenant_conversation_usage`. Existing service-paused webhook fires when limit hit.
+- **Test Chat**: in `chat-ai` when `is_test=true`, lazy-reset day counter on first call after KSA midnight, refuse if cap hit, otherwise log + increment.
+- **n8n reconciliation**: nightly + hourly `openai-usage-sync` distributes Usage API gap pro-rata by daily chat-turn count.
+
+## Edge functions
+
+| Function | Change |
+|---|---|
+| `chat-ai/index.ts` | Direct OpenAI with `OPENAI_API_KEY_N8N`. Vision = `gpt-5.4-mini`. Parse `tokenUsageEstimate` from n8n response → log. Honor Test Chat quota gate. |
+| `classify-conversation/index.ts` | Direct OpenAI with `OPENAI_API_KEY_INTERNAL`. Model/key from `openai_keys.key_no=2`. Log `source='analysis'`. |
+| `openai-usage-sync/index.ts` | **New.** Hourly pg_cron. Pulls Usage API per project, upserts `openai_usage_daily`, runs n8n reconciliation. |
+| `admin-server-usage/index.ts` | Per-key MTD totals + cost from `openai_keys` pricing. |
+| `admin-subscription-actions/index.ts` | All period-change actions call `archive_and_reset_period`. |
+| `process-subscription-expiry/index.ts` | Same. |
+
+## Admin UI placement
+
+**Admin Dashboard layout** (top → bottom):
+1. KPI cards (unchanged)
+2. New subscribers chart (unchanged)
+3. **`استخدام الكلمات / التوكنز`** chart (unchanged)
+4. **NEW — full-width** `استهلاك OpenAI حسب المفتاح` table (4 columns × 2 rows: Key 1, Key 2):
+   - Columns: المفتاح | الاستخدام / الموديل | إدخال (توكنز / $) | إخراج (توكنز / $) | إجمالي $ | عدد الطلبات (MTD)
+   - Bottom row: إجمالي شهري + موازنة المخصص (editable)
+5. **`خطط العملاء الحالية`** (unchanged) — sits right after
+6. The rest unchanged
+
+**New admin pages:**
+- `/admin/openai-keys` — editable Key #, Use, Model, Vision Model, Input $/1M, Output $/1M, Project ID, Notes.
+- `/admin/plan-quotas` — Economy/Basic/Professional/Business monthly conversation caps.
+
+**Customer detail page** (`/admin/customers/:id`): full-width **Consumption Table** (same component, scoped to this tenant) sits **below the existing usage chart**, above the actions row. Includes a "الاشتراكات السابقة" collapsible underneath from `subscription_periods`.
+
+## User dashboard UI
+
+Replace "Words used" card with the **Consumption Table** (the same shared component, scoped to the merchant):
+
+| القسم | إدخال | إخراج | إجمالي | التكلفة | المحادثات | ملاحظات |
+|---|---|---|---|---|---|---|
+| الاشتراك التجريبي | … | … | … | … | n / quota | يظهر فقط إذا توجد فترة تجريبية |
+| الاشتراك الحالي | … | … | … | … | n / quota | عدّادات حية |
+| تحليل المحادثات | … | … | … | … | عدد المُحلَّلة | مفتاح 2، لا يخصم من الحصة |
+| اختبار الذكاء | … | … | … | … | — | يومي: X/300K إدخال، Y/3K إخراج — يُصفّر 00:00 KSA |
+
+Collapsible **الاشتراكات السابقة** below: one row per archived period.
+
+Cost = `(input × input_price + output × output_price) / 1M` using current `openai_keys`.
+
+## Secrets needed (you'll add via secure form after approval)
+
+- `OPENAI_API_KEY_N8N` — Key 1; also pasted into n8n's OpenAI credential.
+- `OPENAI_API_KEY_INTERNAL` — Key 2.
+- `OPENAI_ADMIN_KEY` — org-level, Usage API read-only.
+- `OPENAI_PROJECT_ID_N8N`, `OPENAI_PROJECT_ID_INTERNAL`.
+
+## Non-goals
+
+- No third key.
+- No Lovable Gateway.
+- No fixed words/token ratio.
+- Test Chat never affects merchant conversation count.
+
+## Rollout order
+
+1. Migration: tables + triggers + `archive_and_reset_period` + seed.
+2. Edge functions: `chat-ai`, `classify-conversation`, new `openai-usage-sync` + pg_cron.
+3. Admin: `/admin/openai-keys`, `/admin/plan-quotas`, new full-width consumption card on Dashboard between the tokens chart and the plans card, same card on customer detail page.
+4. Merchant: replace words card with the Consumption Table + Previous Subscriptions section.
+5. Retire AI-side word counters in `bump_word_usage`.
