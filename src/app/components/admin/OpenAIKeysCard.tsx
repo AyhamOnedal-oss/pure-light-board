@@ -49,8 +49,8 @@ export function OpenAIKeysCard() {
     const payload: any = {
       slot: editing.slot,
       default_model: editing.default_model || null,
-      input_price_per_1m: Math.max(0, Math.round(Number(editing.input_price_per_1m) || 0)),
-      output_price_per_1m: Math.max(0, Math.round(Number(editing.output_price_per_1m) || 0)),
+      input_price_per_1m: Math.max(0, Number(editing.input_price_per_1m) || 0),
+      output_price_per_1m: Math.max(0, Number(editing.output_price_per_1m) || 0),
       notes: editing.notes || null,
     };
     const q = editing.id
@@ -109,8 +109,8 @@ export function OpenAIKeysCard() {
                         ? <span className="text-muted-foreground italic">{t('Not set', 'غير مضبوط')}</span>
                         : <code className="text-[11px] bg-muted/50 px-1.5 py-0.5 rounded">{r.default_model || '—'}</code>}
                     </td>
-                    <td className="py-2.5">{empty ? '—' : `$${Math.round(Number(r.input_price_per_1m))}`}</td>
-                    <td className="py-2.5">{empty ? '—' : `$${Math.round(Number(r.output_price_per_1m))}`}</td>
+                    <td className="py-2.5">{empty ? '—' : `$${Number(r.input_price_per_1m)}`}</td>
+                    <td className="py-2.5">{empty ? '—' : `$${Number(r.output_price_per_1m)}`}</td>
                     <td className="py-2.5 text-muted-foreground text-[11px] max-w-[240px]">
                       <div className="truncate">{r.notes || '—'}</div>
                     </td>
@@ -150,8 +150,8 @@ export function OpenAIKeysCard() {
             <div className="space-y-3 text-[12px]">
               <Field label={t('Model', 'النموذج')} value={editing.default_model ?? ''} onChange={(v) => setEditing({ ...editing, default_model: v })} placeholder="gpt-5.4-nano" />
               <div className="grid grid-cols-2 gap-3">
-                <Field label={t('Input /1M $', 'مدخلات /1M $')} integer value={String(editing.input_price_per_1m)} onChange={(v) => setEditing({ ...editing, input_price_per_1m: Number((v || '0').replace(/[^0-9]/g, '')) })} />
-                <Field label={t('Output /1M $', 'مخرجات /1M $')} integer value={String(editing.output_price_per_1m)} onChange={(v) => setEditing({ ...editing, output_price_per_1m: Number((v || '0').replace(/[^0-9]/g, '')) })} />
+                <Field label={t('Input /1M (USD)', 'مدخلات /1M (دولار)')} decimal value={String(editing.input_price_per_1m)} onChange={(v) => setEditing({ ...editing, input_price_per_1m: v as any })} />
+                <Field label={t('Output /1M (USD)', 'مخرجات /1M (دولار)')} decimal value={String(editing.output_price_per_1m)} onChange={(v) => setEditing({ ...editing, output_price_per_1m: v as any })} />
               </div>
               <Field label={t('Notes', 'ملاحظات')} value={editing.notes ?? ''} onChange={(v) => setEditing({ ...editing, notes: v })} />
             </div>
@@ -196,15 +196,15 @@ export function OpenAIKeysCard() {
   );
 }
 
-function Field({ label, value, onChange, integer, placeholder }: { label: string; value: string; onChange: (v: string) => void; integer?: boolean; placeholder?: string }) {
+function Field({ label, value, onChange, decimal, placeholder }: { label: string; value: string; onChange: (v: string) => void; decimal?: boolean; placeholder?: string }) {
   return (
     <label className="block">
       <div className="text-muted-foreground text-[11px] mb-1">{label}</div>
       <input
-        type={integer ? 'number' : 'text'}
-        inputMode={integer ? 'numeric' : undefined}
-        step={integer ? 1 : undefined}
-        min={integer ? 0 : undefined}
+        type={decimal ? 'number' : 'text'}
+        inputMode={decimal ? 'decimal' : undefined}
+        step={decimal ? '0.01' : undefined}
+        min={decimal ? 0 : undefined}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
