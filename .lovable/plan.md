@@ -1,139 +1,110 @@
+## Goal
 
-## Final decisions (locked)
+Exact per-tenant OpenAI token/word/cost attribution for every call — n8n agent (+ all its tool reasoning iterations), vision, and classification. No pro-rata.
 
-- **2 OpenAI keys** total. Key 1 = chat + vision + Test Chat. Key 2 = post-closure analysis. No third key.
-- **Vision uses direct OpenAI** (never Lovable Gateway).
-- **Billing unit = conversations**. Plan quotas: Economy 250 / Basic 500 / Professional 750 / Business 1000 conversations/month. Editable in admin.
-- **Test Chat**: Key 1, does NOT count as a billed conversation, daily cap **300,000 input / 3,000 output tokens**, resets **00:00 Asia/Riyadh**. Limit-hit Arabic message: "لقد وصلت إلى الحد اليومي لاختبار الذكاء. يمكنك المحاولة مجدداً غداً."
-- **On renewal/plan change**: current period archived to `subscription_periods`, live counters reset.
+## Strategy
 
-## Per-merchant token attribution (the honest model)
+OpenAI's Usage API supports `group_by=["user_id"]` which returns the exact tokens per attribution identifier per day. Two ways to populate that identifier:
 
-| Source | Method | Accuracy |
-|---|---|---|
-| Vision in `chat-ai` | Direct log per call with `tenant_id` | Exact |
-| Post-closure analysis (Key 2) | Direct log per call with `tenant_id` | Exact |
-| Test Chat (Key 1) | Direct log per call with `tenant_id`, `is_test=true` | Exact |
-| n8n AI Agent reasoning tokens | n8n returns `tokenUsageEstimate` → logged | Exact (what n8n exposes) |
-| n8n tool-call tokens (Salla/Zid HTTP fetches) | Hourly OpenAI Usage API diff, pro-rata by daily chat turns | Reconciled; monthly accurate, daily ±few % per tenant |
+- **Chat Completions API**: send `user: "<tenant_id>"`.
+- **Responses API** (what your n8n node uses, model `gpt-5.4-nano`, "Use Responses API" toggle on): send `safety_identifier: "<tenant_id>"`.
 
-Total per key always reconciles to your actual OpenAI bill within 1 hour.
+Both end up in the same `user_id` column of the Usage API. We set this on every OpenAI call we control, then sync usage every 15 minutes into per-tenant daily tables.
 
-## Database (single migration)
+## What gets built
 
-```sql
-openai_keys(key_no PK, use_label, model, vision_model,
-            input_price_per_1m, output_price_per_1m,
-            openai_project_id, notes, updated_at, updated_by)
+### 1. The n8n change you apply once
 
-openai_call_log(id PK, created_at, tenant_id, key_no,
-                source CHECK IN ('chat','vision','test_chat','analysis','goal_score','report'),
-                model, input_tokens, output_tokens,
-                conversation_id, is_test, request_id)
+In your existing workflow, open the `OpenAI Chat Model1` sub-node:
+- **Options → Add Option → Safety Identifier** → value:
+  ```
+  ={{ $('Get Conversation').item.json.body.tenant_id }}
+  ```
+- (Optional, recommended) **Options → Add Option → Prompt Cache Key** → same expression. Improves OpenAI's prompt-prefix cache hit rate per merchant → cheaper input tokens. No downside.
 
-openai_usage_daily(day, key_no, model,
-                   input_tokens, output_tokens, requests,
-                   PRIMARY KEY (day, key_no, model))
+That's it for n8n. Every reasoning step the AI Agent makes (including each tool call iteration) inherits this safety_identifier on the underlying OpenAI request.
 
-merchant_token_daily(tenant_id, day, key_no, source, model,
-                     input_tokens, output_tokens, conversations,
-                     PRIMARY KEY (tenant_id, day, key_no, source, model))
+### 2. Two OpenAI projects + two keys (admin-managed)
 
-plan_quotas(plan PK, monthly_conversations)
+- **Key A — `OPENAI_CHAT_KEY`**: used by n8n (you swap n8n's existing OpenAI credential to this key) AND by `chat-ai` for vision. Both live in the same OpenAI project so they roll up together in the Usage API.
+- **Key B — `OPENAI_CLASSIFIER_KEY`**: used by `classify-conversation` and any future non-chat AI. Separate OpenAI project so its tokens never mix with chat.
 
-tenant_conversation_usage(tenant_id PK, period_start,
-                          conversations_used, monthly_limit)
+You create both projects + keys in the OpenAI dashboard. We store their `project_id`, label, default model, input/output USD per 1M, and an Arabic-aware tokens-per-word factor in a new `admin_openai_keys` table. Admin UI to edit prices/labels lives between the existing "استخدام الكلمات / التوكنز" panel and "خطط العملاء الحالية" panel.
 
-test_chat_quota(tenant_id PK, day,
-                day_input_tokens, day_output_tokens,
-                daily_input_cap default 300000,
-                daily_output_cap default 3000,
-                period_input_tokens, period_output_tokens)
+### 3. Our edge functions: switch to Responses API + tag every call
 
-subscription_periods(id PK, tenant_id, plan, started_at, ended_at,
-                     conversations_used,
-                     chat_input_tokens, chat_output_tokens, chat_cost_usd,
-                     analysis_input_tokens, analysis_output_tokens, analysis_cost_usd,
-                     test_chat_input_tokens, test_chat_output_tokens, test_chat_cost_usd,
-                     reason)
-```
+- **`chat-ai` (vision)**: call `POST https://api.openai.com/v1/responses` with `OPENAI_CHAT_KEY`, `model: gpt-4.1-mini` (vision-capable), and `safety_identifier: tenantId`. Removes Lovable Gateway as you requested.
+- **`classify-conversation`**: same — Responses API, `OPENAI_CLASSIFIER_KEY`, `safety_identifier: tenantId`. Removes Lovable Gateway.
+- Tiny `_shared/openai.ts` helper that requires `tenantId` as a parameter so future calls can't accidentally skip attribution.
 
-GRANTs → RLS → policies for each. `openai_keys`, `openai_usage_daily`, `plan_quotas`: admin-only. `merchant_token_daily`, `tenant_conversation_usage`, `test_chat_quota`, `subscription_periods`: tenant-readable (own rows).
+### 4. Usage sync edge function (every 15 minutes)
 
-Seed:
-- `openai_keys`: (1, "Chat + Vision + Test", "gpt-5.4-nano", "gpt-5.4-mini", 0.20, 1.25), (2, "Post-closure Analysis", "gpt-5.4-nano", null, 0.20, 1.25).
-- `plan_quotas`: 250 / 500 / 750 / 1000.
+New `openai-usage-sync` function, triggered by `pg_cron` every 15 min. Each run:
 
-SQL function `archive_and_reset_period(tenant_id, reason)` called on every plan change / renewal / expiry.
+1. For each row in `admin_openai_keys`, calls
+   `GET /v1/organization/usage/completions?start_time=<since_last>&bucket_width=1d&group_by[]=project_id&group_by[]=user_id&group_by[]=model`
+   using a separate `OPENAI_ADMIN_KEY` (admin key with Usage read scope only).
+2. For each `{day, project_id, user_id, model, input_tokens, output_tokens, num_model_requests}` row:
+   - `user_id` IS the tenant_id (or `tenant_id:iqtest` for IQ-test calls — see #6).
+   - Look up price + tokens/word from `admin_openai_keys` by project_id → compute cost USD + approximate words.
+   - Upsert into `merchant_token_daily(tenant_id, day, project_id, model, scope, input_tokens, output_tokens, requests, cost_usd, words_approx, attribution='exact')`.
+3. Stores last successful `start_time` in `admin_settings` for incremental polling.
+4. Any row where OpenAI returns `user_id=null` (something forgot to tag) goes into `admin_openai_unattributed_daily` so it's visible immediately and fixable — total org spend is never lost.
 
-## Enforcement rules
+### 5. Per-tenant breakdown UI (customer detail page)
 
-- **Conversation count**: trigger on `conversations_main` → resolved/closed; if `is_test=false`, increment `tenant_conversation_usage`. Existing service-paused webhook fires when limit hit.
-- **Test Chat**: in `chat-ai` when `is_test=true`, lazy-reset day counter on first call after KSA midnight, refuse if cap hit, otherwise log + increment.
-- **n8n reconciliation**: nightly + hourly `openai-usage-sync` distributes Usage API gap pro-rata by daily chat-turn count.
+A wide table styled like the existing customer info tables, showing:
+`Day | Project (Chat/Classifier) | Model | Requests | Input tokens | Output tokens | Words ≈ | Cost USD`
 
-## Edge functions
+Plus a separate summary row **"اختبار المحادثة (IQ test)"** that aggregates `scope='iqtest'` rows (see #6).
 
-| Function | Change |
-|---|---|
-| `chat-ai/index.ts` | Direct OpenAI with `OPENAI_API_KEY_N8N`. Vision = `gpt-5.4-mini`. Parse `tokenUsageEstimate` from n8n response → log. Honor Test Chat quota gate. |
-| `classify-conversation/index.ts` | Direct OpenAI with `OPENAI_API_KEY_INTERNAL`. Model/key from `openai_keys.key_no=2`. Log `source='analysis'`. |
-| `openai-usage-sync/index.ts` | **New.** Hourly pg_cron. Pulls Usage API per project, upserts `openai_usage_daily`, runs n8n reconciliation. |
-| `admin-server-usage/index.ts` | Per-key MTD totals + cost from `openai_keys` pricing. |
-| `admin-subscription-actions/index.ts` | All period-change actions call `archive_and_reset_period`. |
-| `process-subscription-expiry/index.ts` | Same. |
+### 6. IQ-test tagging (same key, separate tracking)
 
-## Admin UI placement
+Per your spec, IQ test uses the same `OPENAI_CHAT_KEY` but tracked separately. When `chat-ai` runs against a `conversations_main.is_test = true` conversation, we send `safety_identifier = "<tenant_id>:iqtest"`. The Usage API returns it as a distinct user_id, so we split it cleanly into `merchant_token_daily.scope='iqtest'`.
 
-**Admin Dashboard layout** (top → bottom):
-1. KPI cards (unchanged)
-2. New subscribers chart (unchanged)
-3. **`استخدام الكلمات / التوكنز`** chart (unchanged)
-4. **NEW — full-width** `استهلاك OpenAI حسب المفتاح` table (4 columns × 2 rows: Key 1, Key 2):
-   - Columns: المفتاح | الاستخدام / الموديل | إدخال (توكنز / $) | إخراج (توكنز / $) | إجمالي $ | عدد الطلبات (MTD)
-   - Bottom row: إجمالي شهري + موازنة المخصص (editable)
-5. **`خطط العملاء الحالية`** (unchanged) — sits right after
-6. The rest unchanged
+Daily caps (300k input / 3k output, Asia/Riyadh midnight reset) are enforced in `chat-ai` by querying `merchant_token_daily` for today's `scope='iqtest'` totals before the call. Over the cap → return the Arabic "لقد وصلت إلى الحد اليومي…" message without calling OpenAI.
 
-**New admin pages:**
-- `/admin/openai-keys` — editable Key #, Use, Model, Vision Model, Input $/1M, Output $/1M, Project ID, Notes.
-- `/admin/plan-quotas` — Economy/Basic/Professional/Business monthly conversation caps.
+Note: usage sync lags ~30–75 min, so cap enforcement uses a fast-path local counter (`iqtest_usage_today` table incremented synchronously on each call) for instant blocking, then reconciled against authoritative Usage API numbers nightly.
 
-**Customer detail page** (`/admin/customers/:id`): full-width **Consumption Table** (same component, scoped to this tenant) sits **below the existing usage chart**, above the actions row. Includes a "الاشتراكات السابقة" collapsible underneath from `subscription_periods`.
+### 7. Global "استخدام الكلمات / التوكنز" panel
 
-## User dashboard UI
+Replaces the current `ai_classifier_usage`-based view. Reads from `merchant_token_daily` summed across tenants. Monthly chart with two series (Chat project vs Classifier project), exact totals, exact cost.
 
-Replace "Words used" card with the **Consumption Table** (the same shared component, scoped to the merchant):
+## Technical details
 
-| القسم | إدخال | إخراج | إجمالي | التكلفة | المحادثات | ملاحظات |
-|---|---|---|---|---|---|---|
-| الاشتراك التجريبي | … | … | … | … | n / quota | يظهر فقط إذا توجد فترة تجريبية |
-| الاشتراك الحالي | … | … | … | … | n / quota | عدّادات حية |
-| تحليل المحادثات | … | … | … | … | عدد المُحلَّلة | مفتاح 2، لا يخصم من الحصة |
-| اختبار الذكاء | … | … | … | … | — | يومي: X/300K إدخال، Y/3K إخراج — يُصفّر 00:00 KSA |
+**New tables**
+- `admin_openai_keys` — `id, label, project_id, key_hint, default_model, input_price_per_1m, output_price_per_1m, tokens_per_word, notes`. Seed 2 rows: Chat + Classifier.
+- `merchant_token_daily` — `tenant_id, day, project_id, model, scope ('chat'|'iqtest'|'vision'|'classifier'|'other'), input_tokens, output_tokens, requests, cost_usd, words_approx, attribution, updated_at`. Unique on `(tenant_id, day, project_id, model, scope)`.
+- `admin_openai_unattributed_daily` — `day, project_id, model, input_tokens, output_tokens, requests`.
+- `iqtest_usage_today` — `tenant_id, day, input_tokens, output_tokens, updated_at` (instant cap enforcement counter, reset at 00:00 Asia/Riyadh by cron).
 
-Collapsible **الاشتراكات السابقة** below: one row per archived period.
+**New secrets**
+- `OPENAI_CHAT_KEY` — for `chat-ai` vision + (manually) n8n's OpenAI credential.
+- `OPENAI_CLASSIFIER_KEY` — for `classify-conversation`.
+- `OPENAI_ADMIN_KEY` — admin key with Usage read scope, only used by `openai-usage-sync`.
 
-Cost = `(input × input_price + output × output_price) / 1M` using current `openai_keys`.
+**New edge function**
+- `openai-usage-sync` — Usage API poller, cron every 15 min.
 
-## Secrets needed (you'll add via secure form after approval)
+**Edge function edits**
+- `chat-ai`: switch vision to direct OpenAI Responses API with `safety_identifier`; add IQ-test cap check.
+- `classify-conversation`: switch from Lovable Gateway to direct OpenAI Responses API with `safety_identifier`.
+- New `_shared/openai.ts` helper.
 
-- `OPENAI_API_KEY_N8N` — Key 1; also pasted into n8n's OpenAI credential.
-- `OPENAI_API_KEY_INTERNAL` — Key 2.
-- `OPENAI_ADMIN_KEY` — org-level, Usage API read-only.
-- `OPENAI_PROJECT_ID_N8N`, `OPENAI_PROJECT_ID_INTERNAL`.
+**SQL helpers**
+- `admin_merchant_tokens(tenant uuid, _from date, _to date) → table` — per-customer breakdown.
+- `admin_tokens_global_monthly(_year int) → table` — chart data.
+- `iqtest_can_use(tenant uuid) → boolean` + companion increment function for the cap.
 
-## Non-goals
+## Honest limitations
 
-- No third key.
-- No Lovable Gateway.
-- No fixed words/token ratio.
-- Test Chat never affects merchant conversation count.
+1. **~30–75 min lag** on the dashboard chart because Usage API is delayed and we poll every 15 min. Acceptable: quota gating doesn't depend on it.
+2. **IQ-test cap** uses an instant local counter (not the Usage API) so blocking is real-time. Nightly reconciliation against OpenAI's authoritative numbers corrects any drift.
+3. If any future OpenAI call is added without `safety_identifier`, its tokens land in `admin_openai_unattributed_daily` — visible immediately so it's fixed. Total spend is never lost.
+4. The Usage API returns daily buckets per `{user_id, project_id, model}`, not per-request. Per-conversation breakdowns continue to use our existing `conversations_messages` rows.
 
-## Rollout order
+## Out of scope (this round)
 
-1. Migration: tables + triggers + `archive_and_reset_period` + seed.
-2. Edge functions: `chat-ai`, `classify-conversation`, new `openai-usage-sync` + pg_cron.
-3. Admin: `/admin/openai-keys`, `/admin/plan-quotas`, new full-width consumption card on Dashboard between the tokens chart and the plans card, same card on customer detail page.
-4. Merchant: replace words card with the Consumption Table + Previous Subscriptions section.
-5. Retire AI-side word counters in `bump_word_usage`.
+- Hostinger billing integration (waiting on your key).
+- Moving the AI agent out of n8n.
+- UI styling polish of the new tables — done with existing patterns, can be refined after.
