@@ -339,10 +339,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const mocks: Notification[] = [
         {
           id: 'mock-word-warning',
-          title: 'Approaching word limit',
-          titleAr: 'اقتراب من حد الكلمات',
-          message: 'You have used 80% of your monthly word quota.',
-          messageAr: 'لقد استخدمت 80% من حصة الكلمات الشهرية.',
+          title: 'Approaching conversation limit',
+          titleAr: 'اقتراب من حد المحادثات',
+          message: 'You have used 80% of your monthly conversation quota.',
+          messageAr: 'لقد استخدمت 80% من حصة المحادثات الشهرية.',
           time: new Date(now - 5 * 60_000).toISOString(),
           read: false,
           kind: 'word_limit_warning',
