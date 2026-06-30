@@ -440,6 +440,8 @@ export function AdminCustomerDetails() {
               <p className="text-[18px]" style={{ fontWeight: 700 }}><AnimatedValue value={customer.outputWords} /></p>
             </div>
           </div>
+          </div>
+          {id && <MerchantConsumptionTable tenantId={id} />}
         </motion.div>
       )}
 
