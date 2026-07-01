@@ -342,18 +342,17 @@ export function AdminDashboard() {
 
   // #1 Conversations monthly bars ← admin_conversations_monthly (real data)
   const wordsData = useMemo(() => {
-    const byMonth = new Map(convMonthly.map(w => [w.month, w.conversations]));
-    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
-  }, [convMonthly, language]);
+    return convSeries.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.bucket), words: r.count }));
+  }, [convSeries, bucketInfo.bucket, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
     const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
     return order.map(plan => {
-      const row = data.planDistribution.find(p => p.platform === null && p.plan === plan);
-      return { name: planLabel(plan), value: row?.subscribers ?? 0, color: PLAN_COLORS[plan] };
+      const total = planDistR.filter(p => p.plan === plan).reduce((s, p) => s + (p.subscribers ?? 0), 0);
+      return { name: planLabel(plan), value: total, color: PLAN_COLORS[plan] };
     });
-  }, [data.planDistribution, language]);
+  }, [planDistR, language]);
 
   // Gate animated donuts so they mount fresh after data resolves and play
   // their sweep once on real values (no MOCK-flash count-down).
@@ -363,7 +362,7 @@ export function AdminDashboard() {
     setChartsLoaded(false);
     const id = requestAnimationFrame(() => setChartsLoaded(true));
     return () => cancelAnimationFrame(id);
-  }, [dataLoaded, range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
+  }, [dataLoaded, range.from, range.to, planDistR, firstSubR, sourceR, subsSeries, convSeries]);
 
   // #3 Subscriptions by Platform  ← admin_dash_platform_subs
   const platformSubsData = useMemo(() => {
@@ -373,20 +372,20 @@ export function AdminDashboard() {
     ];
     return statuses.map(([s, label]) => ({
       name: label,
-      zid:   data.platformSubs.find(p => p.status === s && p.platform === 'zid')?.count ?? 0,
-      salla: data.platformSubs.find(p => p.status === s && p.platform === 'salla')?.count ?? 0,
+      zid:   platSubsR.find(p => p.status === s && p.platform === 'zid')?.count ?? 0,
+      salla: platSubsR.find(p => p.status === s && p.platform === 'salla')?.count ?? 0,
     }));
-  }, [data.platformSubs, language]);
+  }, [platSubsR, language]);
 
-  // New Subscribers list  ← admin_dash_new_subscribers
-  const newSubscribers = useMemo(() => data.newSubscribers.map(s => ({
+  // New Subscribers list — scoped to the selected date range
+  const newSubscribers = useMemo(() => newSubsR.map(s => ({
     name: s.store_name,
     platform: s.platform === 'zid' ? 'Zid' : 'Salla',
     date: s.subscribed_on,
     totalTokens: s.total_tokens,
     usedTokens: s.used_tokens,
     logo: s.logo_initials,
-  })), [data.newSubscribers]);
+  })), [newSubsR]);
 
   // Server usage bars  ← admin_dash_servers
   const serverUsage = useMemo(() => data.servers.map(s => {
@@ -426,22 +425,22 @@ export function AdminDashboard() {
     const order: PlanTier[] = ['trial', 'economy', 'basic', 'professional', 'business'];
     return order.map(plan => ({
       name: planLabel(plan),
-      value: data.firstSubType.find(f => f.plan === plan)?.count ?? 0,
+      value: firstSubR.find(f => f.plan === plan)?.count ?? 0,
       color: PLAN_COLORS[plan],
     }));
-  }, [data.firstSubType, language]);
+  }, [firstSubR, language]);
 
   // Customer Source pie  ← admin_dash_customer_source
   const customerSourceData = useMemo(() => ([
-    { name: t('Zid', 'زد'),   value: data.customerSource.find(s => s.platform === 'zid')?.count ?? 0,   color: '#043CC8' },
-    { name: t('Salla', 'سلة'), value: data.customerSource.find(s => s.platform === 'salla')?.count ?? 0, color: '#22c55e' },
-  ]), [data.customerSource, language]);
+    { name: t('Zid', 'زد'),   value: sourceR.find(s => s.platform === 'zid')?.count ?? 0,   color: '#043CC8' },
+    { name: t('Salla', 'سلة'), value: sourceR.find(s => s.platform === 'salla')?.count ?? 0, color: '#22c55e' },
+  ]), [sourceR, language]);
 
   // Uninstall comparison bar  ← admin_dash_uninstalls
   const uninstallData = useMemo(() => ([
-    { name: t('Zid', 'زد'),   value: data.uninstalls.find(u => u.platform === 'zid')?.count ?? 0,   fill: '#ff4466' },
-    { name: t('Salla', 'سلة'), value: data.uninstalls.find(u => u.platform === 'salla')?.count ?? 0, fill: '#f97316' },
-  ]), [data.uninstalls, language]);
+    { name: t('Zid', 'زد'),   value: uninstallsR.find(u => u.platform === 'zid')?.count ?? 0,   fill: '#ff4466' },
+    { name: t('Salla', 'سلة'), value: uninstallsR.find(u => u.platform === 'salla')?.count ?? 0, fill: '#f97316' },
+  ]), [uninstallsR, language]);
 
   const planColorArr = [PLAN_COLORS.economy, PLAN_COLORS.basic, PLAN_COLORS.professional, PLAN_COLORS.business];
 
@@ -450,11 +449,11 @@ export function AdminDashboard() {
     const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
     return order.map(plan => ({
       name: planLabel(plan),
-      value: data.planDistribution.find(p => p.platform === pf && p.plan === plan)?.subscribers ?? 0,
+      value: planDistR.find(p => p.platform === pf && p.plan === plan)?.subscribers ?? 0,
     }));
   };
-  const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [data.planDistribution, language]);
-  const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [data.planDistribution, language]);
+  const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [planDistR, language]);
+  const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [planDistR, language]);
 
   // Server Status grid ← live admin_health_checks (fallback to seeded list)
   const serverStatus = useMemo(() => {
@@ -471,12 +470,19 @@ export function AdminDashboard() {
     });
   }, [health]);
 
-  // #10 New Subscribers Over Time  ← admin_dash_new_subs_monthly
-  const newSubsOverTime = useMemo(() => monthNames.map(([en, ar], i) => ({
-    name: t(en, ar),
-    zid:   data.newSubsMonthly.find(r => r.month === i + 1 && r.platform === 'zid')?.count ?? 0,
-    salla: data.newSubsMonthly.find(r => r.month === i + 1 && r.platform === 'salla')?.count ?? 0,
-  })), [data.newSubsMonthly, language]);
+  // #10 New Subscribers Over Time — adaptive bucketed series
+  const newSubsOverTime = useMemo(() => {
+    const map = new Map<string, { zid: number; salla: number }>();
+    subsSeries.forEach(r => {
+      const key = r.bucket_start;
+      const cur = map.get(key) ?? { zid: 0, salla: 0 };
+      if (r.platform === 'zid') cur.zid += r.count; else cur.salla += r.count;
+      map.set(key, cur);
+    });
+    return Array.from(map.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([iso, v]) => ({ name: bucketLabel(iso, bucketInfo.bucket), zid: v.zid, salla: v.salla }));
+  }, [subsSeries, bucketInfo.bucket, language]);
 
   const cardClass = "bg-card rounded-2xl border border-border p-4";
   const textMuted = "text-muted-foreground";
