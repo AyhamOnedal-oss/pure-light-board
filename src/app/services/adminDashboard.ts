@@ -76,6 +76,8 @@ export interface AdminKpis {
   prev_total_bubble_clicks: number;
   avg_response_seconds: number;
   prev_avg_response_seconds: number;
+  total_conversations: number;
+  prev_total_conversations: number;
   has_range: boolean;
 }
 
