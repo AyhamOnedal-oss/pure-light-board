@@ -118,7 +118,7 @@ async function fetchUsagePage(startTime: number, projectId: string | null, page:
   url.searchParams.append("group_by", "project_id");
   url.searchParams.append("group_by", "user_id");
   url.searchParams.append("group_by", "model");
-  url.searchParams.set("limit", "180");
+  url.searchParams.set("limit", "31");
   if (projectId) url.searchParams.append("project_ids", projectId);
   if (page) url.searchParams.set("page", page);
   const res = await fetch(url.toString(), {
