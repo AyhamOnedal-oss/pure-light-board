@@ -162,6 +162,11 @@ function scheduleWrite(key: StateKey, value: unknown) {
   if (typeof window === 'undefined') return;
   if (writeTimers[key]) window.clearTimeout(writeTimers[key]!);
   writeTimers[key] = window.setTimeout(async () => {
+    // Wait for the first server hydration to complete. If the server already
+    // has data, that data replaced our cache — so we must NOT overwrite it
+    // with the local seed that any component pushed on initial mount.
+    await ensurePipelineHydrated();
+    if (cache[key] !== value) return;
     try {
       await supabase.from('admin_pipeline_state' as any).upsert(
         { key, value, updated_at: new Date().toISOString() } as any,
