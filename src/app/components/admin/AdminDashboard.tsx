@@ -317,7 +317,7 @@ export function AdminDashboard() {
 
   useEffect(() => {
     let alive = true;
-    const { from, to, bucket } = bucketInfo;
+    const { from, to, fetchBucket: bucket } = bucketInfo;
     Promise.all([
       fetchConversationsSeries(from, to, bucket),
       fetchNewSubsSeries(from, to, bucket),
@@ -334,7 +334,7 @@ export function AdminDashboard() {
       setPlanDistR(pd); setNewSubsR(ns);
     });
     return () => { alive = false; };
-  }, [bucketInfo.from, bucketInfo.to, bucketInfo.bucket, range.from, range.to]);
+  }, [bucketInfo.from, bucketInfo.to, bucketInfo.fetchBucket, range.from, range.to]);
 
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
@@ -391,8 +391,9 @@ export function AdminDashboard() {
 
   // #1 Conversations monthly bars ← admin_conversations_monthly (real data)
   const wordsData = useMemo(() => {
-    return convSeries.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.bucket), words: r.count }));
-  }, [convSeries, bucketInfo.bucket, language]);
+    const grouped = aggregateBuckets(convSeries, bucketInfo.groupSize, ['count' as any]);
+    return grouped.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.fetchBucket, bucketInfo.groupSize), words: r.count }));
+  }, [convSeries, bucketInfo.fetchBucket, bucketInfo.groupSize, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
@@ -528,10 +529,12 @@ export function AdminDashboard() {
       if (r.platform === 'zid') cur.zid += r.count; else cur.salla += r.count;
       map.set(key, cur);
     });
-    return Array.from(map.entries())
+    const flat = Array.from(map.entries())
       .sort(([a], [b]) => (a < b ? -1 : 1))
-      .map(([iso, v]) => ({ name: bucketLabel(iso, bucketInfo.bucket), zid: v.zid, salla: v.salla }));
-  }, [subsSeries, bucketInfo.bucket, language]);
+      .map(([iso, v]) => ({ bucket_start: iso, zid: v.zid, salla: v.salla }));
+    const grouped = aggregateBuckets(flat, bucketInfo.groupSize, ['zid', 'salla']);
+    return grouped.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.fetchBucket, bucketInfo.groupSize), zid: r.zid, salla: r.salla }));
+  }, [subsSeries, bucketInfo.fetchBucket, bucketInfo.groupSize, language]);
 
   const cardClass = "bg-card rounded-2xl border border-border p-4";
   const textMuted = "text-muted-foreground";
