@@ -521,7 +521,7 @@ export function ChatCustomization() {
                   </div>
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
         </div>
