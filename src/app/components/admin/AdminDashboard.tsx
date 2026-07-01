@@ -215,6 +215,78 @@ export function AdminDashboard() {
     return () => { alive = false; };
   }, []);
 
+  // ---- Adaptive bucket for time-series charts ----
+  const bucketInfo = useMemo(() => {
+    if (!range.from || !range.to) {
+      // "All time" fallback → monthly buckets for the current year
+      const y = new Date().getUTCFullYear();
+      return {
+        bucket: 'month' as BucketKind,
+        from: new Date(Date.UTC(y, 0, 1)).toISOString(),
+        to: new Date(Date.UTC(y, 11, 31, 23, 59, 59)).toISOString(),
+      };
+    }
+    const days = Math.max(1, Math.ceil((new Date(range.to).getTime() - new Date(range.from).getTime()) / 86400000));
+    let bucket: BucketKind = 'month';
+    if (days <= 2) bucket = 'hour';
+    else if (days <= 14) bucket = 'day';
+    else if (days <= 90) bucket = 'week';
+    return { bucket, from: range.from, to: range.to };
+  }, [range.from, range.to]);
+
+  const arDaysShort = ['أحد','اثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'];
+  const enDaysShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const bucketLabel = (iso: string, bucket: BucketKind): string => {
+    const d = new Date(iso);
+    if (bucket === 'hour') return `${String(d.getHours()).padStart(2,'0')}:00`;
+    if (bucket === 'day') {
+      const names = language === 'ar' ? arDaysShort : enDaysShort;
+      return `${names[d.getDay()]} ${d.getDate()}`;
+    }
+    if (bucket === 'week') {
+      // ISO-ish week number
+      const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = t.getUTCDay() || 7;
+      t.setUTCDate(t.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+      const wk = Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      return language === 'ar' ? `أسبوع ${wk}` : `Wk ${wk}`;
+    }
+    const [enM, arM] = monthNames[d.getMonth()];
+    return language === 'ar' ? arM : enM;
+  };
+
+  // ---- Range-scoped live datasets ----
+  const [convSeries, setConvSeries] = useState<ConversationsSeriesRow[]>([]);
+  const [subsSeries, setSubsSeries] = useState<NewSubsSeriesRow[]>([]);
+  const [uninstallsR, setUninstallsR] = useState<Uninstalls[]>([]);
+  const [firstSubR, setFirstSubR] = useState<FirstSubType[]>([]);
+  const [sourceR, setSourceR] = useState<CustomerSource[]>([]);
+  const [platSubsR, setPlatSubsR] = useState<PlatformSubs[]>([]);
+  const [planDistR, setPlanDistR] = useState<PlanDistribution[]>([]);
+  const [newSubsR, setNewSubsR] = useState<NewSubscriber[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const { from, to, bucket } = bucketInfo;
+    Promise.all([
+      fetchConversationsSeries(from, to, bucket),
+      fetchNewSubsSeries(from, to, bucket),
+      fetchUninstallsRange(range.from, range.to),
+      fetchFirstSubTypeRange(range.from, range.to),
+      fetchCustomerSourceRange(range.from, range.to),
+      fetchPlatformSubsRange(range.from, range.to),
+      fetchPlanDistributionRange(range.from, range.to),
+      fetchNewSubscribersRange(range.from, range.to),
+    ]).then(([cs, ss, un, fs, cx, ps, pd, ns]) => {
+      if (!alive) return;
+      setConvSeries(cs); setSubsSeries(ss); setUninstallsR(un);
+      setFirstSubR(fs); setSourceR(cx); setPlatSubsR(ps);
+      setPlanDistR(pd); setNewSubsR(ns);
+    });
+    return () => { alive = false; };
+  }, [bucketInfo.from, bucketInfo.to, bucketInfo.bucket, range.from, range.to]);
+
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
