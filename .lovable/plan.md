@@ -1,74 +1,23 @@
-## Goal
-Move the admin panel completely off the "words" model and onto **conversations + tokens + cost**, plus snapshot each subscription cycle into a real "Previous Subscriptions" history so numbers reset per period without losing history.
+## Diagnosis
 
-## 1. Terminology sweep (admin panel only)
+All KPI cards are computing correctly against the current data — the **0 values are accurate**, not a bug:
 
-Replace every user-visible reference to Words with the new labels, everywhere in `src/app/components/admin/*` and admin pages:
+| Card | Value | Why |
+|---|---|---|
+| إجمالي العملاء | 0 | No workspace is on a paid plan (economy/basic/professional/business/pro). All 17 tenants are still `plan='free'` / `status='trial'`. |
+| العملاء النشطون | 0 | Same reason — active = paid + `status='active'`. Trials are excluded by design (you confirmed keeping this). |
+| إجمالي إلغاء التثبيت | 0 | Uninstalls are only counted for paid tenants. |
+| العملاء غير المكتملين | 0 | The card follows the selected date range. There are 25 candidates all-time (17 trial workspaces + 8 unmatched leads), but none were created inside your currently selected window. |
+| عدد المحادثات / نقرات الفقاعة / متوسط الاستجابة | 2 / 2 / 8.7s | Real message + widget-event data lives inside the current range. |
 
-| Old label | New label |
-|---|---|
-| Words / الكلمات (as a metric) | Number of Conversations / عدد المحادثات |
-| Input Words / كلمات المدخلات | Input Tokens / التوكنز المدخلة |
-| Output Words / كلمات المخرجات | Output Tokens / التوكنز المخرجة |
-| Used Words / الكلمات المستخدمة | Total Cost / التكلفة الإجمالية (USD) |
-| Add Words / إضافة كلمات | (kept as internal admin credit action, relabeled "Top-up / إضافة رصيد") |
-| "Words / Tokens Usage" dashboard chart | "Conversations & Tokens" |
-| "Word usage alert - 80%" activity event copy | "Usage alert - 80%" |
-| Customers table "Words" column | "Conversations" |
+## No code changes required
 
-Files touched:
-- `AdminCustomerDetails.tsx` — subscription card fields, Add-Words modal, activity translations, state names.
-- `MerchantConsumptionTable.tsx` — IQ Test row: hide the Conversations cell (render "—") since it's not a conversation.
-- `AdminCustomers.tsx` — column header + cell.
-- `AdminDashboard.tsx` — chart title, legend, tooltip.
+You confirmed:
+- Keep **Active Customers = paid only** (current logic).
+- Keep **Incomplete Customers** following the date-range filter.
 
-No copy changes in the merchant-facing app.
+Both match what `admin_kpis` already returns. As soon as a tenant is switched to a paid plan (via Customer Management → Subscription actions), it will appear in Total/Active. Widen the date range (e.g. "All time" / "Last 90 days") to see the 25 incomplete customers populate.
 
-## 2. Current Subscription card (Customer Info → Subscriptions)
+## If you want a visual hint instead of "0"
 
-Rewrite the left column of the Current Subscription card to show, sourced from `merchant_token_daily` (scope `chat`/`vision`) + `conversations_main` for the current period (from `settings_plans.period_start`):
-
-- Plan
-- Start Date / End Date
-- **Number of Conversations** — count(`conversations_main` where `is_test=false`)
-- **Input Tokens** — sum(`input_tokens`)
-- **Output Tokens** — sum(`output_tokens`)
-- **Total Cost Consumed (USD)** — sum(`cost_usd`)
-
-The right-side donut becomes a cost-vs-plan-budget donut (or a simple 4-tile stat block if no budget is set).
-
-## 3. Subscription period snapshots
-
-New table `public.admin_subscription_periods`:
-
-- `tenant_id`, `plan`, `period_start`, `period_end`
-- `chat_conversations int`, `chat_input_tokens bigint`, `chat_output_tokens bigint`, `chat_cost_usd numeric`
-- `analysis_conversations int`, `analysis_input_tokens bigint`, `analysis_output_tokens bigint`, `analysis_cost_usd numeric`
-- `iqtest_input_tokens bigint`, `iqtest_output_tokens bigint`, `iqtest_cost_usd numeric`
-- `closed_at timestamptz`, standard timestamps
-
-+ GRANTs, RLS: only `super_admin` / admins with `admin_dashboard` can read; edge function writes via service role.
-
-New RPC `public.admin_snapshot_subscription(_tenant uuid)` that aggregates the current period (`period_start` → now) from `merchant_token_daily` + `conversations_main` and inserts one row.
-
-## 4. Snapshot on end / renew
-
-Update `supabase/functions/admin-subscription-actions/index.ts`:
-
-- `end` action → call `admin_snapshot_subscription(tenantId)` before flipping status.
-- `renew_trial` action → snapshot first, then reset `period_start` / usage (as today).
-- New `renew_paid` action (used when a paid subscription rolls over) does the same: snapshot then reset. Wire an internal call from the existing plan-renewal code path if present; otherwise expose it as an admin button next to Add Words.
-
-## 5. Previous Subscriptions card
-
-Replace the placeholder loop with a list backed by `admin_subscription_periods`, ordered `closed_at desc`. Each row shows: plan, `period_start → period_end`, Conversations, Input Tokens, Output Tokens, Cost, plus a compact IQ-Test / Analysis breakdown underneath.
-
-## 6. IQ Test rule
-
-Everywhere IQ Test surfaces (Merchant Consumption table, snapshots, Previous Subscriptions detail), render only **Input Tokens / Output Tokens / Cost** — no conversation count.
-
-## Technical notes
-- No merchant-app copy changes (`DashboardPage.tsx`, `PlansPage.tsx` remain on "المحادثات" as already shipped).
-- Snapshot RPC uses the same period-split logic already in `MerchantConsumptionTable.tsx` so numbers stay consistent.
-- Activity log copy for `usage_80` stays as an alert but drops the word "Words".
-- No changes to `openai-usage-sync` or pricing versioning.
+Optional follow-up (not part of this plan): show a small "no paid subscribers yet" caption under the 0 values, and/or make the date-range picker default to "All time" on first load so cards don't look empty. Let me know if you'd like either of those.
