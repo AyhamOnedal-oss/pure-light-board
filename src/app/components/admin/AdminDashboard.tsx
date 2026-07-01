@@ -650,19 +650,10 @@ export function AdminDashboard() {
                     {s.name === 'OpenAI' && (
                       <button
                         type="button"
-                        title={t('Edit monthly word budget', 'تعديل سقف الكلمات الشهري')}
-                        onClick={async () => {
-                          const current = serverUsageLive?.openai?.budget_words ?? 0;
-                          const input = window.prompt(
-                            t('Set OpenAI monthly word budget (used to compute % bar)',
-                              'أدخل سقف الكلمات الشهري لـ OpenAI (يُستخدم لحساب نسبة الاستهلاك)'),
-                            String(current)
-                          );
-                          if (input == null) return;
-                          const n = Number(input.replace(/[, ]/g, ''));
-                          if (!Number.isFinite(n) || n < 0) return;
-                          const ok = await setOpenAiWordBudget(Math.floor(n));
-                          if (ok) loadServerUsage();
+                        title={t('Add OpenAI balance (USD)', 'إضافة رصيد OpenAI (دولار)')}
+                        onClick={() => {
+                          setOpenaiAmount(String(serverUsageLive?.openai?.dollar_balance ?? ''));
+                          setOpenaiModal(true);
                         }}
                         className="opacity-60 hover:opacity-100 transition-opacity"
                       >
@@ -670,7 +661,11 @@ export function AdminDashboard() {
                       </button>
                     )}
                   </span>
-                  <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>{s.usage}%</span>
+                  <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>
+                    {s.name === 'OpenAI' && serverUsageLive?.openai
+                      ? `$${Number(serverUsageLive.openai.used_usd ?? 0).toFixed(2)}${Number(serverUsageLive.openai.dollar_balance ?? 0) > 0 ? ` / $${Number(serverUsageLive.openai.dollar_balance ?? 0).toFixed(2)}` : ''}`
+                      : `${s.usage}%`}
+                  </span>
                 </div>
                 <div className="h-2.5 rounded-full bg-muted overflow-hidden">
                   <motion.div initial={{ width: 0 }} animate={{ width: `${s.usage}%` }} transition={{ duration: 1, delay: 0.3 + i * 0.1 }}
