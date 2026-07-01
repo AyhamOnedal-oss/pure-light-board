@@ -13,6 +13,7 @@ import {
 } from '../../services/adminLandingLeads';
 import { fmtDate, loadCustomers, saveCustomers, getCurrentUserId, type PipelineCustomer } from './pipelineData';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveAdminAuthorName } from '@/app/utils/adminAuthorName';
 import { markLeadOpened } from '../../utils/landingNotifications';
 
 // Format a date in both Gregorian and Hijri (Arabic) calendars.
