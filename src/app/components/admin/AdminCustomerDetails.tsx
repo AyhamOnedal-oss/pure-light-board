@@ -529,7 +529,7 @@ export function AdminCustomerDetails() {
                       if (!n || n <= 0) { showToast(t('Enter a valid number', 'أدخل رقماً صحيحاً')); return; }
                       setShowAddWords(false);
                       setAddWordsAmount('');
-                      await callAction('add_words', { action: 'add_conversations', conversations: n } as any);
+                      await callAction('add_words', { conversations: n });
                     }}
                     disabled={busy !== null}
                     className="flex-1 py-2.5 rounded-xl bg-[#043CC8] text-white hover:bg-[#0330a0] text-[13px] disabled:opacity-50" style={{ fontWeight: 600 }}>{t('Add', 'إضافة')}</button>
