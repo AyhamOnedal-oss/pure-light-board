@@ -108,7 +108,7 @@ export function AdminLayout() {
 
   const customersItems = [
     { to: '/admin/pipeline',  label: t('Customer Pipeline', 'سير العملاء'), icon: GitBranch, showBadge: true,  perm: 'pipeline' as const },
-    { to: '/admin/pipeline/landing', label: t('Landing Page', 'صفحة الهبوط'), icon: Globe, showBadge: false, perm: 'pipeline' as const, exact: true },
+    { to: '/admin/pipeline/landing', label: t('Landing Page', 'صفحة الهبوط'), icon: Globe, showBadge: false, perm: 'landing' as const, exact: true },
     { to: '/admin/customers', label: t('Customers',         'العملاء'),     icon: Users,     showBadge: false, perm: 'customers' as const },
   ];
 
