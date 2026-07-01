@@ -306,13 +306,16 @@ export function AdminDashboard() {
     }
     if (s.name === 'OpenAI' && serverUsageLive?.openai) {
       const o = serverUsageLive.openai;
+      const balance = Number(o.dollar_balance ?? 0);
+      const usedUsd = Number(o.used_usd ?? 0);
+      const percentUsd = Number(o.percent_usd ?? 0);
       return {
         name: s.name,
-        usage: Number(o.percent ?? 0),
+        usage: balance > 0 ? percentUsd : 0,
         fill: s.color,
-        tooltip: o.budget_words > 0
-          ? `${o.used_words.toLocaleString()} / ${o.budget_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`
-          : `${o.used_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`,
+        tooltip: balance > 0
+          ? `$${usedUsd.toFixed(4)} / $${balance.toFixed(2)} ${t('consumed this month','مستهلك هذا الشهر')}`
+          : `$${usedUsd.toFixed(4)} ${t('consumed this month','مستهلك هذا الشهر')}`,
       };
     }
     return { name: s.name, usage: s.usage_percent, fill: s.color, tooltip: undefined as string | undefined };
