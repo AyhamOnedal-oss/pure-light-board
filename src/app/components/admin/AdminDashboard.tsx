@@ -722,11 +722,11 @@ export function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className={cardClass}>
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('New Subscribers', 'المشتركون الجدد')}</h3>
-          <p className={`text-[11px] ${textMuted} mb-2`}>{t('New Zid & Salla stores in the last 7 days', 'متاجر زد وسلة الجديدة خلال آخر 7 أيام')}</p>
+          <p className={`text-[11px] ${textMuted} mb-2`}>{t('New Zid & Salla stores in the selected range', 'متاجر زد وسلة الجديدة خلال الفترة المحددة')}</p>
           <div className="max-h-[240px] overflow-y-auto space-y-2">
             {newSubscribers.length === 0 && (
               <div className={`text-[12px] ${textMuted} text-center py-8`}>
-                {t('No new subscribers in the last 7 days', 'لا يوجد مشتركون جدد خلال آخر 7 أيام')}
+                {t('No new subscribers in the selected range', 'لا يوجد مشتركون جدد خلال الفترة المحددة')}
               </div>
             )}
             {newSubscribers.map((sub, i) => (
