@@ -63,25 +63,26 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   }
 
-  if (action === "add_words") {
-    const words = Math.floor(Number(body.words || 0));
-    if (!words || words <= 0) return json({ error: "invalid_words" }, 400);
+  if (action === "add_words" || action === "add_conversations") {
+    const amount = Math.floor(Number(body.conversations ?? body.words ?? 0));
+    if (!amount || amount <= 0) return json({ error: "invalid_amount" }, 400);
     const { data: plan, error: pErr } = await admin
       .from("settings_plans")
-      .select("monthly_word_quota")
+      .select("conversation_topup")
       .eq("tenant_id", tenantId)
       .maybeSingle();
     if (pErr) return json({ error: pErr.message }, 500);
-    const newQuota = Number(plan?.monthly_word_quota || 0) + words;
+    const newTopup = Number(plan?.conversation_topup || 0) + amount;
     const { error: uErr } = await admin
       .from("settings_plans")
-      .update({ monthly_word_quota: newQuota, updated_at: new Date().toISOString() })
+      .update({ conversation_topup: newTopup, updated_at: new Date().toISOString() })
       .eq("tenant_id", tenantId);
     if (uErr) return json({ error: uErr.message }, 500);
     await admin.from("admin_credit_topups").insert({
-      tenant_id: tenantId, words, added_by: uid, note: body.note ?? null,
+      tenant_id: tenantId, words: amount, added_by: uid,
+      note: body.note ?? "unit:conversations",
     });
-    return json({ ok: true, new_quota: newQuota });
+    return json({ ok: true, new_topup: newTopup });
   }
 
   if (action === "renew_trial") {
@@ -102,6 +103,8 @@ Deno.serve(async (req) => {
         monthly_words_used: 0,
         period_start: today,
         subscription_end_date: endStr,
+        conversations_used: 0,
+        conversation_topup: 0,
         service_paused_emailed_period: null,
         low_balance_emailed_period: null,
         expired_emailed_at: null,

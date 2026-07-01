@@ -4,7 +4,6 @@ import { supabase } from '../../../integrations/supabase/client';
 import { useAnimatedNumber } from '../AnimatedNumber';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CreditCard, Zap } from 'lucide-react';
-import { tokensToConversations, wordsToConversationsQuota } from '../../utils/conversations';
 
 type UsageDatum = { name: string; value: number; color: string };
 
@@ -56,28 +55,16 @@ export function PlansPage() {
     setChartLoaded(false);
     (async () => {
       const [{ data: plan }, { data: workspace }] = await Promise.all([
-        supabase.from('settings_plans').select('monthly_word_quota, monthly_words_used, period_start').eq('tenant_id', tenantId).maybeSingle(),
+        supabase.from('settings_plans').select('conversation_quota, conversation_topup, conversations_used, period_start').eq('tenant_id', tenantId).maybeSingle() as any,
         supabase.from('settings_workspace').select('plan').eq('id', tenantId).maybeSingle(),
       ]);
       if (cancelled) return;
-      const start = plan?.period_start ?? new Date().toISOString().slice(0, 10);
+      const start = (plan as any)?.period_start ?? new Date().toISOString().slice(0, 10);
       const endDate = new Date(start);
       endDate.setMonth(endDate.getMonth() + 1);
-      // Sum tokens from the current billing period to compute conversations used.
-      const { data: tokenRows } = await supabase
-        .from('merchant_token_daily')
-        .select('input_tokens, output_tokens')
-        .eq('tenant_id', tenantId)
-        .gte('day', start)
-        .lte('day', endDate.toISOString().slice(0, 10));
-      if (cancelled) return;
-      let inTok = 0, outTok = 0;
-      for (const r of tokenRows ?? []) {
-        inTok += Number((r as any).input_tokens ?? 0);
-        outTok += Number((r as any).output_tokens ?? 0);
-      }
-      const usedConversations = tokensToConversations(inTok, outTok);
-      const totalConversations = wordsToConversationsQuota(plan?.monthly_word_quota ?? 100000);
+      const usedConversations = Number((plan as any)?.conversations_used ?? 0);
+      const totalConversations = Number((plan as any)?.conversation_quota ?? 0)
+        + Number((plan as any)?.conversation_topup ?? 0);
       setPlanData({
         name: workspace?.plan ? (workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)) : 'Free',
         price: workspace?.plan === 'professional' ? '299 SAR/mo' : workspace?.plan === 'growth' ? '199 SAR/mo' : workspace?.plan === 'starter' ? '99 SAR/mo' : '0 SAR/mo',

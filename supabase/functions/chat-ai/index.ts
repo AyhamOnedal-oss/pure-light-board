@@ -924,6 +924,37 @@ Deno.serve(async (req) => {
     const isUuid = !!conversation_id && UUID_RE.test(conversation_id);
     if (!isUuid) conversation_id = crypto.randomUUID();
 
+    // ── Conversation quota enforcement (skip merchant test chat) ─────────
+    if (!is_test && !isUuid) {
+      try {
+        const { data: planRow } = await supabase
+          .from("settings_plans")
+          .select("conversation_quota, conversation_topup, conversations_used")
+          .eq("tenant_id", tenant_id)
+          .maybeSingle();
+        const quota = Number(planRow?.conversation_quota ?? 0)
+          + Number(planRow?.conversation_topup ?? 0);
+        const used = Number(planRow?.conversations_used ?? 0);
+        if (quota > 0 && used >= quota) {
+          const reply = /[\u0600-\u06FF]/.test(String(message ?? ""))
+            ? "عذراً، تم الوصول إلى الحد الأقصى للمحادثات لهذه الفترة. يرجى المحاولة لاحقاً."
+            : "Sorry, this store has reached its conversation limit for the current period. Please try again later.";
+          return jsonResponse({
+            reply,
+            attachments: [],
+            action: { type: "none" },
+            intent: "closed",
+            error: "quota_exceeded",
+            tenant_id,
+            conversation_id,
+            ai_message_id: null,
+          });
+        }
+      } catch (e) {
+        console.log("quota check failed (non-fatal):", e);
+      }
+    }
+
     // Upsert customer (best-effort) keyed by visitor_id as external_id
     let customer_id: string | null = null;
     if (visitor_id) {
