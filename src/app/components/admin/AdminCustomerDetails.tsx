@@ -151,8 +151,10 @@ export function AdminCustomerDetails() {
             return { type: 'success', event: 'Subscription renewed', eventAr: 'تم تجديد الاشتراك', date };
           }
           if (e.event_type === 'impersonation') {
-            const first = (e.actor_name || '').toString().trim().split(/\s+/)[0] || 'Admin';
-            return { type: 'admin', event: `${first} logged in as customer`, eventAr: `${first} دخل كعميل`, date };
+            const full = (e.actor_name || '').toString().trim() || 'Admin';
+            // Keep the full Arabic name (e.g. "ايهم") instead of collapsing to
+            // just the first Latin word which used to render as a single "A".
+            return { type: 'admin', event: `${full} logged in as customer`, eventAr: `${full} دخل كعميل`, date };
           }
           return { type: 'success', event: e.event_type, eventAr: e.event_type, date };
         });
