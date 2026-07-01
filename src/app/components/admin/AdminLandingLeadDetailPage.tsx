@@ -79,11 +79,9 @@ export function AdminLandingLeadDetailPage() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      const u = data?.user;
-      if (!u) return;
-      setAuthorId(u.id);
-      setAuthorName((u.user_metadata?.display_name as string) || (u.email?.split('@')[0]) || 'Admin');
+      const { id: uid, name } = await resolveAdminAuthorName();
+      if (uid) setAuthorId(uid);
+      setAuthorName(name);
     })();
   }, []);
 
