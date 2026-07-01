@@ -83,7 +83,7 @@ export function AdminCustomerDetails() {
           supabase.from('zid_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('salla_connections').select('store_name,store_email,store_url,is_active,connected_at,created_at').eq('tenant_id', id).maybeSingle(),
           supabase.from('settings_workspace').select('name,plan,status,platform,created_at').eq('id', id).maybeSingle(),
-          supabase.from('settings_plans').select('monthly_word_quota,monthly_words_used,period_start,subscription_end_date').eq('tenant_id', id).maybeSingle(),
+          supabase.from('settings_plans').select('conversation_quota,conversation_topup,conversations_used,period_start,subscription_end_date').eq('tenant_id', id).maybeSingle(),
           supabase.from('dashboard_usage_daily').select('clicks').eq('tenant_id', id),
           supabase.from('conversations_main').select('csat_rating').eq('tenant_id', id).not('csat_rating', 'is', null),
           supabase.from('ai_classifier_usage').select('prompt_tokens,completion_tokens').eq('tenant_id', id),
@@ -94,8 +94,8 @@ export function AdminCustomerDetails() {
         const platform: 'Zid' | 'Salla' = salla ? 'Salla' : zid ? 'Zid' : (ws?.platform === 'salla' ? 'Salla' : 'Zid');
         const name = conn?.store_name || ws?.name || 'Unnamed Store';
         const email = conn?.store_email || '—';
-        const totalWords = Number(plan?.monthly_word_quota || 0);
-        const words = Number(plan?.monthly_words_used || 0);
+        const totalWords = Number(plan?.conversation_quota || 0) + Number(plan?.conversation_topup || 0);
+        const words = Number(plan?.conversations_used || 0);
         const usagePercent = totalWords > 0 ? Math.min(100, Math.round((words / totalWords) * 100)) : 0;
         const bubbleClicks = (clicks || []).reduce((s: number, r: any) => s + Number(r.clicks || 0), 0);
         const ratingRows = (ratings || []).filter((r: any) => r.csat_rating != null);
