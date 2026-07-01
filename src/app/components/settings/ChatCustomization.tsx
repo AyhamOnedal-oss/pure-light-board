@@ -14,7 +14,7 @@ const WELCOME_LINE1_MAX = 24;
 const WELCOME_LINE2_MAX = 36;
 const PROMPT_MIN = 30, PROMPT_MAX = 300;
 const CLOSE_MIN = 15, CLOSE_MAX = 180;
-const RATING_MIN = 30, RATING_MAX = 3600, RATING_STEP = 30;
+const RATING_MIN = 30, RATING_MAX = 900, RATING_STEP = 30;
 const DEFAULT_PROMPT = 90, DEFAULT_CLOSE = 60, DEFAULT_RATING = 900;
 
 function formatSeconds(s: number, t: (en: string, ar: string) => string) {
@@ -308,18 +308,10 @@ export function ChatCustomization() {
     setWelcomeBubbleEnabled(saved.welcomeBubbleEnabled ?? true);
     setWelcomeBubbleLine1(saved.welcomeBubbleLine1 ?? 'مرحباً 👋');
     setWelcomeBubbleLine2(saved.welcomeBubbleLine2 ?? 'كيف يمكنني مساعدتك؟');
-    setInactivityEnabled(saved.inactivityEnabled ?? true);
+    setInactivityEnabled(true);
     setInactivityPromptSeconds(saved.inactivityPromptSeconds ?? DEFAULT_PROMPT);
     setInactivityCloseSeconds(saved.inactivityCloseSeconds ?? DEFAULT_CLOSE);
-    setRatingInactivitySeconds(saved.ratingInactivitySeconds ?? DEFAULT_RATING);
-  };
-
-  const handleInactivityToggle = (enabled: boolean) => {
-    setInactivityEnabled(enabled);
-    if (enabled && (!inactivityPromptSeconds || !inactivityCloseSeconds)) {
-      setInactivityPromptSeconds(DEFAULT_PROMPT);
-      setInactivityCloseSeconds(DEFAULT_CLOSE);
-    }
+    setRatingInactivitySeconds(Math.min(RATING_MAX, saved.ratingInactivitySeconds ?? DEFAULT_RATING));
   };
 
   const clampPrompt = (v: number) => Math.max(PROMPT_MIN, Math.min(PROMPT_MAX, Math.round(v)));
@@ -430,15 +422,12 @@ export function ChatCustomization() {
                   <p className="text-[11px] text-muted-foreground mt-0.5">{t('Prompt inactive users, then auto-close', 'تنبيه المستخدمين الخاملين ثم الإغلاق التلقائي')}</p>
                 </div>
               </div>
-              <ToggleSwitch checked={inactivityEnabled} onChange={handleInactivityToggle} />
+              <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-amber-500/10 text-amber-600">
+                {t('Always on', 'مفعّل دائماً')}
+              </span>
             </div>
 
-            {!inactivityEnabled ? (
-              <p className="text-[11px] text-muted-foreground/80 bg-muted/50 rounded-xl px-3 py-2">
-                {t('Timer disabled — no prompt will be shown to inactive users.', 'المؤقت معطّل — لن يُعرض أي تنبيه للمستخدمين الخاملين.')}
-              </p>
-            ) : (
-              <div className="space-y-4">
+            <div className="space-y-4">
                 <SliderField
                   label={t('Prompt after idle', 'مدة الخمول قبل التنبيه')}
                   value={inactivityPromptSeconds}
@@ -466,8 +455,8 @@ export function ChatCustomization() {
                   </label>
                   <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
                     {t(
-                      'If the customer does not interact with the rating screen within this duration, the conversation will be closed automatically.',
-                      'إذا لم يتفاعل العميل مع شاشة التقييم خلال هذه المدة، يتم إغلاق المحادثة تلقائياً.'
+                      'If the customer does not interact with the rating screen within this duration, the conversation will be closed automatically. Maximum 15 minutes (900 seconds).',
+                      'إذا لم يتفاعل العميل مع شاشة التقييم خلال هذه المدة، يتم إغلاق المحادثة تلقائياً. الحد الأقصى 15 دقيقة (900 ثانية).'
                     )}
                   </p>
                   <div className="flex items-center gap-2">
@@ -532,7 +521,6 @@ export function ChatCustomization() {
                   </div>
                 </div>
               </div>
-            )}
           </div>
 
         </div>
