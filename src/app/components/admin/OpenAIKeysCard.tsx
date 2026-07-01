@@ -16,6 +16,7 @@ type KeyRow = {
 const SLOTS: { slot: string; usage_ar: string; usage_en: string }[] = [
   { slot: 'chat',       usage_ar: 'المحادثات الأساسية في الشات', usage_en: 'Primary chat conversations' },
   { slot: 'classifier', usage_ar: 'تحليل المحادثات بعد الإغلاق',  usage_en: 'Post-close conversation analysis' },
+  { slot: 'iqtest',     usage_ar: 'اختبار الذكاء',                 usage_en: 'IQ Test conversations' },
 ];
 
 const emptyRow = (slot: string): KeyRow => ({
@@ -56,7 +57,7 @@ export function OpenAIKeysCard() {
       default_model: editing.default_model || null,
       input_price_per_1m: Math.max(0, Number(editing.input_price_per_1m) || 0),
       output_price_per_1m: Math.max(0, Number(editing.output_price_per_1m) || 0),
-      notes: editing.notes || null,
+      notes: null,
     };
     const q = editing.id
       ? supabase.from('admin_openai_keys' as any).update(payload).eq('id', editing.id)
@@ -132,26 +133,6 @@ export function OpenAIKeysCard() {
                   </tr>
                 );
               })}
-              <tr className="bg-muted/20">
-                <td className="py-2.5" style={{ fontWeight: 600 }}>3</td>
-                <td className="py-2.5">{t('IQ Test (uses Chat key)', 'اختبار الذكاء (يستخدم مفتاح الشات)')}</td>
-                <td className="py-2.5 text-muted-foreground" colSpan={3}>{t('Same model & price as #1, tracked separately', 'نفس نموذج وسعر #1 مع تتبع منفصل')}</td>
-                <td className="py-2.5 text-[11px]" style={{ fontWeight: 600 }}>
-                  {(costs['iqtest'] ?? 0) > 0 ? `$${(costs['iqtest'] ?? 0).toFixed(4)}` : '—'}
-                </td>
-                <td className="py-2.5 text-center">
-                  <button
-                    onClick={() => {
-                      const chat = rows.find((x) => x.slot === 'chat');
-                      if (chat) setEditing({ ...chat });
-                    }}
-                    className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                    title={t('Edit (uses Chat key)', 'تعديل (يستخدم مفتاح الشات)')}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                </td>
-              </tr>
             </tbody>
           </table>
         </div>
@@ -172,7 +153,6 @@ export function OpenAIKeysCard() {
                 <Field label={t('Input /1M (USD)', 'مدخلات /1M (دولار)')} decimal value={String(editing.input_price_per_1m)} onChange={(v) => setEditing({ ...editing, input_price_per_1m: v as any })} />
                 <Field label={t('Output /1M (USD)', 'مخرجات /1M (دولار)')} decimal value={String(editing.output_price_per_1m)} onChange={(v) => setEditing({ ...editing, output_price_per_1m: v as any })} />
               </div>
-              <Field label={t('Notes', 'ملاحظات')} value={editing.notes ?? ''} onChange={(v) => setEditing({ ...editing, notes: v })} />
             </div>
             <div className="flex gap-2 mt-5 justify-end">
               <button onClick={() => setEditing(null)} disabled={saving} className="px-3 py-1.5 rounded-lg border border-border text-[12px] hover:bg-muted">{t('Cancel', 'إلغاء')}</button>

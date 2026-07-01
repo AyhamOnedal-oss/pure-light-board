@@ -21,7 +21,7 @@ import {
   type HealthCheck,
   fetchSupabaseUsage,
   fetchAdminServerUsage,
-  setOpenAiWordBudget,
+  setOpenAiDollarBalance,
   type AdminServerUsage,
 } from '../../services/adminDashboard';
 import { OpenAIKeysCard } from './OpenAIKeysCard';
@@ -143,6 +143,11 @@ export function AdminDashboard() {
     const id = setInterval(loadServerUsage, 5 * 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // OpenAI dollar-balance top-up modal state
+  const [openaiModal, setOpenaiModal] = useState(false);
+  const [openaiAmount, setOpenaiAmount] = useState('');
+  const [openaiSaving, setOpenaiSaving] = useState(false);
 
   // ---- Date range derived from the top-right filter ----
   const range = useMemo<{ from: string | null; to: string | null }>(() => {
@@ -301,13 +306,16 @@ export function AdminDashboard() {
     }
     if (s.name === 'OpenAI' && serverUsageLive?.openai) {
       const o = serverUsageLive.openai;
+      const balance = Number(o.dollar_balance ?? 0);
+      const usedUsd = Number(o.used_usd ?? 0);
+      const percentUsd = Number(o.percent_usd ?? 0);
       return {
         name: s.name,
-        usage: Number(o.percent ?? 0),
+        usage: balance > 0 ? percentUsd : 0,
         fill: s.color,
-        tooltip: o.budget_words > 0
-          ? `${o.used_words.toLocaleString()} / ${o.budget_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`
-          : `${o.used_words.toLocaleString()} ${t('words this month','كلمة هذا الشهر')}`,
+        tooltip: balance > 0
+          ? `$${usedUsd.toFixed(4)} / $${balance.toFixed(2)} ${t('consumed this month','مستهلك هذا الشهر')}`
+          : `$${usedUsd.toFixed(4)} ${t('consumed this month','مستهلك هذا الشهر')}`,
       };
     }
     return { name: s.name, usage: s.usage_percent, fill: s.color, tooltip: undefined as string | undefined };
@@ -415,8 +423,8 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      {/* KPI Cards — one row on xl */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {kpis.map((kpi, i) => (
           <motion.div key={`kpi-${i}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
             className={`${cardClass} relative overflow-hidden`}>
@@ -642,19 +650,10 @@ export function AdminDashboard() {
                     {s.name === 'OpenAI' && (
                       <button
                         type="button"
-                        title={t('Edit monthly word budget', 'تعديل سقف الكلمات الشهري')}
-                        onClick={async () => {
-                          const current = serverUsageLive?.openai?.budget_words ?? 0;
-                          const input = window.prompt(
-                            t('Set OpenAI monthly word budget (used to compute % bar)',
-                              'أدخل سقف الكلمات الشهري لـ OpenAI (يُستخدم لحساب نسبة الاستهلاك)'),
-                            String(current)
-                          );
-                          if (input == null) return;
-                          const n = Number(input.replace(/[, ]/g, ''));
-                          if (!Number.isFinite(n) || n < 0) return;
-                          const ok = await setOpenAiWordBudget(Math.floor(n));
-                          if (ok) loadServerUsage();
+                        title={t('Add OpenAI balance (USD)', 'إضافة رصيد OpenAI (دولار)')}
+                        onClick={() => {
+                          setOpenaiAmount(String(serverUsageLive?.openai?.dollar_balance ?? ''));
+                          setOpenaiModal(true);
                         }}
                         className="opacity-60 hover:opacity-100 transition-opacity"
                       >
@@ -662,7 +661,11 @@ export function AdminDashboard() {
                       </button>
                     )}
                   </span>
-                  <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>{s.usage}%</span>
+                  <span className="text-[13px]" style={{ fontWeight: 600, color: s.fill }}>
+                    {s.name === 'OpenAI' && serverUsageLive?.openai
+                      ? `$${Number(serverUsageLive.openai.used_usd ?? 0).toFixed(2)}${Number(serverUsageLive.openai.dollar_balance ?? 0) > 0 ? ` / $${Number(serverUsageLive.openai.dollar_balance ?? 0).toFixed(2)}` : ''}`
+                      : `${s.usage}%`}
+                  </span>
                 </div>
                 <div className="h-2.5 rounded-full bg-muted overflow-hidden">
                   <motion.div initial={{ width: 0 }} animate={{ width: `${s.usage}%` }} transition={{ duration: 1, delay: 0.3 + i * 0.1 }}
@@ -762,6 +765,58 @@ export function AdminDashboard() {
           </motion.div>
         ))}
       </div>
+
+      {openaiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !openaiSaving && setOpenaiModal(false)}>
+          <div className="bg-card rounded-2xl border border-border p-5 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h4 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>
+              {t('OpenAI Balance (USD)', 'رصيد OpenAI (دولار)')}
+            </h4>
+            <p className="text-[12px] text-muted-foreground mb-4 leading-relaxed">
+              {t(
+                'Consumption will be deducted from this balance based on the token prices configured in the OpenAI Keys card.',
+                'سيتم خصم الاستهلاك من هذا الرصيد بناءً على أسعار التوكنز المضبوطة في بطاقة مفاتيح OpenAI.'
+              )}
+            </p>
+            <div className="space-y-3 text-[12px]">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{t('Current balance', 'الرصيد الحالي')}</span>
+                <span style={{ fontWeight: 600 }}>${Number(serverUsageLive?.openai?.dollar_balance ?? 0).toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{t('Consumed this month', 'مستهلك هذا الشهر')}</span>
+                <span style={{ fontWeight: 600 }}>${Number(serverUsageLive?.openai?.used_usd ?? 0).toFixed(4)}</span>
+              </div>
+              <label className="block">
+                <div className="text-muted-foreground text-[11px] mb-1">{t('New balance (USD)', 'الرصيد الجديد (دولار)')}</div>
+                <input
+                  type="number" inputMode="decimal" step="0.01" min={0}
+                  value={openaiAmount} onChange={(e) => setOpenaiAmount(e.target.value)}
+                  placeholder="10.00"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-[12px] focus:outline-none focus:border-[#043CC8]"
+                />
+              </label>
+            </div>
+            <div className="flex gap-2 mt-5 justify-end">
+              <button onClick={() => setOpenaiModal(false)} disabled={openaiSaving} className="px-3 py-1.5 rounded-lg border border-border text-[12px] hover:bg-muted">{t('Cancel', 'إلغاء')}</button>
+              <button
+                onClick={async () => {
+                  const n = Number((openaiAmount || '').replace(/[, ]/g, ''));
+                  if (!Number.isFinite(n) || n < 0) return;
+                  setOpenaiSaving(true);
+                  const ok = await setOpenAiDollarBalance(n);
+                  setOpenaiSaving(false);
+                  if (ok) { setOpenaiModal(false); loadServerUsage(); }
+                }}
+                disabled={openaiSaving}
+                className="px-3 py-1.5 rounded-lg bg-[#043CC8] text-white text-[12px]"
+              >
+                {openaiSaving ? t('Saving...', 'جارٍ الحفظ...') : t('Save', 'حفظ')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

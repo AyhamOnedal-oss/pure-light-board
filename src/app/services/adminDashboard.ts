@@ -355,7 +355,16 @@ export async function fetchSupabaseUsage(): Promise<{ bytes: number; included_by
 export interface AdminServerUsage {
   supabase: { bytes: number; included_bytes: number; percent: number } | null;
   resend:   { sent: number; cap: number; percent: number; ok: boolean } | null;
-  openai:   { budget_words: number; used_tokens: number; used_words: number; percent: number } | null;
+  openai:   {
+    budget_words: number;
+    used_tokens: number;
+    used_words: number;
+    percent: number;
+    dollar_balance?: number;
+    used_usd?: number;
+    remaining_usd?: number;
+    percent_usd?: number;
+  } | null;
   hostinger: null;
 }
 
@@ -377,6 +386,17 @@ export async function setOpenAiWordBudget(words: number): Promise<boolean> {
     return true;
   } catch (err) {
     console.warn('[adminDashboard] setOpenAiWordBudget failed:', err);
+    return false;
+  }
+}
+
+export async function setOpenAiDollarBalance(amount: number): Promise<boolean> {
+  try {
+    const { error } = await supabase.rpc('admin_set_openai_dollar_balance' as any, { _amount: amount });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.warn('[adminDashboard] setOpenAiDollarBalance failed:', err);
     return false;
   }
 }

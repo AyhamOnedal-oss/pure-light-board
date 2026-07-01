@@ -36,12 +36,18 @@ export function MerchantConsumptionTable({ tenantId }: { tenantId: string }) {
       // 1. plan period start (drives trial vs current split)
       const { data: plan } = await supabase
         .from('settings_plans')
-        .select('period_start')
+        .select('period_start, trial_ended_at')
         .eq('tenant_id', tenantId)
         .maybeSingle();
       const periodStart: string = (plan as any)?.period_start
         ? String((plan as any).period_start)
         : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+      // Trial cutoff is frozen: set when tenant first moved onto a paid plan.
+      // If null (tenant still on trial), treat the entire history as trial.
+      const trialEndedAtIso: string | null = (plan as any)?.trial_ended_at
+        ? new Date((plan as any).trial_ended_at).toISOString()
+        : null;
+      const trialEndedDay: string | null = trialEndedAtIso ? trialEndedAtIso.slice(0, 10) : null;
 
       // 2. all token rows for this tenant (last 365d)
       const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 365);
@@ -56,8 +62,11 @@ export function MerchantConsumptionTable({ tenantId }: { tenantId: string }) {
       const [{ count: convCurrent }, { count: convTrial }, { count: convAnalysis }, { count: convIq }] = await Promise.all([
         supabase.from('conversations_main').select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenantId).eq('is_test', false).gte('created_at', periodStartIso),
-        supabase.from('conversations_main').select('id', { count: 'exact', head: true })
-          .eq('tenant_id', tenantId).eq('is_test', false).lt('created_at', periodStartIso),
+        (trialEndedAtIso
+          ? supabase.from('conversations_main').select('id', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId).eq('is_test', false).lt('created_at', trialEndedAtIso)
+          : supabase.from('conversations_main').select('id', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId).eq('is_test', false)),
         supabase.from('conversations_main').select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenantId).eq('analysis_done', true).gte('created_at', periodStartIso),
         supabase.from('conversations_main').select('id', { count: 'exact', head: true })
@@ -69,6 +78,8 @@ export function MerchantConsumptionTable({ tenantId }: { tenantId: string }) {
       const t1 = { ...ZERO }, c1 = { ...ZERO }, a1 = { ...ZERO }, i1 = { ...ZERO };
       ((tokens as TokenRow[]) || []).forEach((r) => {
         const isCurrent = r.day >= periodStart;
+        // Trial rows are frozen at trial_ended_at (or all history if still on trial).
+        const isTrial = trialEndedDay ? (r.day < trialEndedDay) : true;
         const inT = Number(r.input_tokens) || 0;
         const outT = Number(r.output_tokens) || 0;
         const cost = Number(r.cost_usd) || 0;
@@ -77,8 +88,8 @@ export function MerchantConsumptionTable({ tenantId }: { tenantId: string }) {
         } else if (r.scope === 'classifier' || r.scope === 'other') {
           if (isCurrent) { a1.input += inT; a1.output += outT; a1.cost += cost; }
         } else { // chat / vision
+          if (isTrial) { t1.input += inT; t1.output += outT; t1.cost += cost; }
           if (isCurrent) { c1.input += inT; c1.output += outT; c1.cost += cost; }
-          else { t1.input += inT; t1.output += outT; t1.cost += cost; }
         }
       });
       t1.convos = convTrial || 0;
@@ -87,12 +98,11 @@ export function MerchantConsumptionTable({ tenantId }: { tenantId: string }) {
       i1.convos = convIq || 0;
       setTrial(t1); setCurrent(c1); setAnalysis(a1); setIqtest(i1);
 
-      // Previous subscriptions = sum of chat scope before periodStart minus trial (i.e. prior paid period(s))
-      // Simple aggregate: any chat row older than periodStart counted as "previous".
-      // (Trial reuses the same rows but is shown labeled differently per spec.)
+      // Previous subscriptions = chat rows between trial_ended_at and current period_start.
       const prev = { ...ZERO };
       ((tokens as TokenRow[]) || []).forEach((r) => {
-        if (r.day < periodStart && r.scope === 'chat') {
+        const afterTrial = trialEndedDay ? r.day >= trialEndedDay : false;
+        if (afterTrial && r.day < periodStart && r.scope === 'chat') {
           prev.input += Number(r.input_tokens) || 0;
           prev.output += Number(r.output_tokens) || 0;
           prev.cost += Number(r.cost_usd) || 0;

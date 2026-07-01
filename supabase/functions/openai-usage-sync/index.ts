@@ -155,6 +155,13 @@ Deno.serve(async (req) => {
     if (k.project_id) keyByProject[k.project_id] = k;
   }
 
+  // Slot pricing lookup — used to re-cost iqtest rows with the iqtest slot's own
+  // model/pricing when the caller has configured a dedicated iqtest slot.
+  const keyBySlot: Record<string, KeyRow> = {};
+  for (const k of (keys ?? []) as KeyRow[]) {
+    keyBySlot[k.slot] = k;
+  }
+
   const todayRiyadh = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }),
   ).toISOString().slice(0, 10);
@@ -236,8 +243,19 @@ Deno.serve(async (req) => {
   let upserted = 0;
   for (const row of merchantRows.values()) {
     if (!row.tenant_id) continue;
-    const v = pickVersionForDay(versionRows, row.project_id, row.day);
-    const k = keyByProject[row.project_id];
+    // For iqtest scope, prefer the iqtest slot's pricing/version so admins can
+    // configure a dedicated model+price for IQ Test calls independently of Chat.
+    const preferredSlot = row.scope === "iqtest" ? "iqtest" : null;
+    let v = pickVersionForDay(versionRows, row.project_id, row.day);
+    let k = keyByProject[row.project_id];
+    if (preferredSlot && keyBySlot[preferredSlot]) {
+      const slotKey = keyBySlot[preferredSlot];
+      k = slotKey;
+      if (slotKey.project_id) {
+        const vSlot = pickVersionForDay(versionRows, slotKey.project_id, row.day);
+        if (vSlot) v = vSlot;
+      }
+    }
     const inPx = v?.input_price_per_1m ?? k?.input_price_per_1m ?? 0;
     const outPx = v?.output_price_per_1m ?? k?.output_price_per_1m ?? 0;
     const tpw = v?.tokens_per_word ?? k?.tokens_per_word ?? 3.3;
