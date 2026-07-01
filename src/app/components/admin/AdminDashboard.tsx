@@ -589,7 +589,7 @@ export function AdminDashboard() {
           <ResponsiveContainer width="100%" height="100%" key={`nsot-${newSubsOverTime.length}`}>
             <LineChart data={newSubsOverTime} margin={{ top: 10, right: 12, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={42} tickMargin={6} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Line type="monotone" dataKey="zid" stroke="#043CC8" strokeWidth={2} dot={{ r: 3, fill: '#043CC8' }} activeDot={{ r: 5 }}
@@ -616,7 +616,7 @@ export function AdminDashboard() {
           <ResponsiveContainer width="100%" height="100%" key={`words-${wordsData.length}`}>
             <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Bar dataKey="words" fill="#043CC8" name={t('Conversations', 'المحادثات')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
