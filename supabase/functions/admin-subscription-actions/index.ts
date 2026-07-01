@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
   const today = new Date().toISOString().slice(0, 10);
 
   if (action === "end") {
+    try { await admin.rpc("admin_snapshot_subscription", { _tenant: tenantId }); } catch (_) { /* ignore */ }
     const { error: e1 } = await admin
       .from("settings_plans")
       .update({ subscription_end_date: today, updated_at: new Date().toISOString() })
@@ -92,6 +93,7 @@ Deno.serve(async (req) => {
     const planKey = String(ws?.plan || "").toLowerCase();
     const isTrial = planKey === "" || planKey === "free" || planKey === "trial";
     if (!isTrial) return json({ error: "trial_only" }, 400);
+    try { await admin.rpc("admin_snapshot_subscription", { _tenant: tenantId }); } catch (_) { /* ignore */ }
     const end = new Date(); end.setUTCDate(end.getUTCDate() + 14);
     const endStr = end.toISOString().slice(0, 10);
     const { error: pErr } = await admin

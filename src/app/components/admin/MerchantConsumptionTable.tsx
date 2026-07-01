@@ -158,7 +158,7 @@ export function MerchantConsumptionTable({ tenantId }: { tenantId: string }) {
                       <div style={{ fontWeight: 600 }}>{r.label}</div>
                       {r.note && <div className="text-muted-foreground text-[10px]">{r.note}</div>}
                     </td>
-                    <td className="py-2.5 text-[14px]" style={{ fontWeight: 700 }}>{fmt(r.bucket.convos)}</td>
+                    <td className="py-2.5 text-[14px]" style={{ fontWeight: 700 }}>{r.key === 'iqtest' ? '—' : fmt(r.bucket.convos)}</td>
                     <td className="py-2.5">{fmt(r.bucket.input)}</td>
                     <td className="py-2.5">{fmt(r.bucket.output)}</td>
                     <td className="py-2.5" style={{ fontWeight: 600 }}>{fmt(r.bucket.input + r.bucket.output)}</td>
