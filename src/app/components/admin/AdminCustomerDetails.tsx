@@ -25,6 +25,8 @@ export function AdminCustomerDetails() {
   const [addWordsAmount, setAddWordsAmount] = useState('');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any | null>(null);
+  const [currentBucket, setCurrentBucket] = useState<{ convos: number; input: number; output: number; cost: number }>({ convos: 0, input: 0, output: 0, cost: 0 });
+  const [previousSubs, setPreviousSubs] = useState<Array<any>>([]);
   const [impersonating, setImpersonating] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Array<{ id: string; author_name: string | null; author_id: string | null; body: string; created_at: string }>>([]);
@@ -143,7 +145,7 @@ export function AdminCustomerDetails() {
             return { type: 'success', event: `Upgrade to ${toEn}`, eventAr: `ترقية إلى ${toAr}`, date };
           }
           if (e.event_type === 'usage_80') {
-            return { type: 'alert', event: 'Word usage alert - 80%', eventAr: 'تنبيه استنفاد الكلمات - 80%', date };
+            return { type: 'alert', event: 'Usage alert - 80%', eventAr: 'تنبيه الاستهلاك - 80%', date };
           }
           if (e.event_type === 'resubscribe') {
             return { type: 'success', event: 'Subscription renewed', eventAr: 'تم تجديد الاشتراك', date };
@@ -186,8 +188,46 @@ export function AdminCustomerDetails() {
     }
   }, [id]);
 
+  const loadCurrentAndPrevious = React.useCallback(async () => {
+    if (!id) return;
+    // Current subscription usage (chat scope, period_start → today)
+    const { data: planRow } = await supabase
+      .from('settings_plans')
+      .select('period_start')
+      .eq('tenant_id', id)
+      .maybeSingle();
+    const periodStart: string = (planRow as any)?.period_start
+      ? String((planRow as any).period_start)
+      : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+    const from = periodStart;
+    const to = new Date().toISOString().slice(0, 10);
+    const [{ data: tokens }, { count: convCount }] = await Promise.all([
+      supabase.rpc('admin_merchant_tokens', { _tenant: id, _from: from, _to: to }),
+      supabase.from('conversations_main').select('id', { count: 'exact', head: true })
+        .eq('tenant_id', id).eq('is_test', false)
+        .gte('created_at', new Date(periodStart + 'T00:00:00Z').toISOString()),
+    ]);
+    let ci = 0, co = 0, cc = 0;
+    ((tokens as any[]) || []).forEach((r) => {
+      const scope = String(r.scope || 'chat');
+      if (scope === 'iqtest' || scope === 'classifier' || scope === 'other') return;
+      ci += Number(r.input_tokens) || 0;
+      co += Number(r.output_tokens) || 0;
+      cc += Number(r.cost_usd) || 0;
+    });
+    setCurrentBucket({ convos: convCount || 0, input: ci, output: co, cost: cc });
+
+    const { data: prevRows } = await supabase
+      .from('admin_subscription_periods' as any)
+      .select('*')
+      .eq('tenant_id', id)
+      .order('closed_at', { ascending: false });
+    setPreviousSubs((prevRows as any[]) || []);
+  }, [id]);
+
   useEffect(() => { loadCustomer(); }, [loadCustomer]);
   useEffect(() => { loadNotes(); }, [loadNotes]);
+  useEffect(() => { loadCurrentAndPrevious(); }, [loadCurrentAndPrevious]);
 
   if (loading || !data) {
     return (
@@ -252,6 +292,7 @@ export function AdminCustomerDetails() {
       }
       showToast(t('Done', 'تم بنجاح'));
       await loadCustomer();
+      await loadCurrentAndPrevious();
     } catch (e: any) {
       const msg = e?.message === 'trial_only'
         ? t('Renew Trial is for the free trial plan only', 'تجديد التجربة متاح للخطة التجريبية فقط')
