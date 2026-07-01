@@ -62,33 +62,55 @@ export function AdminTeam() {
 
   const handleSave = async () => {
     if (busy) return;
-    setBusy(true);
-    try {
-      const payload: Record<string, unknown> = {
-        name: form.name, name_ar: form.nameAr, email: form.email,
-        phone: form.phone, permissions: form.permissions, status: form.status,
-      };
-      if (editId) payload.member_id = editId;
-      const { data, error } = await supabase.functions.invoke('admin-invite-employee', { body: payload });
-      if (error || (data as any)?.error) {
-        const code = (data as any)?.error || error?.message || 'error';
-        if (code === 'email_exists') {
-          showToast(t('Email already exists', 'هذا البريد مستخدم بالفعل'));
-        } else {
-          showToast(t('Save failed', 'تعذر الحفظ'));
-        }
-        return;
-      }
-      await reload();
-      if (editId) {
-        showToast(t('Employee updated successfully', 'تم تحديث الموظف بنجاح'));
-      } else {
-        showToast(t('Employee added and login email sent', 'تمت الإضافة وتم إرسال رسالة الدخول للموظف'));
-      }
-      setShowForm(false);
-    } finally {
-      setBusy(false);
+    const payload: Record<string, unknown> = {
+      name: form.name, name_ar: form.nameAr, email: form.email,
+      phone: form.phone, permissions: form.permissions, status: form.status,
+    };
+    if (editId) payload.member_id = editId;
+
+    // Optimistic UI: apply the change locally and close the modal instantly,
+    // then reconcile with the server in the background. The edge function
+    // itself backgrounds the slow auth-admin work, so a temporary optimistic
+    // row is a safe approximation of the final state.
+    const snapshot = employees;
+    if (editId) {
+      setEmployees(es => es.map(e => e.id === editId ? {
+        ...e, name: form.name, nameAr: form.nameAr, email: form.email,
+        phone: form.phone, permissions: [...form.permissions], status: form.status,
+      } : e));
+    } else {
+      const tempId = `tmp_${Date.now()}`;
+      setEmployees(es => [...es, {
+        id: tempId, name: form.name, nameAr: form.nameAr, email: form.email,
+        phone: form.phone, permissions: [...form.permissions], status: form.status,
+      }]);
     }
+    const wasEdit = Boolean(editId);
+    setShowForm(false);
+    showToast(wasEdit
+      ? t('Employee updated successfully', 'تم تحديث الموظف بنجاح')
+      : t('Employee added and login email sent', 'تمت الإضافة وتم إرسال رسالة الدخول للموظف'));
+
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('admin-invite-employee', { body: payload });
+        if (error || (data as any)?.error) {
+          setEmployees(snapshot); // rollback
+          const code = (data as any)?.error || error?.message || 'error';
+          if (code === 'email_exists') {
+            showToast(t('Email already exists', 'هذا البريد مستخدم بالفعل'));
+          } else {
+            showToast(t('Save failed', 'تعذر الحفظ'));
+          }
+          return;
+        }
+        // Reconcile IDs with the server, especially replacing the temp id.
+        await reload();
+      } catch {
+        setEmployees(snapshot);
+        showToast(t('Save failed', 'تعذر الحفظ'));
+      }
+    })();
   };
 
   const handleDelete = async (id: string) => {
