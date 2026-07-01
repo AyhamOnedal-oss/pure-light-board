@@ -13,6 +13,7 @@ import {
 } from '../../services/adminLandingLeads';
 import { fmtDate, loadCustomers, saveCustomers, getCurrentUserId, type PipelineCustomer } from './pipelineData';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveAdminAuthorName } from '@/app/utils/adminAuthorName';
 import { markLeadOpened } from '../../utils/landingNotifications';
 
 // Format a date in both Gregorian and Hijri (Arabic) calendars.
@@ -79,11 +80,9 @@ export function AdminLandingLeadDetailPage() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      const u = data?.user;
-      if (!u) return;
-      setAuthorId(u.id);
-      setAuthorName((u.user_metadata?.display_name as string) || (u.email?.split('@')[0]) || 'Admin');
+      const { id: uid, name } = await resolveAdminAuthorName();
+      if (uid) setAuthorId(uid);
+      setAuthorName(name);
     })();
   }, []);
 

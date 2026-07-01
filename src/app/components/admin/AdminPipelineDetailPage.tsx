@@ -17,6 +17,7 @@ import {
   subscribePipelineSync,
 } from './pipelineData';
 import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
+import { resolveAdminAuthorName } from '@/app/utils/adminAuthorName';
 
 const JOURNEY_STEPS: LeadStatus[] = ['new_lead', 'contacted', 'trial', 'subscribed'];
 
@@ -195,11 +196,12 @@ export function AdminPipelineDetailPage() {
     setPendingAttachments(p => p.filter(a => a.id !== aid));
   };
 
-  const addNote = () => {
+  const addNote = async () => {
     if (!noteText.trim() && pendingAttachments.length === 0) return;
+    const { name: authorName } = await resolveAdminAuthorName();
     const note: CustomerNote = {
       id: `n_${Date.now()}`,
-      author: 'Super Admin',
+      author: authorName,
       text: noteText.trim(),
       createdAt: new Date().toISOString(),
       attachments: pendingAttachments.length ? pendingAttachments : undefined,
