@@ -66,6 +66,8 @@ export interface ServerRow {
 export interface AdminKpis {
   total_customers: number;
   prev_total_customers: number;
+  active_customers: number;
+  prev_active_customers: number;
   total_uninstalls: number;
   prev_total_uninstalls: number;
   incomplete_customers: number;
