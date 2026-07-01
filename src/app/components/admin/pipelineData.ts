@@ -89,6 +89,88 @@ export interface PipelineCustomer {
 const CUSTOMERS_KEY = 'fuqah.pipeline.customers.v1';
 const COLUMNS_KEY = 'fuqah.pipeline.columns.v1';
 
+// ------------------------------------------------------------------
+// Shared server-backed store (admin_pipeline_state).
+// All admin staff read/write the same rows so the pipeline board and
+// landing-page notes are identical across accounts and browsers.
+// ------------------------------------------------------------------
+import { supabase } from '@/integrations/supabase/client';
+
+type StateKey = 'customers' | 'columns' | 'members' | 'settings';
+const cache: Record<StateKey, unknown> = {
+  customers: null as any,
+  columns: null as any,
+  members: null as any,
+  settings: null as any,
+};
+const listeners = new Set<() => void>();
+function notify() { listeners.forEach(l => { try { l(); } catch {} }); }
+export function subscribePipelineSync(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
+let hydrated = false;
+let hydratePromise: Promise<void> | null = null;
+export function ensurePipelineHydrated(): Promise<void> {
+  if (hydrated) return Promise.resolve();
+  if (hydratePromise) return hydratePromise;
+  hydratePromise = (async () => {
+    try {
+      const { data } = await supabase
+        .from('admin_pipeline_state' as any)
+        .select('key,value');
+      if (Array.isArray(data)) {
+        let changed = false;
+        for (const row of data as Array<{ key: string; value: any }>) {
+          if (row.key === 'customers' || row.key === 'columns' ||
+              row.key === 'members'   || row.key === 'settings') {
+            cache[row.key as StateKey] = row.value;
+            changed = true;
+          }
+        }
+        if (changed) notify();
+      }
+    } catch { /* offline / no perm — fall back to local seed */ }
+    hydrated = true;
+  })();
+  return hydratePromise;
+}
+
+// Kick off hydration + realtime subscription once per page load.
+try {
+  ensurePipelineHydrated();
+  const channel = supabase
+    .channel('admin-pipeline-state')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_pipeline_state' }, (payload: any) => {
+      const row = payload.new || payload.old;
+      const key = row?.key as StateKey | undefined;
+      if (!key) return;
+      if (payload.eventType === 'DELETE') { cache[key] = null; notify(); return; }
+      cache[key] = row.value;
+      notify();
+    })
+    .subscribe();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => { supabase.removeChannel(channel); });
+  }
+} catch { /* SSR / test env */ }
+
+const writeTimers: Partial<Record<StateKey, number>> = {};
+function scheduleWrite(key: StateKey, value: unknown) {
+  cache[key] = value;
+  if (typeof window === 'undefined') return;
+  if (writeTimers[key]) window.clearTimeout(writeTimers[key]!);
+  writeTimers[key] = window.setTimeout(async () => {
+    try {
+      await supabase.from('admin_pipeline_state' as any).upsert(
+        { key, value, updated_at: new Date().toISOString() } as any,
+        { onConflict: 'key' } as any,
+      );
+    } catch { /* ignore — cache still holds latest value */ }
+  }, 400);
+}
+
 export const STATUS_META: Record<LeadStatus, { label: string; labelAr: string; color: string }> = {
   new_lead:              { label: 'New Lead',             labelAr: 'عميل محتمل',         color: '#808080' },
   contacted:             { label: 'Contacted',            labelAr: 'تم التواصل',         color: '#579BFC' },
@@ -207,33 +289,33 @@ const defaultCustomers = (): PipelineCustomer[] => ([
 ]);
 
 export function loadColumns(): CustomColumn[] {
+  if (cache.columns) return cache.columns as CustomColumn[];
   try {
     const raw = localStorage.getItem(COLUMNS_KEY);
-    if (!raw) {
-      const seed = defaultColumns();
-      localStorage.setItem(COLUMNS_KEY, JSON.stringify(seed));
-      return seed;
-    }
-    return JSON.parse(raw);
-  } catch { return defaultColumns(); }
+    if (raw) { const v = JSON.parse(raw); cache.columns = v; return v; }
+  } catch {}
+  const seed = defaultColumns();
+  cache.columns = seed;
+  return seed;
 }
 export function saveColumns(c: CustomColumn[]) {
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(c)); } catch {}
+  scheduleWrite('columns', c);
 }
 
 export function loadCustomers(): PipelineCustomer[] {
+  if (cache.customers) return cache.customers as PipelineCustomer[];
   try {
     const raw = localStorage.getItem(CUSTOMERS_KEY);
-    if (!raw) {
-      const seed = defaultCustomers();
-      localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(seed));
-      return seed;
-    }
-    return JSON.parse(raw);
-  } catch { return defaultCustomers(); }
+    if (raw) { const v = JSON.parse(raw); cache.customers = v; return v; }
+  } catch {}
+  const seed = defaultCustomers();
+  cache.customers = seed;
+  return seed;
 }
 export function saveCustomers(c: PipelineCustomer[]) {
   try { localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(c)); } catch {}
+  scheduleWrite('customers', c);
 }
 
 /**
@@ -377,25 +459,33 @@ const defaultSettings = (): PipelineSettings => ({
 });
 
 export function loadMembers(): TeamMember[] {
+  if (cache.members) return cache.members as TeamMember[];
   try {
     const raw = localStorage.getItem(MEMBERS_KEY);
-    if (!raw) { const seed = defaultMembers(); localStorage.setItem(MEMBERS_KEY, JSON.stringify(seed)); return seed; }
-    return JSON.parse(raw);
-  } catch { return defaultMembers(); }
+    if (raw) { const v = JSON.parse(raw); cache.members = v; return v; }
+  } catch {}
+  const seed = defaultMembers();
+  cache.members = seed;
+  return seed;
 }
 export function saveMembers(m: TeamMember[]) {
   try { localStorage.setItem(MEMBERS_KEY, JSON.stringify(m)); } catch {}
+  scheduleWrite('members', m);
 }
 
 export function loadSettings(): PipelineSettings {
+  if (cache.settings) return { ...defaultSettings(), ...(cache.settings as PipelineSettings) };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) { const seed = defaultSettings(); localStorage.setItem(SETTINGS_KEY, JSON.stringify(seed)); return seed; }
-    return { ...defaultSettings(), ...JSON.parse(raw) };
-  } catch { return defaultSettings(); }
+    if (raw) { const v = { ...defaultSettings(), ...JSON.parse(raw) }; cache.settings = v; return v; }
+  } catch {}
+  const seed = defaultSettings();
+  cache.settings = seed;
+  return seed;
 }
 export function saveSettings(s: PipelineSettings) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
+  scheduleWrite('settings', s);
 }
 
 export function getCurrentUserId(): string {
