@@ -188,6 +188,16 @@ export function AdminDashboard() {
     return () => { alive = false; };
   }, [range.from, range.to]);
 
+  // ---- Live per-month conversations for current calendar year ----
+  const [convMonthly, setConvMonthly] = useState<Array<{ month: number; conversations: number }>>([]);
+  useEffect(() => {
+    let alive = true;
+    fetchConversationsMonthly(new Date().getFullYear()).then(rows => {
+      if (alive) setConvMonthly(rows);
+    });
+    return () => { alive = false; };
+  }, []);
+
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -241,11 +251,11 @@ export function AdminDashboard() {
     business:     t('Business', 'أعمال'),
   }[p]);
 
-  // #1 Words/Tokens monthly bars  ← admin_dash_words_monthly (kept)
+  // #1 Conversations monthly bars ← admin_conversations_monthly (real data)
   const wordsData = useMemo(() => {
-    const byMonth = new Map(data.wordsMonthly.map(w => [w.month, w.words]));
+    const byMonth = new Map(convMonthly.map(w => [w.month, w.conversations]));
     return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
-  }, [data.wordsMonthly, language]);
+  }, [convMonthly, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
