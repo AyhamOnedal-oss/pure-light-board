@@ -216,45 +216,94 @@ export function AdminDashboard() {
   }, []);
 
   // ---- Adaptive bucket for time-series charts ----
+  // fetchBucket: what we ask the RPC for. groupSize: how many adjacent
+  // buckets we fold together client-side (2 → bi-weekly when fetchBucket='week').
   const bucketInfo = useMemo(() => {
-    if (!range.from || !range.to) {
-      // "All time" fallback → monthly buckets for the current year
-      const y = new Date().getUTCFullYear();
-      return {
-        bucket: 'month' as BucketKind,
-        from: new Date(Date.UTC(y, 0, 1)).toISOString(),
-        to: new Date(Date.UTC(y, 11, 31, 23, 59, 59)).toISOString(),
-      };
+    const y = new Date().getUTCFullYear();
+    const allTime = {
+      fetchBucket: 'month' as BucketKind,
+      groupSize: 1,
+      from: new Date(Date.UTC(y, 0, 1)).toISOString(),
+      to: new Date(Date.UTC(y, 11, 31, 23, 59, 59)).toISOString(),
+    };
+    if (!range.from || !range.to) return allTime;
+
+    // Filter-driven mapping (no more hour buckets).
+    switch (dateFilter) {
+      case 'current_month':
+      case 'prev_month':
+        return { fetchBucket: 'week' as BucketKind, groupSize: 1, from: range.from, to: range.to };
+      case 'last_3':
+        return { fetchBucket: 'week' as BucketKind, groupSize: 2, from: range.from, to: range.to };
+      case 'last_6':
+        return { fetchBucket: 'week' as BucketKind, groupSize: 2, from: range.from, to: range.to };
+      case 'current_year':
+        return { fetchBucket: 'month' as BucketKind, groupSize: 1, from: range.from, to: range.to };
+      case 'custom':
+      default: {
+        const days = Math.max(1, Math.ceil((new Date(range.to).getTime() - new Date(range.from).getTime()) / 86400000));
+        if (days < 14)  return { fetchBucket: 'day'   as BucketKind, groupSize: 1, from: range.from, to: range.to };
+        if (days <= 70) return { fetchBucket: 'week'  as BucketKind, groupSize: 1, from: range.from, to: range.to };
+        if (days <= 200)return { fetchBucket: 'week'  as BucketKind, groupSize: 2, from: range.from, to: range.to };
+        return             { fetchBucket: 'month' as BucketKind, groupSize: 1, from: range.from, to: range.to };
+      }
     }
-    const days = Math.max(1, Math.ceil((new Date(range.to).getTime() - new Date(range.from).getTime()) / 86400000));
-    let bucket: BucketKind = 'month';
-    if (days <= 2) bucket = 'hour';
-    else if (days <= 14) bucket = 'day';
-    else if (days <= 90) bucket = 'week';
-    return { bucket, from: range.from, to: range.to };
-  }, [range.from, range.to]);
+  }, [range.from, range.to, dateFilter]);
 
   const arDaysShort = ['أحد','اثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'];
   const enDaysShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const bucketLabel = (iso: string, bucket: BucketKind): string => {
+  const shortMonth = (m: number) => {
+    const [enM, arM] = monthNames[m];
+    return language === 'ar' ? arM.slice(0, 3) : enM;
+  };
+  const bucketLabel = (iso: string, bucket: BucketKind, groupSize: number = 1): string => {
     const d = new Date(iso);
-    if (bucket === 'hour') return `${String(d.getHours()).padStart(2,'0')}:00`;
     if (bucket === 'day') {
       const names = language === 'ar' ? arDaysShort : enDaysShort;
       return `${names[d.getDay()]} ${d.getDate()}`;
     }
     if (bucket === 'week') {
-      // ISO-ish week number
-      const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      const dayNum = t.getUTCDay() || 7;
-      t.setUTCDate(t.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-      const wk = Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-      return language === 'ar' ? `أسبوع ${wk}` : `Wk ${wk}`;
+      const start = new Date(d);
+      const end = new Date(d);
+      end.setDate(end.getDate() + 7 * groupSize - 1);
+      const sameMonth = start.getMonth() === end.getMonth();
+      if (sameMonth) return `${start.getDate()}–${end.getDate()} ${shortMonth(start.getMonth())}`;
+      return `${start.getDate()} ${shortMonth(start.getMonth())} – ${end.getDate()} ${shortMonth(end.getMonth())}`;
     }
     const [enM, arM] = monthNames[d.getMonth()];
     return language === 'ar' ? arM : enM;
   };
+
+  // Fold adjacent buckets (used for bi-weekly on last_3 / last_6 / long custom).
+  function aggregateBuckets<T extends { bucket_start: string }>(
+    rows: T[],
+    groupSize: number,
+    sumKeys: (keyof T)[],
+    groupKey?: (r: T) => string,
+  ): T[] {
+    if (groupSize <= 1) return rows;
+    // Sort by bucket_start then group each groupKey-partition into pairs of groupSize.
+    const partitions = new Map<string, T[]>();
+    for (const r of rows) {
+      const k = groupKey ? groupKey(r) : '__all__';
+      const arr = partitions.get(k) ?? [];
+      arr.push(r);
+      partitions.set(k, arr);
+    }
+    const out: T[] = [];
+    for (const [, arr] of partitions) {
+      arr.sort((a, b) => (a.bucket_start < b.bucket_start ? -1 : 1));
+      for (let i = 0; i < arr.length; i += groupSize) {
+        const chunk = arr.slice(i, i + groupSize);
+        const base = { ...chunk[0] } as T;
+        for (const key of sumKeys) {
+          (base as any)[key] = chunk.reduce((s, r) => s + Number(r[key] ?? 0), 0);
+        }
+        out.push(base);
+      }
+    }
+    return out;
+  }
 
   // ---- Range-scoped live datasets ----
   const [convSeries, setConvSeries] = useState<ConversationsSeriesRow[]>([]);
@@ -268,7 +317,7 @@ export function AdminDashboard() {
 
   useEffect(() => {
     let alive = true;
-    const { from, to, bucket } = bucketInfo;
+    const { from, to, fetchBucket: bucket } = bucketInfo;
     Promise.all([
       fetchConversationsSeries(from, to, bucket),
       fetchNewSubsSeries(from, to, bucket),
@@ -285,7 +334,7 @@ export function AdminDashboard() {
       setPlanDistR(pd); setNewSubsR(ns);
     });
     return () => { alive = false; };
-  }, [bucketInfo.from, bucketInfo.to, bucketInfo.bucket, range.from, range.to]);
+  }, [bucketInfo.from, bucketInfo.to, bucketInfo.fetchBucket, range.from, range.to]);
 
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
@@ -342,8 +391,9 @@ export function AdminDashboard() {
 
   // #1 Conversations monthly bars ← admin_conversations_monthly (real data)
   const wordsData = useMemo(() => {
-    return convSeries.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.bucket), words: r.count }));
-  }, [convSeries, bucketInfo.bucket, language]);
+    const grouped = aggregateBuckets(convSeries, bucketInfo.groupSize, ['count' as any]);
+    return grouped.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.fetchBucket, bucketInfo.groupSize), words: r.count }));
+  }, [convSeries, bucketInfo.fetchBucket, bucketInfo.groupSize, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
@@ -479,10 +529,12 @@ export function AdminDashboard() {
       if (r.platform === 'zid') cur.zid += r.count; else cur.salla += r.count;
       map.set(key, cur);
     });
-    return Array.from(map.entries())
+    const flat = Array.from(map.entries())
       .sort(([a], [b]) => (a < b ? -1 : 1))
-      .map(([iso, v]) => ({ name: bucketLabel(iso, bucketInfo.bucket), zid: v.zid, salla: v.salla }));
-  }, [subsSeries, bucketInfo.bucket, language]);
+      .map(([iso, v]) => ({ bucket_start: iso, zid: v.zid, salla: v.salla }));
+    const grouped = aggregateBuckets(flat, bucketInfo.groupSize, ['zid', 'salla']);
+    return grouped.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.fetchBucket, bucketInfo.groupSize), zid: r.zid, salla: r.salla }));
+  }, [subsSeries, bucketInfo.fetchBucket, bucketInfo.groupSize, language]);
 
   const cardClass = "bg-card rounded-2xl border border-border p-4";
   const textMuted = "text-muted-foreground";
