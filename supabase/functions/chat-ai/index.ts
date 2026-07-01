@@ -1039,6 +1039,20 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.log("classifier usage insert failed (non-fatal):", e);
       }
+      // Immediately reflect token usage on the admin per-tenant view.
+      try {
+        await supabase.rpc("merchant_token_daily_bump", {
+          _tenant: tenant_id,
+          _project_id: "",
+          _model: v?.model ?? CLASSIFIER_MODEL,
+          _scope: "classifier",
+          _input_tokens: v?.prompt_tokens ?? 0,
+          _output_tokens: v?.completion_tokens ?? 0,
+          _cost_usd: v?.cost_usd ?? 0,
+        });
+      } catch (e) {
+        console.log("classifier merchant_token_daily_bump failed (non-fatal):", e);
+      }
     };
 
     // ── Helper: persist user + AI messages (best-effort) ──────────────────
