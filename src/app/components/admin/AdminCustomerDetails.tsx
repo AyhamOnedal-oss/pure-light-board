@@ -12,6 +12,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { MerchantConsumptionTable } from './MerchantConsumptionTable';
+import { resolveAdminAuthorName } from '@/app/utils/adminAuthorName';
 
 const COLORS = ['#043CC8', '#e2e8f0'];
 
