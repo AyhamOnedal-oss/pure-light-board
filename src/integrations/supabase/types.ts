@@ -2523,6 +2523,13 @@ export type Database = {
           tokens_per_word: number
         }[]
       }
+      admin_openai_cost_by_slot: {
+        Args: never
+        Returns: {
+          cost_usd: number
+          slot: string
+        }[]
+      }
       admin_openai_usage: { Args: never; Returns: Json }
       admin_platform_subs: {
         Args: never

@@ -4,7 +4,7 @@ import { AnimatedValue } from '../AnimatedNumber';
 import { motion } from 'motion/react';
 import {
   Users, UserCheck, UserX, Trash2, MousePointerClick, Clock,
-  Download, Calendar, ChevronDown, Pencil
+  Download, Calendar, ChevronDown, Pencil, MessageSquare
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -194,6 +194,7 @@ export function AdminDashboard() {
     const uninstalls = liveKpis?.total_uninstalls ?? 0;
     const clicks = liveKpis?.total_bubble_clicks ?? 0;
     const avg = liveKpis?.avg_response_seconds ?? 0;
+    const conversations = liveKpis?.total_conversations ?? 0;
 
     const pct = (curr: number, prev: number): { change: number | null; up: boolean } => {
       if (!liveKpis?.has_range) return { change: null, up: true };
@@ -208,12 +209,14 @@ export function AdminDashboard() {
     const uninC  = pct(uninstalls,     liveKpis?.prev_total_uninstalls ?? 0);
     const clickC = pct(clicks,         liveKpis?.prev_total_bubble_clicks ?? 0);
     const avgC   = pct(avg,            liveKpis?.prev_avg_response_seconds ?? 0);
+    const convC  = pct(conversations,  liveKpis?.prev_total_conversations ?? 0);
 
     return [
       { icon: Users,             label: t('Total Customers',     'إجمالي العملاء'),        value: totalCustomers,    color: '#043CC8', change: totalC.change, up: totalC.up },
       { icon: UserX,             label: t('Incomplete Customers','العملاء غير المكتملين'), value: incompleteCustomers, color: '#ff4466', change: incC.change, up: !incC.up },
       { icon: Trash2,            label: t('Total Uninstalls',    'إجمالي إلغاء التثبيت'), value: uninstalls,        color: '#f97316', change: uninC.change,  up: !uninC.up },
       { icon: UserCheck,         label: t('Active Customers',    'العملاء النشطون'),       value: activeCustomers,   color: '#22c55e', change: actC.change, up: actC.up },
+      { icon: MessageSquare,     label: t('Number of Conversations', 'عدد المحادثات'),     value: conversations,     color: '#0EA5E9', change: convC.change, up: convC.up },
       { icon: MousePointerClick, label: t('Total Bubble Clicks', 'إجمالي نقرات الفقاعة'), value: clicks,            color: '#a855f7', change: clickC.change, up: clickC.up },
       { icon: Clock,             label: t('Avg Response Time',   'متوسط وقت الاستجابة'),   value: Math.round(avg * 10) / 10, color: '#00C9BD', change: avgC.change, up: !avgC.up, suffix: 's' as string | undefined },
     ] as Array<{ icon: any; label: string; value: number; color: string; change: number | null; up: boolean; suffix?: string }>;

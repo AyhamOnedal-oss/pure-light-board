@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Pencil, Loader2, Key, X, AlertTriangle, Plus } from 'lucide-react';
+import { Pencil, Loader2, Key, X, AlertTriangle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -29,6 +29,7 @@ export function OpenAIKeysCard() {
   const [editing, setEditing] = useState<KeyRow | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [costs, setCosts] = useState<Record<string, number>>({});
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -38,6 +39,10 @@ export function OpenAIKeysCard() {
     const bySlot = new Map<string, KeyRow>();
     for (const r of (data as any[] | null) ?? []) bySlot.set((r as any).slot, r as KeyRow);
     setRows(SLOTS.map((s) => bySlot.get(s.slot) ?? emptyRow(s.slot)));
+    const { data: costData } = await supabase.rpc('admin_openai_cost_by_slot' as any);
+    const costMap: Record<string, number> = {};
+    for (const c of (costData as any[] | null) ?? []) costMap[c.slot] = Number(c.cost_usd) || 0;
+    setCosts(costMap);
     setLoading(false);
   }, []);
 
@@ -92,7 +97,7 @@ export function OpenAIKeysCard() {
                 <th className={`py-2 ${dir === 'rtl' ? 'text-right' : 'text-left'} font-medium`}>{t('Model', 'النموذج')}</th>
                 <th className={`py-2 ${dir === 'rtl' ? 'text-right' : 'text-left'} font-medium`}>{t('Input /1M', 'مدخلات /1M')}</th>
                 <th className={`py-2 ${dir === 'rtl' ? 'text-right' : 'text-left'} font-medium`}>{t('Output /1M', 'مخرجات /1M')}</th>
-                <th className={`py-2 ${dir === 'rtl' ? 'text-right' : 'text-left'} font-medium`}>{t('Notes', 'ملاحظات')}</th>
+                <th className={`py-2 ${dir === 'rtl' ? 'text-right' : 'text-left'} font-medium`}>{t('Cost (USD)', 'التكلفة (دولار)')}</th>
                 <th className="py-2 text-center font-medium w-12"></th>
               </tr>
             </thead>
@@ -100,6 +105,7 @@ export function OpenAIKeysCard() {
               {rows.map((r, i) => {
                 const meta = SLOTS.find((s) => s.slot === r.slot)!;
                 const empty = !r.id;
+                const cost = costs[r.slot] ?? 0;
                 return (
                   <tr key={r.slot} className="border-b border-border/50 hover:bg-muted/30">
                     <td className="py-2.5" style={{ fontWeight: 600 }}>{i + 1}</td>
@@ -111,16 +117,16 @@ export function OpenAIKeysCard() {
                     </td>
                     <td className="py-2.5">{empty ? '—' : `$${Number(r.input_price_per_1m)}`}</td>
                     <td className="py-2.5">{empty ? '—' : `$${Number(r.output_price_per_1m)}`}</td>
-                    <td className="py-2.5 text-muted-foreground text-[11px] max-w-[240px]">
-                      <div className="truncate">{r.notes || '—'}</div>
+                    <td className="py-2.5 text-[11px]" style={{ fontWeight: 600 }}>
+                      {cost > 0 ? `$${cost.toFixed(4)}` : '—'}
                     </td>
                     <td className="py-2.5 text-center">
                       <button
                         onClick={() => setEditing({ ...r })}
                         className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                        title={empty ? t('Add', 'إضافة') : t('Edit', 'تعديل')}
+                        title={t('Edit', 'تعديل')}
                       >
-                        {empty ? <Plus className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
                     </td>
                   </tr>
@@ -130,8 +136,21 @@ export function OpenAIKeysCard() {
                 <td className="py-2.5" style={{ fontWeight: 600 }}>3</td>
                 <td className="py-2.5">{t('IQ Test (uses Chat key)', 'اختبار الذكاء (يستخدم مفتاح الشات)')}</td>
                 <td className="py-2.5 text-muted-foreground" colSpan={3}>{t('Same model & price as #1, tracked separately', 'نفس نموذج وسعر #1 مع تتبع منفصل')}</td>
-                <td className="py-2.5 text-muted-foreground text-[11px]">tenant_id:iqtest</td>
-                <td></td>
+                <td className="py-2.5 text-[11px]" style={{ fontWeight: 600 }}>
+                  {(costs['iqtest'] ?? 0) > 0 ? `$${(costs['iqtest'] ?? 0).toFixed(4)}` : '—'}
+                </td>
+                <td className="py-2.5 text-center">
+                  <button
+                    onClick={() => {
+                      const chat = rows.find((x) => x.slot === 'chat');
+                      if (chat) setEditing({ ...chat });
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                    title={t('Edit (uses Chat key)', 'تعديل (يستخدم مفتاح الشات)')}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
