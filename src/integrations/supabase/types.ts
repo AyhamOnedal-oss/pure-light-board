@@ -2542,9 +2542,30 @@ export type Database = {
           month: number
         }[]
       }
+      admin_conversations_series: {
+        Args: { _bucket?: string; _from: string; _to: string }
+        Returns: {
+          bucket_start: string
+          count: number
+        }[]
+      }
+      admin_customer_source_range: {
+        Args: { _from: string; _to: string }
+        Returns: {
+          count: number
+          platform: string
+        }[]
+      }
       admin_db_usage: { Args: never; Returns: Json }
       admin_first_sub_type: {
         Args: never
+        Returns: {
+          count: number
+          plan: string
+        }[]
+      }
+      admin_first_sub_type_range: {
+        Args: { _from: string; _to: string }
         Returns: {
           count: number
           plan: string
@@ -2585,6 +2606,25 @@ export type Database = {
           platform: string
         }[]
       }
+      admin_new_subs_series: {
+        Args: { _bucket?: string; _from: string; _to: string }
+        Returns: {
+          bucket_start: string
+          count: number
+          platform: string
+        }[]
+      }
+      admin_new_subscribers_range: {
+        Args: { _from: string; _to: string }
+        Returns: {
+          monthly_word_quota: number
+          monthly_words_used: number
+          platform: string
+          store_name: string
+          subscribed_on: string
+          tenant_id: string
+        }[]
+      }
       admin_openai_active_version: {
         Args: { _at: string; _project_id: string }
         Returns: {
@@ -2607,8 +2647,24 @@ export type Database = {
         }[]
       }
       admin_openai_usage: { Args: never; Returns: Json }
+      admin_plan_distribution_range: {
+        Args: { _from: string; _to: string }
+        Returns: {
+          plan: string
+          platform: string
+          subscribers: number
+        }[]
+      }
       admin_platform_subs: {
         Args: never
+        Returns: {
+          count: number
+          platform: string
+          status: string
+        }[]
+      }
+      admin_platform_subs_range: {
+        Args: { _from: string; _to: string }
         Returns: {
           count: number
           platform: string
@@ -2642,6 +2698,13 @@ export type Database = {
       }
       admin_uninstalls_compare: {
         Args: never
+        Returns: {
+          count: number
+          platform: string
+        }[]
+      }
+      admin_uninstalls_range: {
+        Args: { _from: string; _to: string }
         Returns: {
           count: number
           platform: string

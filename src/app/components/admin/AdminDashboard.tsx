@@ -24,6 +24,23 @@ import {
   setOpenAiDollarBalance,
   type AdminServerUsage,
   fetchConversationsMonthly,
+  fetchNewSubsSeries,
+  fetchConversationsSeries,
+  fetchUninstallsRange,
+  fetchFirstSubTypeRange,
+  fetchCustomerSourceRange,
+  fetchPlatformSubsRange,
+  fetchPlanDistributionRange,
+  fetchNewSubscribersRange,
+  type BucketKind,
+  type NewSubsSeriesRow,
+  type ConversationsSeriesRow,
+  type Uninstalls,
+  type FirstSubType,
+  type CustomerSource,
+  type PlatformSubs,
+  type PlanDistribution,
+  type NewSubscriber,
 } from '../../services/adminDashboard';
 import { OpenAIKeysCard } from './OpenAIKeysCard';
 
@@ -198,6 +215,78 @@ export function AdminDashboard() {
     return () => { alive = false; };
   }, []);
 
+  // ---- Adaptive bucket for time-series charts ----
+  const bucketInfo = useMemo(() => {
+    if (!range.from || !range.to) {
+      // "All time" fallback → monthly buckets for the current year
+      const y = new Date().getUTCFullYear();
+      return {
+        bucket: 'month' as BucketKind,
+        from: new Date(Date.UTC(y, 0, 1)).toISOString(),
+        to: new Date(Date.UTC(y, 11, 31, 23, 59, 59)).toISOString(),
+      };
+    }
+    const days = Math.max(1, Math.ceil((new Date(range.to).getTime() - new Date(range.from).getTime()) / 86400000));
+    let bucket: BucketKind = 'month';
+    if (days <= 2) bucket = 'hour';
+    else if (days <= 14) bucket = 'day';
+    else if (days <= 90) bucket = 'week';
+    return { bucket, from: range.from, to: range.to };
+  }, [range.from, range.to]);
+
+  const arDaysShort = ['أحد','اثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'];
+  const enDaysShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const bucketLabel = (iso: string, bucket: BucketKind): string => {
+    const d = new Date(iso);
+    if (bucket === 'hour') return `${String(d.getHours()).padStart(2,'0')}:00`;
+    if (bucket === 'day') {
+      const names = language === 'ar' ? arDaysShort : enDaysShort;
+      return `${names[d.getDay()]} ${d.getDate()}`;
+    }
+    if (bucket === 'week') {
+      // ISO-ish week number
+      const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = t.getUTCDay() || 7;
+      t.setUTCDate(t.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+      const wk = Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      return language === 'ar' ? `أسبوع ${wk}` : `Wk ${wk}`;
+    }
+    const [enM, arM] = monthNames[d.getMonth()];
+    return language === 'ar' ? arM : enM;
+  };
+
+  // ---- Range-scoped live datasets ----
+  const [convSeries, setConvSeries] = useState<ConversationsSeriesRow[]>([]);
+  const [subsSeries, setSubsSeries] = useState<NewSubsSeriesRow[]>([]);
+  const [uninstallsR, setUninstallsR] = useState<Uninstalls[]>([]);
+  const [firstSubR, setFirstSubR] = useState<FirstSubType[]>([]);
+  const [sourceR, setSourceR] = useState<CustomerSource[]>([]);
+  const [platSubsR, setPlatSubsR] = useState<PlatformSubs[]>([]);
+  const [planDistR, setPlanDistR] = useState<PlanDistribution[]>([]);
+  const [newSubsR, setNewSubsR] = useState<NewSubscriber[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const { from, to, bucket } = bucketInfo;
+    Promise.all([
+      fetchConversationsSeries(from, to, bucket),
+      fetchNewSubsSeries(from, to, bucket),
+      fetchUninstallsRange(range.from, range.to),
+      fetchFirstSubTypeRange(range.from, range.to),
+      fetchCustomerSourceRange(range.from, range.to),
+      fetchPlatformSubsRange(range.from, range.to),
+      fetchPlanDistributionRange(range.from, range.to),
+      fetchNewSubscribersRange(range.from, range.to),
+    ]).then(([cs, ss, un, fs, cx, ps, pd, ns]) => {
+      if (!alive) return;
+      setConvSeries(cs); setSubsSeries(ss); setUninstallsR(un);
+      setFirstSubR(fs); setSourceR(cx); setPlatSubsR(ps);
+      setPlanDistR(pd); setNewSubsR(ns);
+    });
+    return () => { alive = false; };
+  }, [bucketInfo.from, bucketInfo.to, bucketInfo.bucket, range.from, range.to]);
+
 
   const tickColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const gridColor = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -253,18 +342,17 @@ export function AdminDashboard() {
 
   // #1 Conversations monthly bars ← admin_conversations_monthly (real data)
   const wordsData = useMemo(() => {
-    const byMonth = new Map(convMonthly.map(w => [w.month, w.conversations]));
-    return monthNames.map(([en, ar], i) => ({ name: t(en, ar), words: byMonth.get(i + 1) ?? 0 }));
-  }, [convMonthly, language]);
+    return convSeries.map(r => ({ name: bucketLabel(r.bucket_start, bucketInfo.bucket), words: r.count }));
+  }, [convSeries, bucketInfo.bucket, language]);
 
   // Current Customer Plans pie  ← admin_dash_plan_distribution (platform IS NULL)
   const currentPlansData = useMemo(() => {
     const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
     return order.map(plan => {
-      const row = data.planDistribution.find(p => p.platform === null && p.plan === plan);
-      return { name: planLabel(plan), value: row?.subscribers ?? 0, color: PLAN_COLORS[plan] };
+      const total = planDistR.filter(p => p.plan === plan).reduce((s, p) => s + (p.subscribers ?? 0), 0);
+      return { name: planLabel(plan), value: total, color: PLAN_COLORS[plan] };
     });
-  }, [data.planDistribution, language]);
+  }, [planDistR, language]);
 
   // Gate animated donuts so they mount fresh after data resolves and play
   // their sweep once on real values (no MOCK-flash count-down).
@@ -274,7 +362,7 @@ export function AdminDashboard() {
     setChartsLoaded(false);
     const id = requestAnimationFrame(() => setChartsLoaded(true));
     return () => cancelAnimationFrame(id);
-  }, [dataLoaded, range.from, range.to, data.planDistribution, data.firstSubType, data.customerSource]);
+  }, [dataLoaded, range.from, range.to, planDistR, firstSubR, sourceR, subsSeries, convSeries]);
 
   // #3 Subscriptions by Platform  ← admin_dash_platform_subs
   const platformSubsData = useMemo(() => {
@@ -284,20 +372,20 @@ export function AdminDashboard() {
     ];
     return statuses.map(([s, label]) => ({
       name: label,
-      zid:   data.platformSubs.find(p => p.status === s && p.platform === 'zid')?.count ?? 0,
-      salla: data.platformSubs.find(p => p.status === s && p.platform === 'salla')?.count ?? 0,
+      zid:   platSubsR.find(p => p.status === s && p.platform === 'zid')?.count ?? 0,
+      salla: platSubsR.find(p => p.status === s && p.platform === 'salla')?.count ?? 0,
     }));
-  }, [data.platformSubs, language]);
+  }, [platSubsR, language]);
 
-  // New Subscribers list  ← admin_dash_new_subscribers
-  const newSubscribers = useMemo(() => data.newSubscribers.map(s => ({
+  // New Subscribers list — scoped to the selected date range
+  const newSubscribers = useMemo(() => newSubsR.map(s => ({
     name: s.store_name,
     platform: s.platform === 'zid' ? 'Zid' : 'Salla',
     date: s.subscribed_on,
     totalTokens: s.total_tokens,
     usedTokens: s.used_tokens,
     logo: s.logo_initials,
-  })), [data.newSubscribers]);
+  })), [newSubsR]);
 
   // Server usage bars  ← admin_dash_servers
   const serverUsage = useMemo(() => data.servers.map(s => {
@@ -337,22 +425,22 @@ export function AdminDashboard() {
     const order: PlanTier[] = ['trial', 'economy', 'basic', 'professional', 'business'];
     return order.map(plan => ({
       name: planLabel(plan),
-      value: data.firstSubType.find(f => f.plan === plan)?.count ?? 0,
+      value: firstSubR.find(f => f.plan === plan)?.count ?? 0,
       color: PLAN_COLORS[plan],
     }));
-  }, [data.firstSubType, language]);
+  }, [firstSubR, language]);
 
   // Customer Source pie  ← admin_dash_customer_source
   const customerSourceData = useMemo(() => ([
-    { name: t('Zid', 'زد'),   value: data.customerSource.find(s => s.platform === 'zid')?.count ?? 0,   color: '#043CC8' },
-    { name: t('Salla', 'سلة'), value: data.customerSource.find(s => s.platform === 'salla')?.count ?? 0, color: '#22c55e' },
-  ]), [data.customerSource, language]);
+    { name: t('Zid', 'زد'),   value: sourceR.find(s => s.platform === 'zid')?.count ?? 0,   color: '#043CC8' },
+    { name: t('Salla', 'سلة'), value: sourceR.find(s => s.platform === 'salla')?.count ?? 0, color: '#22c55e' },
+  ]), [sourceR, language]);
 
   // Uninstall comparison bar  ← admin_dash_uninstalls
   const uninstallData = useMemo(() => ([
-    { name: t('Zid', 'زد'),   value: data.uninstalls.find(u => u.platform === 'zid')?.count ?? 0,   fill: '#ff4466' },
-    { name: t('Salla', 'سلة'), value: data.uninstalls.find(u => u.platform === 'salla')?.count ?? 0, fill: '#f97316' },
-  ]), [data.uninstalls, language]);
+    { name: t('Zid', 'زد'),   value: uninstallsR.find(u => u.platform === 'zid')?.count ?? 0,   fill: '#ff4466' },
+    { name: t('Salla', 'سلة'), value: uninstallsR.find(u => u.platform === 'salla')?.count ?? 0, fill: '#f97316' },
+  ]), [uninstallsR, language]);
 
   const planColorArr = [PLAN_COLORS.economy, PLAN_COLORS.basic, PLAN_COLORS.professional, PLAN_COLORS.business];
 
@@ -361,11 +449,11 @@ export function AdminDashboard() {
     const order: PlanTier[] = ['economy', 'basic', 'professional', 'business'];
     return order.map(plan => ({
       name: planLabel(plan),
-      value: data.planDistribution.find(p => p.platform === pf && p.plan === plan)?.subscribers ?? 0,
+      value: planDistR.find(p => p.platform === pf && p.plan === plan)?.subscribers ?? 0,
     }));
   };
-  const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [data.planDistribution, language]);
-  const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [data.planDistribution, language]);
+  const zidPlanData = useMemo(() => buildPlatformPlan('zid'), [planDistR, language]);
+  const sallaPlanData = useMemo(() => buildPlatformPlan('salla'), [planDistR, language]);
 
   // Server Status grid ← live admin_health_checks (fallback to seeded list)
   const serverStatus = useMemo(() => {
@@ -382,12 +470,19 @@ export function AdminDashboard() {
     });
   }, [health]);
 
-  // #10 New Subscribers Over Time  ← admin_dash_new_subs_monthly
-  const newSubsOverTime = useMemo(() => monthNames.map(([en, ar], i) => ({
-    name: t(en, ar),
-    zid:   data.newSubsMonthly.find(r => r.month === i + 1 && r.platform === 'zid')?.count ?? 0,
-    salla: data.newSubsMonthly.find(r => r.month === i + 1 && r.platform === 'salla')?.count ?? 0,
-  })), [data.newSubsMonthly, language]);
+  // #10 New Subscribers Over Time — adaptive bucketed series
+  const newSubsOverTime = useMemo(() => {
+    const map = new Map<string, { zid: number; salla: number }>();
+    subsSeries.forEach(r => {
+      const key = r.bucket_start;
+      const cur = map.get(key) ?? { zid: 0, salla: 0 };
+      if (r.platform === 'zid') cur.zid += r.count; else cur.salla += r.count;
+      map.set(key, cur);
+    });
+    return Array.from(map.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([iso, v]) => ({ name: bucketLabel(iso, bucketInfo.bucket), zid: v.zid, salla: v.salla }));
+  }, [subsSeries, bucketInfo.bucket, language]);
 
   const cardClass = "bg-card rounded-2xl border border-border p-4";
   const textMuted = "text-muted-foreground";
@@ -494,7 +589,7 @@ export function AdminDashboard() {
           <ResponsiveContainer width="100%" height="100%" key={`nsot-${newSubsOverTime.length}`}>
             <LineChart data={newSubsOverTime} margin={{ top: 10, right: 12, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={42} tickMargin={6} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Line type="monotone" dataKey="zid" stroke="#043CC8" strokeWidth={2} dot={{ r: 3, fill: '#043CC8' }} activeDot={{ r: 5 }}
@@ -521,7 +616,7 @@ export function AdminDashboard() {
           <ResponsiveContainer width="100%" height="100%" key={`words-${wordsData.length}`}>
             <BarChart data={wordsData} barCategoryGap="25%" margin={{ left: 5, right: 10, top: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
               <Bar dataKey="words" fill="#043CC8" name={t('Conversations', 'المحادثات')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
@@ -627,11 +722,11 @@ export function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className={cardClass}>
           <h3 className="text-[14px] mb-1" style={{ fontWeight: 600 }}>{t('New Subscribers', 'المشتركون الجدد')}</h3>
-          <p className={`text-[11px] ${textMuted} mb-2`}>{t('New Zid & Salla stores in the last 7 days', 'متاجر زد وسلة الجديدة خلال آخر 7 أيام')}</p>
+          <p className={`text-[11px] ${textMuted} mb-2`}>{t('New Zid & Salla stores in the selected range', 'متاجر زد وسلة الجديدة خلال الفترة المحددة')}</p>
           <div className="max-h-[240px] overflow-y-auto space-y-2">
             {newSubscribers.length === 0 && (
               <div className={`text-[12px] ${textMuted} text-center py-8`}>
-                {t('No new subscribers in the last 7 days', 'لا يوجد مشتركون جدد خلال آخر 7 أيام')}
+                {t('No new subscribers in the selected range', 'لا يوجد مشتركون جدد خلال الفترة المحددة')}
               </div>
             )}
             {newSubscribers.map((sub, i) => (
