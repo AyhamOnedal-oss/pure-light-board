@@ -2790,6 +2790,18 @@ export type Database = {
         Args: { _key: string; _tenant: string; _user: string }
         Returns: boolean
       }
+      merchant_token_daily_bump: {
+        Args: {
+          _cost_usd?: number
+          _input_tokens: number
+          _model: string
+          _output_tokens: number
+          _project_id: string
+          _scope: string
+          _tenant: string
+        }
+        Returns: undefined
+      }
       plan_default_conversation_quota: {
         Args: { _plan: string }
         Returns: number

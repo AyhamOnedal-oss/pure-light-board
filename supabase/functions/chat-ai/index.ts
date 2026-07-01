@@ -631,6 +631,24 @@ Deno.serve(async (req) => {
               console.error("iqtest_increment_failed", String((e as any)?.message ?? e));
             }
           }
+          // Reflect vision tokens on the admin per-tenant view immediately.
+          if (currentTenantForUsage !== "unknown") {
+            try {
+              await supabase.rpc("merchant_token_daily_bump", {
+                _tenant: currentTenantForUsage,
+                _project_id: "",
+                _model: VISION_MODEL,
+                _scope: is_test ? "iqtest" : "vision",
+                _input_tokens: Number(usage.prompt_tokens ?? 0) || 0,
+                _output_tokens: Number(usage.completion_tokens ?? 0) || 0,
+                _cost_usd: Number(
+                  estimateCost(VISION_MODEL, usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0).toFixed(6),
+                ),
+              });
+            } catch (e) {
+              console.error("vision merchant_token_daily_bump failed:", String((e as any)?.message ?? e));
+            }
+          }
           console.log("vision_token_usage", {
             conversation_id,
             attachments: attachmentsIn.length,
@@ -1038,6 +1056,20 @@ Deno.serve(async (req) => {
         });
       } catch (e) {
         console.log("classifier usage insert failed (non-fatal):", e);
+      }
+      // Immediately reflect token usage on the admin per-tenant view.
+      try {
+        await supabase.rpc("merchant_token_daily_bump", {
+          _tenant: tenant_id,
+          _project_id: "",
+          _model: v?.model ?? CLASSIFIER_MODEL,
+          _scope: "classifier",
+          _input_tokens: v?.prompt_tokens ?? 0,
+          _output_tokens: v?.completion_tokens ?? 0,
+          _cost_usd: v?.cost_usd ?? 0,
+        });
+      } catch (e) {
+        console.log("classifier merchant_token_daily_bump failed (non-fatal):", e);
       }
     };
 

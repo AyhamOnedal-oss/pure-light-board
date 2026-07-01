@@ -63,8 +63,15 @@ export function PlansPage() {
       const endDate = new Date(start);
       endDate.setMonth(endDate.getMonth() + 1);
       const usedConversations = Number((plan as any)?.conversations_used ?? 0);
-      const totalConversations = Number((plan as any)?.conversation_quota ?? 0)
-        + Number((plan as any)?.conversation_topup ?? 0);
+      const planName = String(workspace?.plan ?? '').toLowerCase();
+      const defaultQuota =
+        planName === 'economy' ? 250 :
+        planName === 'basic' ? 500 :
+        planName === 'professional' || planName === 'pro' ? 750 :
+        planName === 'business' ? 1000 : 50;
+      const rawQuota = Number((plan as any)?.conversation_quota ?? 0);
+      const quota = rawQuota > 0 ? rawQuota : defaultQuota;
+      const totalConversations = quota + Number((plan as any)?.conversation_topup ?? 0);
       setPlanData({
         name: workspace?.plan ? (workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)) : 'Free',
         price: workspace?.plan === 'professional' ? '299 SAR/mo' : workspace?.plan === 'growth' ? '199 SAR/mo' : workspace?.plan === 'starter' ? '99 SAR/mo' : '0 SAR/mo',

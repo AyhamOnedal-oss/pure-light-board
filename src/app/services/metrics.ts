@@ -68,8 +68,14 @@ export interface DashboardMetrics {
   messagesIn: number;
   messagesOut: number;
   wordsUsed: number;
-  /** Conversation count derived from merchant token usage (1 convo ≈ 50k in + 5k out). */
+  /** Real per-tenant conversation counter from settings_plans.conversations_used. */
   conversationsUsed: number;
+  /** Total available conversations for the tenant (quota + top-up). */
+  conversationsQuota: number;
+  /** Sum of input tokens across chat scope for the range (0 when unattributed). */
+  inputTokens: number;
+  /** Sum of output tokens across chat scope for the range. */
+  outputTokens: number;
   widgetClicks: number;
   avgResponseSeconds: number;
   ticketsTotal: number;
@@ -101,6 +107,9 @@ export const EMPTY_METRICS: DashboardMetrics = {
   messagesOut: 0,
   wordsUsed: 0,
   conversationsUsed: 0,
+  conversationsQuota: 0,
+  inputTokens: 0,
+  outputTokens: 0,
   widgetClicks: 0,
   avgResponseSeconds: 0,
   ticketsTotal: 0,
@@ -374,12 +383,25 @@ export async function fetchDashboardMetrics(
     for (const r of ticketTrend ?? []) {
       if ((r as any).created_at >= fromIso) curTk++; else prevTk++;
     }
+    // Real per-tenant conversation counter + quota from settings_plans.
+    const { data: planRow } = await supabase
+      .from('settings_plans')
+      .select('conversation_quota, conversation_topup, conversations_used')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const realConvosUsed = Number((planRow as any)?.conversations_used ?? 0);
+    const realConvosQuota =
+      Number((planRow as any)?.conversation_quota ?? 0) +
+      Number((planRow as any)?.conversation_topup ?? 0);
     return {
       conversations: m.conversations ?? 0,
       messagesIn: m.messagesIn ?? 0,
       messagesOut: m.messagesOut ?? 0,
       wordsUsed: m.wordsUsed ?? 0,
-      conversationsUsed: curConvosUsed,
+      conversationsUsed: realConvosUsed,
+      conversationsQuota: realConvosQuota,
+      inputTokens: sums.cur.inTok,
+      outputTokens: sums.cur.outTok,
       widgetClicks: m.widgetClicks ?? 0,
       avgResponseSeconds: curResp || 0,
       ticketsTotal: m.ticketsTotal ?? 0,
@@ -651,6 +673,9 @@ export async function fetchDashboardMetrics(
     messagesOut,
     wordsUsed,
     conversationsUsed: curConvosUsed,
+    conversationsQuota: 0,
+    inputTokens: sums.cur.inTok,
+    outputTokens: sums.cur.outTok,
     widgetClicks,
     avgResponseSeconds,
     ticketsTotal,
