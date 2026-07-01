@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { motion } from 'motion/react';
 import { AnimatedValue } from '../AnimatedNumber';
 import { Users, UserCheck, Plus, Edit, Trash2, Send, Ban, CheckCircle, X } from 'lucide-react';
-import { fetchTeamMembers, MOCK_TEAM, type AdminTeamMember } from '../../services/adminTeam';
+import { fetchTeamMembers, type AdminTeamMember } from '../../services/adminTeam';
 import { ADMIN_PERMISSION_TREE, adminLabel } from '../../utils/adminPermissions';
 
 interface Employee {
@@ -26,8 +26,6 @@ function rowToEmployee(r: AdminTeamMember): Employee {
     permissions: r.permissions, status: r.status,
   };
 }
-
-const mockEmployees: Employee[] = MOCK_TEAM.map(rowToEmployee);
 
 export function AdminTeam() {
   const { t, language, showToast } = useApp();
