@@ -2040,6 +2040,9 @@ export type Database = {
       settings_plans: {
         Row: {
           channel_quota: number
+          conversation_quota: number
+          conversation_topup: number
+          conversations_used: number
           created_at: string
           expired_emailed_at: string | null
           expiry_warned_for_date: string | null
@@ -2059,6 +2062,9 @@ export type Database = {
         }
         Insert: {
           channel_quota?: number
+          conversation_quota?: number
+          conversation_topup?: number
+          conversations_used?: number
           created_at?: string
           expired_emailed_at?: string | null
           expiry_warned_for_date?: string | null
@@ -2078,6 +2084,9 @@ export type Database = {
         }
         Update: {
           channel_quota?: number
+          conversation_quota?: number
+          conversation_topup?: number
+          conversations_used?: number
           created_at?: string
           expired_emailed_at?: string | null
           expiry_warned_for_date?: string | null
@@ -2780,6 +2789,10 @@ export type Database = {
       member_can: {
         Args: { _key: string; _tenant: string; _user: string }
         Returns: boolean
+      }
+      plan_default_conversation_quota: {
+        Args: { _plan: string }
+        Returns: number
       }
       riyadh_today: { Args: never; Returns: string }
       tenant_exists: { Args: { _tenant_id: string }; Returns: boolean }
