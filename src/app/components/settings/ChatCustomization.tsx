@@ -422,15 +422,12 @@ export function ChatCustomization() {
                   <p className="text-[11px] text-muted-foreground mt-0.5">{t('Prompt inactive users, then auto-close', 'تنبيه المستخدمين الخاملين ثم الإغلاق التلقائي')}</p>
                 </div>
               </div>
-              <ToggleSwitch checked={inactivityEnabled} onChange={handleInactivityToggle} />
+              <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-amber-500/10 text-amber-600">
+                {t('Always on', 'مفعّل دائماً')}
+              </span>
             </div>
 
-            {!inactivityEnabled ? (
-              <p className="text-[11px] text-muted-foreground/80 bg-muted/50 rounded-xl px-3 py-2">
-                {t('Timer disabled — no prompt will be shown to inactive users.', 'المؤقت معطّل — لن يُعرض أي تنبيه للمستخدمين الخاملين.')}
-              </p>
-            ) : (
-              <div className="space-y-4">
+            <div className="space-y-4">
                 <SliderField
                   label={t('Prompt after idle', 'مدة الخمول قبل التنبيه')}
                   value={inactivityPromptSeconds}
@@ -458,8 +455,8 @@ export function ChatCustomization() {
                   </label>
                   <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
                     {t(
-                      'If the customer does not interact with the rating screen within this duration, the conversation will be closed automatically.',
-                      'إذا لم يتفاعل العميل مع شاشة التقييم خلال هذه المدة، يتم إغلاق المحادثة تلقائياً.'
+                      'If the customer does not interact with the rating screen within this duration, the conversation will be closed automatically. Maximum 15 minutes (900 seconds).',
+                      'إذا لم يتفاعل العميل مع شاشة التقييم خلال هذه المدة، يتم إغلاق المحادثة تلقائياً. الحد الأقصى 15 دقيقة (900 ثانية).'
                     )}
                   </p>
                   <div className="flex items-center gap-2">
