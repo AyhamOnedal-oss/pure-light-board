@@ -383,12 +383,25 @@ export async function fetchDashboardMetrics(
     for (const r of ticketTrend ?? []) {
       if ((r as any).created_at >= fromIso) curTk++; else prevTk++;
     }
+    // Real per-tenant conversation counter + quota from settings_plans.
+    const { data: planRow } = await supabase
+      .from('settings_plans')
+      .select('conversation_quota, conversation_topup, conversations_used')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const realConvosUsed = Number((planRow as any)?.conversations_used ?? 0);
+    const realConvosQuota =
+      Number((planRow as any)?.conversation_quota ?? 0) +
+      Number((planRow as any)?.conversation_topup ?? 0);
     return {
       conversations: m.conversations ?? 0,
       messagesIn: m.messagesIn ?? 0,
       messagesOut: m.messagesOut ?? 0,
       wordsUsed: m.wordsUsed ?? 0,
-      conversationsUsed: curConvosUsed,
+      conversationsUsed: realConvosUsed,
+      conversationsQuota: realConvosQuota,
+      inputTokens: sums.cur.inTok,
+      outputTokens: sums.cur.outTok,
       widgetClicks: m.widgetClicks ?? 0,
       avgResponseSeconds: curResp || 0,
       ticketsTotal: m.ticketsTotal ?? 0,
