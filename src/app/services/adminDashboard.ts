@@ -415,3 +415,88 @@ export async function fetchConversationsMonthly(year: number): Promise<Array<{ m
     return [];
   }
 }
+
+// ---------- Range-scoped chart RPCs (date filter) ----------
+
+export type BucketKind = 'hour' | 'day' | 'week' | 'month';
+
+export interface NewSubsSeriesRow { bucket_start: string; platform: Platform; count: number }
+export async function fetchNewSubsSeries(from: string, to: string, bucket: BucketKind): Promise<NewSubsSeriesRow[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_new_subs_series', { _from: from, _to: to, _bucket: bucket });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ bucket_start: r.bucket_start, platform: r.platform, count: Number(r.count ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchNewSubsSeries failed:', e); return []; }
+}
+
+export interface ConversationsSeriesRow { bucket_start: string; count: number }
+export async function fetchConversationsSeries(from: string, to: string, bucket: BucketKind): Promise<ConversationsSeriesRow[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_conversations_series', { _from: from, _to: to, _bucket: bucket });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ bucket_start: r.bucket_start, count: Number(r.count ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchConversationsSeries failed:', e); return []; }
+}
+
+export async function fetchUninstallsRange(from: string | null, to: string | null): Promise<Uninstalls[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_uninstalls_range', { _from: from, _to: to });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ platform: r.platform, count: Number(r.count ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchUninstallsRange failed:', e); return []; }
+}
+
+export async function fetchFirstSubTypeRange(from: string | null, to: string | null): Promise<FirstSubType[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_first_sub_type_range', { _from: from, _to: to });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ plan: r.plan, count: Number(r.count ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchFirstSubTypeRange failed:', e); return []; }
+}
+
+export async function fetchCustomerSourceRange(from: string | null, to: string | null): Promise<CustomerSource[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_customer_source_range', { _from: from, _to: to });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ platform: r.platform, count: Number(r.count ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchCustomerSourceRange failed:', e); return []; }
+}
+
+export async function fetchPlatformSubsRange(from: string | null, to: string | null): Promise<PlatformSubs[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_platform_subs_range', { _from: from, _to: to });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ status: r.status, platform: r.platform, count: Number(r.count ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchPlatformSubsRange failed:', e); return []; }
+}
+
+export async function fetchPlanDistributionRange(from: string | null, to: string | null): Promise<PlanDistribution[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_plan_distribution_range', { _from: from, _to: to });
+    if (error) throw error;
+    return ((data ?? []) as any[]).map(r => ({ platform: r.platform, plan: r.plan, subscribers: Number(r.subscribers ?? 0) }));
+  } catch (e) { console.warn('[adminDashboard] fetchPlanDistributionRange failed:', e); return []; }
+}
+
+export async function fetchNewSubscribersRange(from: string | null, to: string | null): Promise<NewSubscriber[]> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_new_subscribers_range', { _from: from, _to: to });
+    if (error) throw error;
+    const initials = (name: string): string => {
+      const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return '—';
+      return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '—';
+    };
+    return ((data ?? []) as any[]).map(r => {
+      const name = r.store_name || (r.platform === 'zid' ? 'Zid Store' : 'Salla Store');
+      return {
+        store_name: name,
+        platform: r.platform as Platform,
+        subscribed_on: (r.subscribed_on || '').slice(0, 10),
+        total_tokens: Number(r.monthly_word_quota ?? 0),
+        used_tokens: Number(r.monthly_words_used ?? 0),
+        logo_initials: initials(name),
+      };
+    });
+  } catch (e) { console.warn('[adminDashboard] fetchNewSubscribersRange failed:', e); return []; }
+}
