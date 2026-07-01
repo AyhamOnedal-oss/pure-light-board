@@ -400,3 +400,18 @@ export async function setOpenAiDollarBalance(amount: number): Promise<boolean> {
     return false;
   }
 }
+
+/** Real per-month conversation counts for a given year. */
+export async function fetchConversationsMonthly(year: number): Promise<Array<{ month: number; conversations: number }>> {
+  try {
+    const { data, error } = await (supabase.rpc as any)('admin_conversations_monthly', { _year: year });
+    if (error) throw error;
+    return ((data ?? []) as Array<{ month: number; conversations: number }>).map(r => ({
+      month: Number(r.month),
+      conversations: Number(r.conversations ?? 0),
+    }));
+  } catch (err) {
+    console.warn('[adminDashboard] fetchConversationsMonthly failed:', err);
+    return [];
+  }
+}

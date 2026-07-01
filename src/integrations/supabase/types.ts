@@ -2535,6 +2535,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_conversations_monthly: {
+        Args: { _year: number }
+        Returns: {
+          conversations: number
+          month: number
+        }[]
+      }
       admin_db_usage: { Args: never; Returns: Json }
       admin_first_sub_type: {
         Args: never
