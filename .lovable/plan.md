@@ -1,48 +1,64 @@
-# Per-Plan Conversation Limits
+## Root causes
 
-Apply a hard conversation cap to every tenant based on their plan, block the widget/test chat once the cap is hit, and let admins top up.
+Three real issues in play:
 
-## Caps
-- Trial (`trial` / `free` / `""`): **50**
-- Economy (`economy`): **250**
-- Basic / Asasi (`basic`): **500**
-- Professional (`professional` / `pro`): **750**
-- Business / Amal (`business`): **1000**
+**1. User Dashboard "Conversations Used" is not the real per-tenant counter.**
+`src/app/services/metrics.ts` computes `conversationsUsed = tokensToConversations(inputTokens, outputTokens)` from `merchant_token_daily` — a token-based *estimate*, unrelated to the actual quota. So the user dashboard shows 0 while `settings_plans.conversations_used` (what the admin and `chat-ai` enforcement read) sits at 30, 25, 2745, etc.
 
-A "conversation" = one `conversations_main` row (non-test) created in the current billing period.
+**2. `settings_plans` rows are not guaranteed to exist for every tenant.**
+The `sync_conversation_quota_from_plan` trigger only issues `UPDATE`. If a tenant has no plan row, the UPDATE is a no-op → PlansPage reads null → renders 0 (or the stale "5"). No trigger inserts the row.
 
-## Database (single migration)
+**3. Admin customer details still reads legacy `monthly_word_quota / monthly_words_used`.**
+That's why admin numbers appear to "count" but disagree with user-side numbers — it's a different column entirely. It also doesn't show input/output tokens next to the conversation count.
 
-1. Add columns to `public.settings_plans`:
-   - `conversation_quota int NOT NULL DEFAULT 50`
-   - `conversation_topup int NOT NULL DEFAULT 0` — admin top-ups, preserved across plan syncs, reset on renewal.
-   - `conversations_used int NOT NULL DEFAULT 0` — cached counter for cheap enforcement.
-2. `plan_default_conversation_quota(plan text) → int` returning the mapping above.
-3. Trigger on `settings_workspace` after `plan` change: set `settings_plans.conversation_quota = plan_default_conversation_quota(new.plan)`. Does not touch `conversation_topup`.
-4. Trigger on `conversations_main` AFTER INSERT (when `is_test = false`): increment `conversations_used`. AFTER DELETE: decrement, floored at 0.
-5. Update `admin_snapshot_subscription` and the trial-renewal path in `admin-subscription-actions` to also reset `conversations_used = 0` and `conversation_topup = 0` on cycle rollover.
-6. Backfill: set `conversation_quota` for every existing tenant from current plan; recompute `conversations_used` from `conversations_main` since `period_start`.
+## Plan
 
-## Enforcement — `supabase/functions/chat-ai/index.ts`
-- Before persisting a NEW conversation (when `isUuid === false`, i.e. first message), read `settings_plans` and check `conversations_used >= conversation_quota + conversation_topup`.
-- If over cap: return `{ error: "quota_exceeded", reply: <AR/EN message: "تم الوصول إلى الحد الأقصى للمحادثات لهذه الفترة" >, action: { type: "none" } }` with HTTP 200 so the widget renders it. Also set `intent: "closed"` so the widget doesn't keep prompting.
-- Skip the check for `is_test = true` merchant test-chat (test chats already excluded from the counter via `is_test`).
+### Backend — one migration
 
-## Admin top-up — `supabase/functions/admin-subscription-actions/index.ts`
-- Rename `add_words` handler behavior to top up conversations:
-  - Accept `{ action: "add_conversations", conversations: number }`. Keep `add_words` as an alias that treats `words` as conversations for backward compat with any inflight UI, but the UI switches to the new field.
-  - Increment `settings_plans.conversation_topup` by the amount, log to `admin_credit_topups` (repurpose `words` column to store the value; add a note like `"unit: conversations"`).
+1. **Guarantee a `settings_plans` row for every workspace.**
+   - Backfill: `INSERT INTO settings_plans (tenant_id, conversation_quota) SELECT w.id, plan_default_conversation_quota(w.plan) FROM settings_workspace w LEFT JOIN settings_plans p ON p.tenant_id = w.id WHERE p.tenant_id IS NULL;`
+   - New AFTER INSERT trigger on `settings_workspace` → insert matching plan row with correct default quota.
+   - Rewrite `sync_conversation_quota_from_plan` to `INSERT … ON CONFLICT (tenant_id) DO UPDATE` so plan changes always land.
 
-## Frontend
-- `src/app/components/settings/PlansPage.tsx`: read `conversation_quota + conversation_topup` and `conversations_used` directly from `settings_plans`. Drop `wordsToConversationsQuota`/token-derived usage.
-- `src/app/components/admin/AdminCustomerDetails.tsx` (top-up dialog): change label from "كلمات" to "محادثات", send `{ action: "add_conversations", conversations }`.
-- `src/app/utils/conversations.ts`: keep `tokensToConversations` (still used for token analytics) but stop using it for quota display.
+2. **Re-sync `conversations_used`** with the same CTE from the original migration so per-tenant counts match reality.
 
-## Out of scope
-- No pricing/copy changes on the marketing page.
-- Word/token analytics remain untouched.
+3. **Verify/repair token tracking so 6k in + 300 out shows up on admin.**
+   - Confirm `merchant_token_daily` has a UNIQUE key on `(tenant_id, day)` and that inserts from `chat-ai` (and any other AI paths) upsert `input_tokens += ?`, `output_tokens += ?` correctly. If the current code does `.insert()` without upsert, switch to `.upsert(..., { onConflict: 'tenant_id,day' })` with an atomic `+=` via RPC or a small `merchant_token_daily_bump(tenant, in, out)` SECURITY DEFINER function to avoid last-write-wins races.
+   - Add that bump function in the same migration.
+
+### Backend — `supabase/functions/chat-ai/index.ts`
+
+4. After a successful model response, call the new `merchant_token_daily_bump(tenant_id, input_tokens, output_tokens)` RPC with the exact usage returned by the provider (do not estimate). This guarantees the 6k/300 example lands in `merchant_token_daily` for that tenant/day.
+
+### Frontend
+
+5. **`src/app/services/metrics.ts`** — Dashboard reads the real counter:
+   - Fetch `settings_plans` (`conversation_quota, conversation_topup, conversations_used`) alongside token rows.
+   - Return `conversationsUsed = settings_plans.conversations_used` (fallback to token estimate only if the row is missing).
+   - Expose `conversationQuota`, `conversationTopup`, `inputTokens`, `outputTokens` on the metrics object.
+
+6. **`src/app/components/DashboardPage.tsx`** — "Conversations Used" KPI shows `used / (quota + topup)` (e.g., `12 / 50`) matching PlansPage exactly.
+
+7. **`src/app/components/settings/PlansPage.tsx`** — defensive local fallback: if fetched `conversation_quota` is 0/null, fall back to the JS mirror of `plan_default_conversation_quota(workspace.plan)` so a missing row never renders `0 / 0` or a stale `5`.
+
+8. **`src/app/components/admin/AdminCustomerDetails.tsx`** — switch source of truth:
+   - Read `conversation_quota, conversation_topup, conversations_used` from `settings_plans` (drop `monthly_word_quota/monthly_words_used` reads).
+   - Sum `input_tokens` and `output_tokens` for the current period from `merchant_token_daily` and render them alongside the conversation count, e.g.:
+     - `المحادثات: 12 / 50 (+0 top-up)`
+     - `الرموز المدخلة (input tokens): 6,000`
+     - `الرموز المخرجة (output tokens): 300`
+   - This makes the 6k/300 example immediately visible when an admin opens the customer.
+
+### Verification
+
+- SQL check: every `settings_workspace.id` has a matching `settings_plans` row with `conversation_quota > 0`.
+- Load `/settings/plans` as a trial tenant → shows `X / 50`, never `0 / 5`.
+- Load `/` (Dashboard) as same tenant → "Conversations Used" equals PlansPage value.
+- Open `/admin/customers/<id>` as admin → same conversation number **plus** input/output tokens for the current period.
+- Send a test message that consumes 6,000 input + 300 output tokens → admin view increments input by 6,000, output by 300, conversation count +1 (if it's a new non-test convo).
 
 ## Technical notes
-- All new columns have safe defaults so existing rows work immediately.
-- Counter uses a trigger, not a live `count(*)`, to keep the chat hot path a single-row read.
-- Quota reset is centralized in the existing renewal/snapshot code paths — no new scheduler.
+
+- Token bump uses a SECURITY DEFINER RPC so upserts are atomic across concurrent chat-ai invocations (avoids the race where two responses land on the same day/tenant).
+- No change to the 50-cap enforcement in `chat-ai` — it already reads the correct column; we're only making that same column visible everywhere.
+- Legacy `monthly_word_quota` / `monthly_words_used` columns are left in place to avoid breaking historical reports; only what the UI reads is switched.
