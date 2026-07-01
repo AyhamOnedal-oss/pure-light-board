@@ -29,9 +29,19 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supaUrl, serviceKey, { auth: { persistSession: false } });
 
-    const { data: allowed, error: permErr } = await admin
-      .rpc('admin_has_permission', { _user_id: adminUserId, _key: 'customer_management' });
-    if (permErr || !allowed) return json({ error: 'Forbidden' }, 403);
+    // Accept either the parent 'customer_management' perm or the child
+    // 'customers' perm — the impersonate button lives on the Customers page.
+    const [{ data: hasParent, error: permErr1 }, { data: hasChild, error: permErr2 }] = await Promise.all([
+      admin.rpc('admin_has_permission', { _user_id: adminUserId, _key: 'customer_management' }),
+      admin.rpc('admin_has_permission', { _user_id: adminUserId, _key: 'customers' }),
+    ]);
+    if (permErr1 || permErr2) {
+      console.error('admin-impersonate perm check error', permErr1, permErr2);
+      return json({ error: 'Forbidden', detail: 'perm_check_failed' }, 403);
+    }
+    if (!hasParent && !hasChild) {
+      return json({ error: 'Forbidden', detail: 'missing customer_management or customers permission' }, 403);
+    }
 
     const body = await req.json().catch(() => ({}));
     const tenantId = body?.tenantId as string | undefined;

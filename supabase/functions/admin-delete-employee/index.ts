@@ -29,29 +29,36 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const member_id = String(body?.member_id ?? "").trim();
     if (!member_id) return json({ error: "invalid_input" }, 400);
-    // Look up email + cached user_id before deletion so we can revoke the
-    // admin role without a slow auth admin-users round trip.
+    // Fetch cached user_id first so we can revoke without an auth-admin round trip.
     const { data: row } = await admin
       .from("admin_team_members").select("email, user_id").eq("id", member_id).maybeSingle();
     const { error } = await admin.from("admin_team_members").delete().eq("id", member_id);
     if (error) return json({ error: "delete_failed", detail: error.message }, 500);
-    let uid: string | null = (row as any)?.user_id ?? null;
-    if (!uid && row?.email) {
-      const lookup = await fetch(
-        `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
-        { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
-      );
-      if (lookup.ok) {
-        const j = await lookup.json();
-        const match = (j?.users ?? []).find((u: any) =>
-          (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
-        if (match?.id) uid = match.id;
+
+    // Background: resolve auth user (if not cached) and revoke the admin role.
+    const cleanup = (async () => {
+      let uid: string | null = (row as any)?.user_id ?? null;
+      if (!uid && row?.email) {
+        const lookup = await fetch(
+          `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
+          { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
+        );
+        if (lookup.ok) {
+          const j = await lookup.json();
+          const match = (j?.users ?? []).find((u: any) =>
+            (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
+          if (match?.id) uid = match.id;
+        }
       }
-    }
-    if (uid) {
-      await admin.from("auth_user_roles").delete()
-        .eq("user_id", uid).eq("role", "admin");
-    }
+      if (uid) {
+        await admin.from("auth_user_roles").delete()
+          .eq("user_id", uid).eq("role", "admin");
+      }
+    })().catch((e) => console.error('admin-delete-employee cleanup failed', e));
+    try {
+      // @ts-ignore - EdgeRuntime is provided in Supabase edge runtime
+      (globalThis as any).EdgeRuntime?.waitUntil?.(cleanup);
+    } catch { /* ignore */ }
     return json({ ok: true });
   } catch (e) {
     return json({ error: "internal", detail: String(e) }, 500);
