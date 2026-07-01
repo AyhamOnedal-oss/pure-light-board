@@ -765,6 +765,58 @@ export function AdminDashboard() {
           </motion.div>
         ))}
       </div>
+
+      {openaiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !openaiSaving && setOpenaiModal(false)}>
+          <div className="bg-card rounded-2xl border border-border p-5 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h4 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>
+              {t('OpenAI Balance (USD)', 'رصيد OpenAI (دولار)')}
+            </h4>
+            <p className="text-[12px] text-muted-foreground mb-4 leading-relaxed">
+              {t(
+                'Consumption will be deducted from this balance based on the token prices configured in the OpenAI Keys card.',
+                'سيتم خصم الاستهلاك من هذا الرصيد بناءً على أسعار التوكنز المضبوطة في بطاقة مفاتيح OpenAI.'
+              )}
+            </p>
+            <div className="space-y-3 text-[12px]">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{t('Current balance', 'الرصيد الحالي')}</span>
+                <span style={{ fontWeight: 600 }}>${Number(serverUsageLive?.openai?.dollar_balance ?? 0).toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{t('Consumed this month', 'مستهلك هذا الشهر')}</span>
+                <span style={{ fontWeight: 600 }}>${Number(serverUsageLive?.openai?.used_usd ?? 0).toFixed(4)}</span>
+              </div>
+              <label className="block">
+                <div className="text-muted-foreground text-[11px] mb-1">{t('New balance (USD)', 'الرصيد الجديد (دولار)')}</div>
+                <input
+                  type="number" inputMode="decimal" step="0.01" min={0}
+                  value={openaiAmount} onChange={(e) => setOpenaiAmount(e.target.value)}
+                  placeholder="10.00"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-[12px] focus:outline-none focus:border-[#043CC8]"
+                />
+              </label>
+            </div>
+            <div className="flex gap-2 mt-5 justify-end">
+              <button onClick={() => setOpenaiModal(false)} disabled={openaiSaving} className="px-3 py-1.5 rounded-lg border border-border text-[12px] hover:bg-muted">{t('Cancel', 'إلغاء')}</button>
+              <button
+                onClick={async () => {
+                  const n = Number((openaiAmount || '').replace(/[, ]/g, ''));
+                  if (!Number.isFinite(n) || n < 0) return;
+                  setOpenaiSaving(true);
+                  const ok = await setOpenAiDollarBalance(n);
+                  setOpenaiSaving(false);
+                  if (ok) { setOpenaiModal(false); loadServerUsage(); }
+                }}
+                disabled={openaiSaving}
+                className="px-3 py-1.5 rounded-lg bg-[#043CC8] text-white text-[12px]"
+              >
+                {openaiSaving ? t('Saving...', 'جارٍ الحفظ...') : t('Save', 'حفظ')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
