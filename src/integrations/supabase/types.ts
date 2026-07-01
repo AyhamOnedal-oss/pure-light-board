@@ -1074,6 +1074,72 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_subscription_periods: {
+        Row: {
+          analysis_conversations: number
+          analysis_cost_usd: number
+          analysis_input_tokens: number
+          analysis_output_tokens: number
+          chat_conversations: number
+          chat_cost_usd: number
+          chat_input_tokens: number
+          chat_output_tokens: number
+          closed_at: string
+          created_at: string
+          id: string
+          iqtest_cost_usd: number
+          iqtest_input_tokens: number
+          iqtest_output_tokens: number
+          period_end: string | null
+          period_start: string | null
+          plan: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          analysis_conversations?: number
+          analysis_cost_usd?: number
+          analysis_input_tokens?: number
+          analysis_output_tokens?: number
+          chat_conversations?: number
+          chat_cost_usd?: number
+          chat_input_tokens?: number
+          chat_output_tokens?: number
+          closed_at?: string
+          created_at?: string
+          id?: string
+          iqtest_cost_usd?: number
+          iqtest_input_tokens?: number
+          iqtest_output_tokens?: number
+          period_end?: string | null
+          period_start?: string | null
+          plan?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          analysis_conversations?: number
+          analysis_cost_usd?: number
+          analysis_input_tokens?: number
+          analysis_output_tokens?: number
+          chat_conversations?: number
+          chat_cost_usd?: number
+          chat_input_tokens?: number
+          chat_output_tokens?: number
+          closed_at?: string
+          created_at?: string
+          id?: string
+          iqtest_cost_usd?: number
+          iqtest_input_tokens?: number
+          iqtest_output_tokens?: number
+          period_end?: string | null
+          period_start?: string | null
+          plan?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       admin_team_members: {
         Row: {
           created_at: string
@@ -2549,6 +2615,10 @@ export type Database = {
       admin_set_openai_word_budget: {
         Args: { _words: number }
         Returns: number
+      }
+      admin_snapshot_subscription: {
+        Args: { _tenant: string }
+        Returns: string
       }
       admin_tokens_global_monthly: {
         Args: { _year: number }
