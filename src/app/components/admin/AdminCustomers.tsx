@@ -115,7 +115,7 @@ export function AdminCustomers() {
                 <th className="text-start py-3 px-4 text-muted-foreground hidden md:table-cell" style={{ fontWeight: 500 }}>{t('Platform', 'المنصة')}</th>
                 <th className="text-start py-3 px-4 text-muted-foreground hidden lg:table-cell" style={{ fontWeight: 500 }}>{t('Plan', 'الخطة')}</th>
                 <th className="text-start py-3 px-4 text-muted-foreground hidden xl:table-cell" style={{ fontWeight: 500 }}>{t('Usage', 'الاستخدام')}</th>
-                <th className="text-start py-3 px-4 text-muted-foreground hidden lg:table-cell" style={{ fontWeight: 500 }}>{t('Words', 'الكلمات')}</th>
+                <th className="text-start py-3 px-4 text-muted-foreground hidden lg:table-cell" style={{ fontWeight: 500 }}>{t('Conversations', 'المحادثات')}</th>
                 <th className="text-start py-3 px-4 text-muted-foreground" style={{ fontWeight: 500 }}>{t('Status', 'الحالة')}</th>
                 <th className="text-start py-3 px-4 text-muted-foreground" style={{ fontWeight: 500 }}>{t('Actions', 'الإجراءات')}</th>
               </tr>
