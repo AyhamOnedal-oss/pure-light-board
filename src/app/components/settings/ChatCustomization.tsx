@@ -14,7 +14,7 @@ const WELCOME_LINE1_MAX = 24;
 const WELCOME_LINE2_MAX = 36;
 const PROMPT_MIN = 30, PROMPT_MAX = 300;
 const CLOSE_MIN = 15, CLOSE_MAX = 180;
-const RATING_MIN = 30, RATING_MAX = 3600, RATING_STEP = 30;
+const RATING_MIN = 30, RATING_MAX = 900, RATING_STEP = 30;
 const DEFAULT_PROMPT = 90, DEFAULT_CLOSE = 60, DEFAULT_RATING = 900;
 
 function formatSeconds(s: number, t: (en: string, ar: string) => string) {
@@ -308,18 +308,10 @@ export function ChatCustomization() {
     setWelcomeBubbleEnabled(saved.welcomeBubbleEnabled ?? true);
     setWelcomeBubbleLine1(saved.welcomeBubbleLine1 ?? 'مرحباً 👋');
     setWelcomeBubbleLine2(saved.welcomeBubbleLine2 ?? 'كيف يمكنني مساعدتك؟');
-    setInactivityEnabled(saved.inactivityEnabled ?? true);
+    setInactivityEnabled(true);
     setInactivityPromptSeconds(saved.inactivityPromptSeconds ?? DEFAULT_PROMPT);
     setInactivityCloseSeconds(saved.inactivityCloseSeconds ?? DEFAULT_CLOSE);
-    setRatingInactivitySeconds(saved.ratingInactivitySeconds ?? DEFAULT_RATING);
-  };
-
-  const handleInactivityToggle = (enabled: boolean) => {
-    setInactivityEnabled(enabled);
-    if (enabled && (!inactivityPromptSeconds || !inactivityCloseSeconds)) {
-      setInactivityPromptSeconds(DEFAULT_PROMPT);
-      setInactivityCloseSeconds(DEFAULT_CLOSE);
-    }
+    setRatingInactivitySeconds(Math.min(RATING_MAX, saved.ratingInactivitySeconds ?? DEFAULT_RATING));
   };
 
   const clampPrompt = (v: number) => Math.max(PROMPT_MIN, Math.min(PROMPT_MAX, Math.round(v)));
