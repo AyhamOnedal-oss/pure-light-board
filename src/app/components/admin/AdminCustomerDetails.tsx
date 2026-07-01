@@ -310,21 +310,10 @@ export function AdminCustomerDetails() {
     if (!body || !id) return;
     setSavingNote(true);
     try {
-      const { data: u } = await supabase.auth.getUser();
-      const meta = (u.user?.user_metadata || {}) as any;
-      let authorName: string = meta.full_name || meta.name || '';
-      if (!authorName && u.user?.id) {
-        const { data: acc } = await supabase
-          .from('settings_account')
-          .select('display_name')
-          .eq('user_id', u.user.id)
-          .maybeSingle();
-        if (acc?.display_name) authorName = acc.display_name;
-      }
-      if (!authorName) authorName = 'Admin';
+      const { id: authorId, name: authorName } = await resolveAdminAuthorName();
       const { error } = await supabase.from('admin_customer_notes' as any).insert({
         tenant_id: id,
-        author_id: u.user?.id ?? null,
+        author_id: authorId,
         author_name: authorName,
         body,
       });
