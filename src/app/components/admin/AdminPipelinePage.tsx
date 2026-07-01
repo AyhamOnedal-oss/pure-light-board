@@ -16,6 +16,7 @@ import {
   pickRoundRobinMember,
   isNewFor, hasUnseenNotesFor, hasUnseenTerminalFor, markSeenBy,
   hasAnyUnseenFor, markUnreadBy, isForcedUnreadFor,
+  subscribePipelineSync,
 } from './pipelineData';
 import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
 import { LandingLeadsTable } from './LandingLeadsTable';
@@ -73,6 +74,17 @@ export function AdminPipelinePage() {
   useEffect(() => {
     const id = window.setInterval(() => setCustomers(cs => reconcileCustomers(cs)), 60_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  // When the shared server-backed store hydrates or another admin edits it,
+  // replace local state with the latest snapshot.
+  useEffect(() => {
+    const off = subscribePipelineSync(() => {
+      setCustomers(reconcileCustomers(loadCustomers()));
+      setMembers(loadMembers());
+      setSettings(loadSettings());
+    });
+    return off;
   }, []);
 
   const visibleToUser = useMemo(() => {

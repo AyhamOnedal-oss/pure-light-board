@@ -981,6 +981,27 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_pipeline_state: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       admin_reports_plans: {
         Row: {
           created_at: string

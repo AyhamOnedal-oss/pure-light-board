@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, Globe, Moon, Sun, Bell, Menu, X,
   LogOut, ChevronUp, Send, UserCog, Megaphone, GitBranch
 } from 'lucide-react';
-import { loadCustomers, countNewLeads, getCurrentUserId } from './pipelineData';
+import { loadCustomers, countNewLeads, getCurrentUserId, subscribePipelineSync } from './pipelineData';
 import { fetchLandingLeads, type LandingLead } from '../../services/adminLandingLeads';
 import { countSidebarBadge } from '../../utils/landingNotifications';
 import { supabase } from '@/integrations/supabase/client';
@@ -49,7 +49,8 @@ export function AdminLayout() {
     const refresh = () => setNewLeads(countNewLeads(loadCustomers()));
     refresh();
     const id = window.setInterval(refresh, 20_000);
-    return () => window.clearInterval(id);
+    const off = subscribePipelineSync(refresh);
+    return () => { window.clearInterval(id); off(); };
   }, [location.pathname]);
 
   // Landing page sidebar badge — counts new leads + leads with new notes.
@@ -107,7 +108,7 @@ export function AdminLayout() {
 
   const customersItems = [
     { to: '/admin/pipeline',  label: t('Customer Pipeline', 'سير العملاء'), icon: GitBranch, showBadge: true,  perm: 'pipeline' as const },
-    { to: '/admin/pipeline/landing', label: t('Landing Page', 'صفحة الهبوط'), icon: Globe, showBadge: false, perm: 'pipeline' as const, exact: true },
+    { to: '/admin/pipeline/landing', label: t('Landing Page', 'صفحة الهبوط'), icon: Globe, showBadge: false, perm: 'landing' as const, exact: true },
     { to: '/admin/customers', label: t('Customers',         'العملاء'),     icon: Users,     showBadge: false, perm: 'customers' as const },
   ];
 

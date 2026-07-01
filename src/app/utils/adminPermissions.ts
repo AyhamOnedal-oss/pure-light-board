@@ -7,6 +7,7 @@ export type AdminPermKey =
   | 'lists_management'
   | 'customer_management'
   | 'pipeline'
+  | 'landing'
   | 'customers'
   | 'reports' | 'reports_all' | 'reports_zid' | 'reports_salla'
   | 'billing' | 'billing_subscriptions' | 'billing_servers' | 'billing_other'
@@ -37,6 +38,7 @@ export const ADMIN_PERMISSION_TREE: AdminPermNode[] = [
         key: 'customer_management', en: 'Customer Management', ar: 'إدارة العملاء',
         children: [
           { key: 'pipeline',  en: 'Customer Pipeline', ar: 'سير العميل' },
+          { key: 'landing',   en: 'Landing Page',      ar: 'صفحة الهبوط' },
           { key: 'customers', en: 'Customers List',    ar: 'قائمة العملاء' },
         ],
       },

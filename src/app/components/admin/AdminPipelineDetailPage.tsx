@@ -14,6 +14,7 @@ import {
   loadCustomers, saveCustomers, reconcileCustomers,
   fmtDate, daysRemaining, appendJourney, monthsActive, totalPaid,
   loadMembers, loadSettings, getCurrentUserId, markSeenBy,
+  subscribePipelineSync,
 } from './pipelineData';
 import { PlatformIcon, PLATFORM_ICONS } from './platformIcons';
 
@@ -78,6 +79,12 @@ export function AdminPipelineDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { saveCustomers(customers); }, [customers]);
+  useEffect(() => {
+    const off = subscribePipelineSync(() => {
+      setCustomers(reconcileCustomers(loadCustomers()));
+    });
+    return off;
+  }, []);
 
   // Per-user "seen" stamp — hides badges only for THIS user; other team members still see them
   useEffect(() => {
