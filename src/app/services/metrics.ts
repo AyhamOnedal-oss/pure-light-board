@@ -68,8 +68,14 @@ export interface DashboardMetrics {
   messagesIn: number;
   messagesOut: number;
   wordsUsed: number;
-  /** Conversation count derived from merchant token usage (1 convo ≈ 50k in + 5k out). */
+  /** Real per-tenant conversation counter from settings_plans.conversations_used. */
   conversationsUsed: number;
+  /** Total available conversations for the tenant (quota + top-up). */
+  conversationsQuota: number;
+  /** Sum of input tokens across chat scope for the range (0 when unattributed). */
+  inputTokens: number;
+  /** Sum of output tokens across chat scope for the range. */
+  outputTokens: number;
   widgetClicks: number;
   avgResponseSeconds: number;
   ticketsTotal: number;
@@ -101,6 +107,9 @@ export const EMPTY_METRICS: DashboardMetrics = {
   messagesOut: 0,
   wordsUsed: 0,
   conversationsUsed: 0,
+  conversationsQuota: 0,
+  inputTokens: 0,
+  outputTokens: 0,
   widgetClicks: 0,
   avgResponseSeconds: 0,
   ticketsTotal: 0,
