@@ -92,10 +92,11 @@ Deno.serve(async (req) => {
     let actorName: string | null = null;
     const { data: staffRow } = await admin
       .from('admin_team_members')
-      .select('full_name')
+      .select('name_ar,name')
       .eq('user_id', adminUserId)
       .maybeSingle();
-    if (staffRow?.full_name) actorName = staffRow.full_name as string;
+    if (staffRow?.name_ar) actorName = staffRow.name_ar as string;
+    else if (staffRow?.name) actorName = staffRow.name as string;
     if (!actorName) {
       const { data: actorUser } = await admin.auth.admin.getUserById(adminUserId);
       const meta = (actorUser?.user?.user_metadata || {}) as any;
