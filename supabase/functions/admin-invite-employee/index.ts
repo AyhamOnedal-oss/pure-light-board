@@ -119,6 +119,16 @@ function sendResendBackground(to: string, subject: string, html: string) {
   } catch { /* ignore */ }
 }
 
+// Run any async task past the HTTP response so the client isn't blocked
+// on slow auth-admin calls (createUser, updateUserById, tenant cleanup).
+function runBackground<T>(p: Promise<T>) {
+  const safe = p.catch((e) => { console.error('background task failed', e); });
+  try {
+    // @ts-ignore - EdgeRuntime is available in Supabase edge runtime
+    (globalThis as any).EdgeRuntime?.waitUntil?.(safe);
+  } catch { /* ignore */ }
+}
+
 // Strip any merchant-side identity from an internal admin account so the
 // employee is never treated as a tenant user. Removes ALL tenant memberships
 // for the given user and deletes any solo (owner-only) workspaces left
@@ -195,51 +205,45 @@ Deno.serve(async (req) => {
       if (!row) return json({ error: "not_found" }, 404);
 
       const password = generatePassword(12);
-      // Find or create auth user, then reset password
-      let userId: string | null = null;
-      const lookup = await fetch(
-        `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
-        { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
-      );
-      if (lookup.ok) {
-        const j = await lookup.json();
-        const match = (j?.users ?? []).find((u: any) =>
-          (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
-        if (match?.id) userId = match.id;
-      }
-      if (!userId) {
-        const { data: created } = await admin.auth.admin.createUser({
-          email: row.email, password, email_confirm: true,
-          user_metadata: { display_name: row.name || row.name_ar },
-        });
-        userId = created?.user?.id ?? null;
-      } else {
-        await admin.auth.admin.updateUserById(userId, { password });
-      }
-
-      const now = new Date();
-      const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-      const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-      const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
-      const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(row.email)}&invite=1`;
-      // Ensure the admin role is granted (in case it was missing or revoked).
-      if (userId) {
-        const { error: roleErr } = await admin.from("auth_user_roles").upsert(
-          { user_id: userId, role: "admin" },
-          { onConflict: "user_id,role" },
+      runBackground((async () => {
+        let userId: string | null = null;
+        const lookup = await fetch(
+          `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
+          { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
         );
-        if (roleErr) return json({ error: "grant_role_failed", detail: roleErr.message }, 500);
-        await detachFromTenants(admin, userId);
-      }
-      const html = inviteEmailHtml({
-        employeeName: row.name_ar || row.name || row.email,
-        email: row.email, password, addDate: fmtDate, addTime: fmtTime, loginUrl,
-      });
-      sendResendBackground(row.email, `إعادة إرسال بيانات الدخول — فقاعة AI`, html);
-      // Persist the auth user_id on the team row for fast lookup later.
-      if (userId) {
-        await admin.from("admin_team_members").update({ user_id: userId }).eq("id", member_id);
-      }
+        if (lookup.ok) {
+          const j = await lookup.json();
+          const match = (j?.users ?? []).find((u: any) =>
+            (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
+          if (match?.id) userId = match.id;
+        }
+        if (!userId) {
+          const { data: created } = await admin.auth.admin.createUser({
+            email: row.email, password, email_confirm: true,
+            user_metadata: { display_name: row.name || row.name_ar },
+          });
+          userId = created?.user?.id ?? null;
+        } else {
+          await admin.auth.admin.updateUserById(userId, { password });
+        }
+        if (userId) {
+          await admin.from("auth_user_roles").upsert(
+            { user_id: userId, role: "admin" }, { onConflict: "user_id,role" },
+          );
+          await detachFromTenants(admin, userId);
+          await admin.from("admin_team_members").update({ user_id: userId }).eq("id", member_id);
+        }
+        const now = new Date();
+        const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+        const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
+        const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
+        const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(row.email)}&invite=1`;
+        const html = inviteEmailHtml({
+          employeeName: row.name_ar || row.name || row.email,
+          email: row.email, password, addDate: fmtDate, addTime: fmtTime, loginUrl,
+        });
+        await sendResend(row.email, `إعادة إرسال بيانات الدخول — فقاعة AI`, html);
+      })());
       return json({ ok: true, member_id, email_queued: true });
     }
 
@@ -249,38 +253,38 @@ Deno.serve(async (req) => {
       if (email) update.email = email;
       const { error: upErr } = await admin.from("admin_team_members").update(update).eq("id", member_id);
       if (upErr) return json({ error: "update_failed", detail: upErr.message }, 500);
-      // Grant or revoke the 'admin' role based on status, so the panel access
-      // tracks the row's active/inactive state. Use cached user_id for speed.
-      const { data: row } = await admin
-        .from("admin_team_members").select("email, user_id").eq("id", member_id).maybeSingle();
-      let uid: string | null = (row as any)?.user_id ?? null;
-      if (!uid && row?.email) {
-        const lookup = await fetch(
-          `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
-          { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
-        );
-        if (lookup.ok) {
-          const j = await lookup.json();
-          const match = (j?.users ?? []).find((u: any) =>
-            (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
-          if (match?.id) {
-            uid = match.id;
-            await admin.from("admin_team_members").update({ user_id: uid }).eq("id", member_id);
+      // Background role grant/revoke + tenant detach so the UI is instant.
+      runBackground((async () => {
+        const { data: row } = await admin
+          .from("admin_team_members").select("email, user_id").eq("id", member_id).maybeSingle();
+        let uid: string | null = (row as any)?.user_id ?? null;
+        if (!uid && row?.email) {
+          const lookup = await fetch(
+            `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(row.email)}`,
+            { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
+          );
+          if (lookup.ok) {
+            const j = await lookup.json();
+            const match = (j?.users ?? []).find((u: any) =>
+              (u?.email ?? "").toLowerCase() === row.email.toLowerCase());
+            if (match?.id) {
+              uid = match.id;
+              await admin.from("admin_team_members").update({ user_id: uid }).eq("id", member_id);
+            }
           }
         }
-      }
-      if (uid) {
+        if (uid) {
           if (status === "active") {
             await admin.from("auth_user_roles").upsert(
-              { user_id: uid, role: "admin" },
-              { onConflict: "user_id,role" },
+              { user_id: uid, role: "admin" }, { onConflict: "user_id,role" },
             );
             await detachFromTenants(admin, uid);
           } else {
             await admin.from("auth_user_roles").delete()
               .eq("user_id", uid).eq("role", "admin");
           }
-      }
+        }
+      })());
       return json({ ok: true, member_id, email_sent: false });
     }
 
@@ -293,56 +297,60 @@ Deno.serve(async (req) => {
       .from("admin_team_members").select("id").eq("email", email).maybeSingle();
     if (dup) return json({ error: "email_exists", member_id: dup.id }, 409);
 
-    const password = generatePassword(12);
-    // Find or create auth user
-    let userId: string | null = null;
-    const lookup = await fetch(
-      `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`,
-      { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
-    );
-    if (lookup.ok) {
-      const j = await lookup.json();
-      const match = (j?.users ?? []).find((u: any) => (u?.email ?? "").toLowerCase() === email);
-      if (match?.id) userId = match.id;
-    }
-    if (!userId) {
-      const { data: created, error } = await admin.auth.admin.createUser({
-        email, password, email_confirm: true,
-        user_metadata: { display_name: name || name_ar },
-      });
-      if (error || !created?.user) return json({ error: "create_user_failed", detail: error?.message }, 500);
-      userId = created.user.id;
-    } else {
-      await admin.auth.admin.updateUserById(userId, { password });
-    }
-
+    // Insert the row immediately with user_id: null and respond fast. All
+    // auth-admin work (createUser/updateUserById, role grant, tenant detach,
+    // email send) happens in the background and patches user_id later.
     const { data: ins, error: insErr } = await admin.from("admin_team_members").insert({
-      name, name_ar, email, phone, permissions, status, user_id: userId,
+      name, name_ar, email, phone, permissions, status, user_id: null,
     }).select("id").single();
     if (insErr || !ins) return json({ error: "insert_failed", detail: insErr?.message }, 500);
 
-    // Grant the 'admin' role so the new employee can access the admin panel.
-    if (userId) {
-      const { error: roleErr } = await admin.from("auth_user_roles").upsert(
-        { user_id: userId, role: "admin" },
-        { onConflict: "user_id,role" },
+    const memberId = ins.id;
+    const password = generatePassword(12);
+    runBackground((async () => {
+      let userId: string | null = null;
+      const lookup = await fetch(
+        `${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`,
+        { headers: { Authorization: `Bearer ${SERVICE_ROLE}`, apikey: SERVICE_ROLE } },
       );
-      if (roleErr) return json({ error: "grant_role_failed", detail: roleErr.message }, 500);
-      await detachFromTenants(admin, userId);
-    }
+      if (lookup.ok) {
+        const j = await lookup.json();
+        const match = (j?.users ?? []).find((u: any) => (u?.email ?? "").toLowerCase() === email);
+        if (match?.id) userId = match.id;
+      }
+      if (!userId) {
+        const { data: created, error } = await admin.auth.admin.createUser({
+          email, password, email_confirm: true,
+          user_metadata: { display_name: name || name_ar },
+        });
+        if (error || !created?.user) {
+          console.error('createUser failed', error);
+          return;
+        }
+        userId = created.user.id;
+      } else {
+        await admin.auth.admin.updateUserById(userId, { password });
+      }
+      if (userId) {
+        await admin.from("admin_team_members").update({ user_id: userId }).eq("id", memberId);
+        await admin.from("auth_user_roles").upsert(
+          { user_id: userId, role: "admin" }, { onConflict: "user_id,role" },
+        );
+        await detachFromTenants(admin, userId);
+      }
+      const now = new Date();
+      const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+      const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
+      const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
+      const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(email)}&invite=1`;
+      const html = inviteEmailHtml({
+        employeeName: name_ar || name, email, password,
+        addDate: fmtDate, addTime: fmtTime, loginUrl,
+      });
+      await sendResend(email, `مرحبًا بك في فريق إدارة فقاعة AI`, html);
+    })());
 
-    const now = new Date();
-    const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-    const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-    const APP_URL = Deno.env.get("APP_PUBLIC_URL") || "https://pure-light-board.lovable.app";
-    const loginUrl = `${APP_URL}/admin/login?email=${encodeURIComponent(email)}&invite=1`;
-    const html = inviteEmailHtml({
-      employeeName: name_ar || name, email, password,
-      addDate: fmtDate, addTime: fmtTime, loginUrl,
-    });
-    sendResendBackground(email, `مرحبًا بك في فريق إدارة فقاعة AI`, html);
-
-    return json({ ok: true, member_id: ins.id, email_queued: true });
+    return json({ ok: true, member_id: memberId, email_queued: true });
   } catch (e) {
     return json({ error: "internal", detail: String(e) }, 500);
   }
