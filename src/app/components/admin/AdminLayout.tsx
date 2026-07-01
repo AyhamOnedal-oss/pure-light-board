@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, Globe, Moon, Sun, Bell, Menu, X,
   LogOut, ChevronUp, Send, UserCog, Megaphone, GitBranch
 } from 'lucide-react';
-import { loadCustomers, countNewLeads, getCurrentUserId } from './pipelineData';
+import { loadCustomers, countNewLeads, getCurrentUserId, subscribePipelineSync } from './pipelineData';
 import { fetchLandingLeads, type LandingLead } from '../../services/adminLandingLeads';
 import { countSidebarBadge } from '../../utils/landingNotifications';
 import { supabase } from '@/integrations/supabase/client';
@@ -49,7 +49,8 @@ export function AdminLayout() {
     const refresh = () => setNewLeads(countNewLeads(loadCustomers()));
     refresh();
     const id = window.setInterval(refresh, 20_000);
-    return () => window.clearInterval(id);
+    const off = subscribePipelineSync(refresh);
+    return () => { window.clearInterval(id); off(); };
   }, [location.pathname]);
 
   // Landing page sidebar badge — counts new leads + leads with new notes.
