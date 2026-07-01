@@ -504,7 +504,7 @@ export function AdminDashboard() {
       {/* #1 Words Usage + Current Customer Plans */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={cardClass}>
-          <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Words / Tokens Usage', 'استخدام الكلمات / التوكنز')}</h3>
+          <h3 className="text-[14px] mb-3" style={{ fontWeight: 600 }}>{t('Conversations & Tokens', 'المحادثات والتوكنز')}</h3>
           <div style={{ height: 200 }}>
           {chartsLoaded && (
           <ResponsiveContainer width="100%" height="100%" key={`words-${wordsData.length}`}>
@@ -513,13 +513,13 @@ export function AdminDashboard() {
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} interval={1} />
               <YAxis tick={{ fontSize: 10, fill: tickColor }} axisLine={false} tickLine={false} width={30} />
               <Tooltip content={<ChartTooltip theme={theme} />} cursor={false} />
-              <Bar dataKey="words" fill="#043CC8" name={t('Words Used', 'الكلمات المستهلكة')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
+              <Bar dataKey="words" fill="#043CC8" name={t('Conversations', 'المحادثات')} radius={[4, 4, 0, 0]} barSize={10} isAnimationActive animationDuration={1200} />
             </BarChart>
           </ResponsiveContainer>
           )}
           </div>
           <div className="flex items-center justify-center gap-6 mt-2">
-            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Words Used', 'الكلمات المستهلكة')}</span></div>
+            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm bg-[#043CC8]" /><span className="text-[11px]">{t('Conversations', 'المحادثات')}</span></div>
           </div>
         </motion.div>
 
