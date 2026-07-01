@@ -1,47 +1,48 @@
-## What I found
+# Per-Plan Conversation Limits
 
-1. **Slowness on invite/delete**: the edge functions already background the auth work, but the UI still `await`s the invoke round-trip (~500–800 ms) before showing the row. Delete is optimistic; invite is not.
-2. **"العملاء" section missing in the permission tree**: the tree already has `pipeline` + `customers`, but there is no explicit **"صفحة الهبوط"** node — landing page currently piggy-backs on `pipeline`. So an admin employee can never be given landing-only access, and the label the user expects (a dedicated node) isn't there.
-3. **صفحة الهبوط empty for admin employees**: the RLS policies on `admin_landing_leads` check `admin_has_permission(uid, 'admin_pipeline')`, but the real key in the app is `pipeline` (and, after this change, `landing`). Non-super admins are silently denied.
-4. **سير العملاء empty for admin employees**: the whole pipeline board is stored in `localStorage` (`pipelineData.ts`). Super-admin's browser has data; every other admin sees an empty board. This is why the data doesn't match. It has to move to Supabase to be shared.
+Apply a hard conversation cap to every tenant based on their plan, block the widget/test chat once the cap is hit, and let admins top up.
 
-## Plan
+## Caps
+- Trial (`trial` / `free` / `""`): **50**
+- Economy (`economy`): **250**
+- Basic / Asasi (`basic`): **500**
+- Professional (`professional` / `pro`): **750**
+- Business / Amal (`business`): **1000**
 
-### A. Instant invite (fix perceived slowness)
-- In `AdminTeam.tsx`, insert the new employee optimistically into the list the moment "Add" is clicked, close the modal immediately, then reconcile with the server response in the background. Same optimistic pattern for edit and toggle (delete is already optimistic).
-- Show a subtle spinner on the affected row while the background invoke resolves; roll back on error with a toast.
+A "conversation" = one `conversations_main` row (non-test) created in the current billing period.
 
-### B. Add "Landing Page" and clean "Customers" nodes in the permission tree
-- Extend `ADMIN_PERMISSION_TREE` in `src/app/utils/adminPermissions.ts`:
-  - Under `customer_management`, add a third child `landing` → "صفحة الهبوط / Landing Page".
-- Update `AdminLayout.tsx` sidebar so the Landing Page item uses `perm: 'landing'` instead of `pipeline`.
-- Update `RequireAdminPermission` guard for `/admin/pipeline/landing` to require `landing`.
+## Database (single migration)
 
-### C. Fix landing-leads RLS
-- New migration to drop the three `admin_landing_leads_*` policies and recreate them using the correct keys:
-  - `has_role(auth.uid(),'super_admin') OR admin_has_permission(auth.uid(),'landing') OR admin_has_permission(auth.uid(),'pipeline')`
-  - (Keeping `pipeline` in the OR preserves access for existing admins who already have the pipeline permission, so nothing breaks after the rename.)
+1. Add columns to `public.settings_plans`:
+   - `conversation_quota int NOT NULL DEFAULT 50`
+   - `conversation_topup int NOT NULL DEFAULT 0` — admin top-ups, preserved across plan syncs, reset on renewal.
+   - `conversations_used int NOT NULL DEFAULT 0` — cached counter for cheap enforcement.
+2. `plan_default_conversation_quota(plan text) → int` returning the mapping above.
+3. Trigger on `settings_workspace` after `plan` change: set `settings_plans.conversation_quota = plan_default_conversation_quota(new.plan)`. Does not touch `conversation_topup`.
+4. Trigger on `conversations_main` AFTER INSERT (when `is_test = false`): increment `conversations_used`. AFTER DELETE: decrement, floored at 0.
+5. Update `admin_snapshot_subscription` and the trial-renewal path in `admin-subscription-actions` to also reset `conversations_used = 0` and `conversation_topup = 0` on cycle rollover.
+6. Backfill: set `conversation_quota` for every existing tenant from current plan; recompute `conversations_used` from `conversations_main` since `period_start`.
 
-### D. Move Pipeline (سير العملاء) to Supabase so all admins share it
-- New table `admin_pipeline_customers` mirroring the `PipelineCustomer` shape (id, name, email, phone, source, subscribed_via, status, subscription_price, subscription_plan, start_date, end_date, notes jsonb, journey jsonb, custom_columns jsonb, custom_data jsonb, viewed_by jsonb, notes_seen_by jsonb, created_at, updated_at, created_by).
-- Grants: `authenticated` SELECT/INSERT/UPDATE/DELETE; `service_role` ALL. No `anon`.
-- RLS: `has_role(super_admin) OR admin_has_permission(uid,'pipeline')` for SELECT/INSERT/UPDATE/DELETE.
-- Realtime: add table to `supabase_realtime` publication.
-- Refactor `pipelineData.ts`:
-  - Keep the exported types unchanged.
-  - Replace `loadCustomers/saveCustomers` with async `fetchCustomers/upsertCustomer/deleteCustomer` calls against Supabase.
-  - Provide a thin in-memory cache + subscribe helper so the sidebar badge and `AdminPipelinePage` don't spam the DB.
-  - One-time migration on first load: if `localStorage.admin_pipeline_customers_v2` exists AND the server table is empty for this admin org, upload it, then clear the key.
-- Update all four consumers (`AdminPipelinePage`, `AdminPipelineDetailPage`, `AdminLandingLeadDetailPage`, `LandingLeadsTable`, `AdminLayout` badge) to the async API. Add loading spinners so no default/empty flash.
+## Enforcement — `supabase/functions/chat-ai/index.ts`
+- Before persisting a NEW conversation (when `isUuid === false`, i.e. first message), read `settings_plans` and check `conversations_used >= conversation_quota + conversation_topup`.
+- If over cap: return `{ error: "quota_exceeded", reply: <AR/EN message: "تم الوصول إلى الحد الأقصى للمحادثات لهذه الفترة" >, action: { type: "none" } }` with HTTP 200 so the widget renders it. Also set `intent: "closed"` so the widget doesn't keep prompting.
+- Skip the check for `is_test = true` merchant test-chat (test chats already excluded from the counter via `is_test`).
 
-### E. Verify
-- Sign in as super_admin → data still shows.
-- Sign in as an admin employee with `pipeline` + `landing` → same rows appear.
-- Invite a new employee → row appears instantly; edit/toggle instant; email still sent in background.
+## Admin top-up — `supabase/functions/admin-subscription-actions/index.ts`
+- Rename `add_words` handler behavior to top up conversations:
+  - Accept `{ action: "add_conversations", conversations: number }`. Keep `add_words` as an alias that treats `words` as conversations for backward compat with any inflight UI, but the UI switches to the new field.
+  - Increment `settings_plans.conversation_topup` by the amount, log to `admin_credit_topups` (repurpose `words` column to store the value; add a note like `"unit: conversations"`).
+
+## Frontend
+- `src/app/components/settings/PlansPage.tsx`: read `conversation_quota + conversation_topup` and `conversations_used` directly from `settings_plans`. Drop `wordsToConversationsQuota`/token-derived usage.
+- `src/app/components/admin/AdminCustomerDetails.tsx` (top-up dialog): change label from "كلمات" to "محادثات", send `{ action: "add_conversations", conversations }`.
+- `src/app/utils/conversations.ts`: keep `tokensToConversations` (still used for token analytics) but stop using it for quota display.
+
+## Out of scope
+- No pricing/copy changes on the marketing page.
+- Word/token analytics remain untouched.
 
 ## Technical notes
-
-- The RLS rename in step C is backwards-compatible (OR-ed).
-- The pipeline table is org-wide (there's only one admin tenant), so no `tenant_id` scoping is needed — just role/perm checks.
-- Realtime subscription in `AdminPipelinePage` will replace the current `window` storage-event listener.
-- No changes to super_admin behavior; only widens read/write to permitted admin staff.
+- All new columns have safe defaults so existing rows work immediately.
+- Counter uses a trigger, not a live `count(*)`, to keep the chat hot path a single-row read.
+- Quota reset is centralized in the existing renewal/snapshot code paths — no new scheduler.
