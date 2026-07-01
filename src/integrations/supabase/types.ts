@@ -1966,6 +1966,7 @@ export type Database = {
           service_paused_emailed_period: string | null
           subscription_end_date: string | null
           tenant_id: string
+          trial_ended_at: string | null
           trial_ended_emailed_at: string | null
           updated_at: string
         }
@@ -1984,6 +1985,7 @@ export type Database = {
           service_paused_emailed_period?: string | null
           subscription_end_date?: string | null
           tenant_id: string
+          trial_ended_at?: string | null
           trial_ended_emailed_at?: string | null
           updated_at?: string
         }
@@ -2002,6 +2004,7 @@ export type Database = {
           service_paused_emailed_period?: string | null
           subscription_end_date?: string | null
           tenant_id?: string
+          trial_ended_at?: string | null
           trial_ended_emailed_at?: string | null
           updated_at?: string
         }
@@ -2538,6 +2541,10 @@ export type Database = {
           platform: string
           status: string
         }[]
+      }
+      admin_set_openai_dollar_balance: {
+        Args: { _amount: number }
+        Returns: number
       }
       admin_set_openai_word_budget: {
         Args: { _words: number }
